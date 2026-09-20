@@ -1,0 +1,12 @@
+packages:
+  - apps/*
+  - packages/*
+
+minimumReleaseAge: 4320 # 3 days
+minimumReleaseAgeStrict: true
+allowBuilds:
+  esbuild: false
+  lefthook: true
+  sharp: false
+  unrs-resolver: false
+  workerd: true

@@ -1,0 +1,34 @@
+{
+  "name": "flightdeck",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm --recursive --filter './apps/*' --workspace-concurrency=1 run build",
+    "typecheck": "pnpm --recursive --if-present run typecheck",
+    "lint": "pnpm typecheck && eslint --fix && prettier --write .",
+    "lint:check": "pnpm typecheck && eslint",
+    "fmt": "prettier --write .",
+    "fmt:check": "prettier --check .",
+    "test": "pnpm --recursive --if-present --workspace-concurrency=1 run test"
+  },
+  "packageManager": "pnpm@12.3.4+sha512.961aa41fb077da3a04a441d9f8e15ebc0c96da8ef710b2eb67bf9ee7cb0610eabd48f1fd85f51cffe73846785fa0f87c56a3a872a1d893f8446741b5cce45457",
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/workers-types": "^5.20260917.1",
+    "@eslint/js": "^10.0.1",
+    "@types/eslint-config-prettier": "^6.11.3",
+    "@types/node": "^26.6.1",
+    "@typescript-eslint/parser": "^8.70.0",
+    "eslint": "^10.10.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "eslint-plugin-import": "^2.32.0",
+    "lefthook": "^2.1.14",
+    "prettier": "^3.9.7",
+    "tsx": "^4.23.13",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.133.0"
+  }
+}

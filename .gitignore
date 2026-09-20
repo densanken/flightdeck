@@ -1,0 +1,16 @@
+# 依存関係
+node_modules/
+.pnpm-store/
+
+# ビルド成果物
+dist/
+dist-scripts/
+coverage/
+.wrangler/
+
+# 環境変数
+.env*
+!.env.example
+
+# 秘密鍵
+*.pem

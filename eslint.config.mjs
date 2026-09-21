@@ -14,7 +14,12 @@ export default [
   {
     languageOptions: {
       parserOptions: {
-        project: ["./apps/*/tsconfig.json", "./apps/*/tsconfig.scripts.json", "./packages/*/tsconfig.json"],
+        project: [
+          "./apps/*/tsconfig.json",
+          "./apps/*/tsconfig.scripts.json",
+          "./packages/*/tsconfig.json",
+          "./tsconfig.eslint.json",
+        ],
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -51,6 +56,14 @@ export default [
               target: "./apps/{takeoff,preflight}/src/repository/**/*",
               from: "./apps/{takeoff,preflight}/src/usecase/**/*",
               message: "Repository modules must not depend on use cases.",
+            },
+            {
+              target: "./apps/{takeoff,preflight}/src/usecase/**/*",
+              from: [
+                "./apps/{takeoff,preflight}/src/{app,config,env,main}.ts",
+                "./apps/{takeoff,preflight}/src/{composition,handler,infrastructure}/**/*",
+              ],
+              message: "Use cases must depend on application ports and values, not outer-layer implementations.",
             },
             {
               target: [
@@ -131,19 +144,6 @@ export default [
         "error",
         {
           patterns: [
-            {
-              group: [
-                "../config.js",
-                "../../config.js",
-                "../composition/**",
-                "../../composition/**",
-                "../handler/**",
-                "../../handler/**",
-                "../infrastructure/**",
-                "../../infrastructure/**",
-              ],
-              message: "Use cases must depend on application ports and values, not outer-layer implementations.",
-            },
             {
               group: ["../*/impl.js"],
               message: "Use cases must receive sibling use cases through interfaces or dependency factories.",

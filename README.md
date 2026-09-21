@@ -6,6 +6,7 @@ densanken における Pull Request の運用・管理を自動化するため�
 
 | パス                       | パッケージ名                  | 概要                                                                                | ドキュメント                                 |
 | -------------------------- | ----------------------------- | ----------------------------------------------------------------------------------- | -------------------------------------------- |
+| `apps/preflight`           | `preflight`                   | PR 作成者の自動アサインと PR タイトル検証                                           | [README](apps/preflight/README.md)           |
 | `packages/pr-title`        | `@flightdeck/pr-title`        | Conventional Commits に準拠した PR タイトル検証ロジック                             | [README](packages/pr-title/README.md)        |
 | `packages/private-key-env` | `@flightdeck/private-key-env` | GitHub App の秘密鍵（PEM）を PKCS#8 へ変換し `.env` に書き込む CLI / ユーティリティ | [README](packages/private-key-env/README.md) |
 
@@ -43,6 +44,17 @@ corepack enable
 
 ```bash
 pnpm install
+```
+
+## ローカル開発
+
+アプリケーションごとに必要な環境変数が異なります。起動前に各アプリのディレクトリで `.env` を作成してください（詳細は各アプリの README を参照）。
+
+起動するアプリを `--filter` で指定して開発サーバーを立ち上げます。
+
+```bash
+# Preflight の起動
+pnpm --filter preflight dev
 ```
 
 ## コマンド一覧

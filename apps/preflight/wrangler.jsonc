@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "preflight",
+  "main": "src/main.ts",
+  "compatibility_date": "2026-07-01",
+  // 公開 host は Cloudflare Dashboard の Custom Domains で管理する
+  "workers_dev": false,
+  "preview_urls": false,
+  // deploy 時に dashboard で管理する GITHUB_APP_BOT_USER_ID などの変数を削除しない
+  "keep_vars": true,
+  "observability": {
+    "enabled": true,
+  },
+  "vars": {
+    "DELIVERY_CACHE_TTL_SECONDS": "86400",
+    "SKIP_BOTS": "true",
+    "LOG_LEVEL": "info",
+  },
+  "queues": {
+    "producers": [{ "binding": "GITHUB_WEBHOOK_QUEUE", "queue": "preflight-github-webhooks" }],
+    "consumers": [
+      {
+        "queue": "preflight-github-webhooks",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 5,
+        "retry_delay": 60,
+      },
+    ],
+  },
+}

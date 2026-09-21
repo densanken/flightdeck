@@ -1,0 +1,22 @@
+{
+  "name": "preflight",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "pnpm typecheck && wrangler deploy --dry-run --config wrangler.jsonc",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json",
+    "lint": "pnpm typecheck && eslint --fix && prettier --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "set-github-private-key": "tsx scripts/set-github-private-key.ts"
+  },
+  "dependencies": {
+    "@flightdeck/pr-title": "workspace:*",
+    "hono": "^4.13.8",
+    "jose": "^6.2.12"
+  },
+  "devDependencies": {
+    "@flightdeck/private-key-env": "workspace:*"
+  }
+}

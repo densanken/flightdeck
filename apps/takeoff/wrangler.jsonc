@@ -1,0 +1,20 @@
+{
+  "name": "takeoff",
+  "main": "src/main.ts",
+  "compatibility_date": "2026-08-15",
+  "compatibility_flags": ["nodejs_compat"],
+  // 公開 host は Cloudflare Dashboard の Custom Domains で管理する
+  "workers_dev": false,
+  "preview_urls": false,
+  // deploy 時に dashboard で管理する GitHub App と Discord の変数と secret を削除しない
+  "keep_vars": true,
+  "observability": {
+    "enabled": true,
+  },
+  "kv_namespaces": [
+    {
+      "binding": "KV",
+      "id": "bffbb7599dd54b749005feb8cf8b5c88",
+    },
+  ],
+}

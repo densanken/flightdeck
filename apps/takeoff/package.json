@@ -1,0 +1,26 @@
+{
+  "name": "takeoff",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "pnpm typecheck && wrangler deploy --dry-run --config wrangler.jsonc",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json",
+    "lint": "pnpm typecheck && eslint --fix && prettier --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "cf-typegen": "wrangler types src/worker-configuration.d.ts --config wrangler.jsonc --env-file .env.example --include-runtime false && prettier --write src/worker-configuration.d.ts",
+    "register-commands": "node --env-file-if-exists=.env --import tsx scripts/register-commands.ts",
+    "set-github-private-key": "tsx scripts/set-github-private-key.ts"
+  },
+  "dependencies": {
+    "@flightdeck/github-app-jwt": "workspace:*",
+    "@flightdeck/pr-title": "workspace:*",
+    "discord-api-types": "^0.38.56",
+    "hono": "^4.13.12",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@flightdeck/private-key-env": "workspace:*"
+  }
+}

@@ -12,9 +12,9 @@
     "set-github-private-key": "tsx scripts/set-github-private-key.ts"
   },
   "dependencies": {
+    "@flightdeck/github-app-jwt": "workspace:*",
     "@flightdeck/pr-title": "workspace:*",
-    "hono": "^4.13.8",
-    "jose": "^6.2.12"
+    "hono": "^4.13.8"
   },
   "devDependencies": {
     "@flightdeck/private-key-env": "workspace:*"

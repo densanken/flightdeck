@@ -12,7 +12,6 @@ const bindings = (publicBaseUrl = "https://takeoff.example.com"): Env["Bindings"
   GITHUB_APP_PRIVATE_KEY: "private-key",
   DISCORD_PUBLIC_KEY: "public-key",
   DISCORD_APPLICATION_ID: "application-id",
-  DISCORD_BOT_TOKEN: "bot-token",
   MERGE_AUDIT_DISCORD_WEBHOOK_URL: "https://discord.com/api/webhooks/1/token",
   GITHUB_APP_ID: "github-app-id",
   GITHUB_ORG: "org",

@@ -4,7 +4,6 @@ export interface Env {
     GITHUB_APP_PRIVATE_KEY: string;
     DISCORD_PUBLIC_KEY: string;
     DISCORD_APPLICATION_ID: string;
-    DISCORD_BOT_TOKEN: string;
     MERGE_AUDIT_DISCORD_WEBHOOK_URL: string;
     GITHUB_WEBHOOK_SECRET?: string;
 
@@ -43,7 +42,6 @@ const requiredStringKeys = [
   "GITHUB_APP_PRIVATE_KEY",
   "DISCORD_PUBLIC_KEY",
   "DISCORD_APPLICATION_ID",
-  "DISCORD_BOT_TOKEN",
   "MERGE_AUDIT_DISCORD_WEBHOOK_URL",
   "GITHUB_APP_ID",
   "GITHUB_ORG",
@@ -73,23 +71,8 @@ export const validateEnv = (bindings: Env["Bindings"]): void => {
     throw new EnvValidationError("PUBLIC_BASE_URL must be a valid http(s) URL");
   }
 
-  let mergeAuditWebhookUrl: URL;
-  try {
-    mergeAuditWebhookUrl = new URL(bindings.MERGE_AUDIT_DISCORD_WEBHOOK_URL);
-  } catch {
-    throw new EnvValidationError("MERGE_AUDIT_DISCORD_WEBHOOK_URL must be a valid Discord Webhook URL");
-  }
-  if (
-    mergeAuditWebhookUrl.origin !== "https://discord.com" ||
-    !/^\/api\/webhooks\/\d+\/[A-Za-z0-9_-]+$/.test(mergeAuditWebhookUrl.pathname) ||
-    mergeAuditWebhookUrl.search !== "" ||
-    mergeAuditWebhookUrl.hash !== "" ||
-    mergeAuditWebhookUrl.username !== "" ||
-    mergeAuditWebhookUrl.password !== ""
-  ) {
-    throw new EnvValidationError(
-      "MERGE_AUDIT_DISCORD_WEBHOOK_URL must use https://discord.com/api/webhooks/{id}/{token}"
-    );
+  if (URL.parse(bindings.MERGE_AUDIT_DISCORD_WEBHOOK_URL)?.protocol !== "https:") {
+    throw new EnvValidationError("MERGE_AUDIT_DISCORD_WEBHOOK_URL must be a valid https URL");
   }
 
   for (const key of optionalPositiveIntegerKeys) {

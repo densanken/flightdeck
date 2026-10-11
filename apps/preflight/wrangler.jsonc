@@ -10,7 +10,12 @@
   "keep_vars": true,
   "observability": {
     "enabled": true,
+    "traces": {
+      "enabled": true,
+    },
   },
+  // Preview には binding と vars を引き継がない
+  "previews": {},
   "vars": {
     "DELIVERY_CACHE_TTL_SECONDS": "86400",
     "SKIP_BOTS": "true",

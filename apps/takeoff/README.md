@@ -88,7 +88,7 @@ openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt \
 1. [Discord Developer Portal](https://discord.com/developers/applications) で Application を作成します。
 2. **General Information**: Application ID と Public Key を控えます。
 3. **Interactions Endpoint URL**: `https://<worker-domain>/discord/interactions` を設定します。
-4. **Bot**: トークンを取得し、対象の Guild（サーバー）へ Bot を招待します。
+4. **Bot**: トークンを取得し、対象の Guild（サーバー）へ Bot を招待します。トークンはスラッシュコマンドの登録だけに使用し、Worker の実行には不要です。
 
 #### スラッシュコマンドの登録
 

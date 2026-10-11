@@ -38,5 +38,7 @@ export const createApp = ({ discord, github }: AppDependencies) => {
   app.route("/discord", discord);
   app.route("/webhooks", github);
 
+  app.notFound((c) => c.json({ ok: false, code: "NOT_FOUND" }, 404));
+
   return app;
 };

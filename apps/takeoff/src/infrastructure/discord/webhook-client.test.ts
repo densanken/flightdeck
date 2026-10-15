@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import { notifyMergeAudit } from "./webhook-client";
+import { logger } from "../../util/logger.js";
 
 import type { MergeAuditPayload } from "../../usecase/merge/interface.js";
 
@@ -128,12 +129,12 @@ describe("notifyMergeAudit", () => {
 
   it("webhook の送信失敗時に error を log へ出力する", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("error", { status: 500 }));
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {
-      // この test では console.error の出力を意図的に抑止する
+    const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {
+      // この test では log の出力を意図的に抑止する
     });
 
     await notifyMergeAudit("https://discord.com/api/webhooks/test", samplePayload);
 
-    expect(consoleErrorSpy).toHaveBeenCalledWith("merge_audit_webhook_http_error", { status: 500 });
+    expect(logSpy).toHaveBeenCalledWith("error", { event: "merge_audit_webhook_http_error", status: 500 });
   });
 });

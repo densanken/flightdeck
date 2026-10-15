@@ -15,6 +15,7 @@ import { ApplicationCommandOptionType, InteractionType } from "./constants.js";
 import { getStringOption, hasAdminRole } from "./helpers.js";
 import { autocompleteResponse, EmbedColor, ephemeralEmbed, pongResponse } from "./interaction-response.js";
 import { errorDetail } from "../../util/error-detail.js";
+import { logger, withLogContext } from "../../util/logger.js";
 
 import type { DiscordDependencies } from "./dependencies.js";
 import type { Env } from "../../env.js";
@@ -181,30 +182,7 @@ export const createDiscordRoute = (dependencies: DiscordRouteDependencies) => {
     );
   };
 
-  discord.post("/interactions", async (c) => {
-    const signature = c.req.header("x-signature-ed25519");
-    const timestamp = c.req.header("x-signature-timestamp");
-    if (!signature || !timestamp) {
-      return c.json({ type: "invalid_discord_signature", message: "Missing signature headers" }, 401);
-    }
-
-    const body = await c.req.text();
-    const isValid = await dependencies.verifySignature(c.env.DISCORD_PUBLIC_KEY, signature, timestamp, body);
-    if (!isValid) {
-      return c.json({ type: "invalid_discord_signature", message: "Invalid signature" }, 401);
-    }
-
-    let rawInteraction: unknown;
-    try {
-      rawInteraction = JSON.parse(body);
-    } catch {
-      return c.json({ type: "invalid_request", message: "Invalid interaction JSON" }, 400);
-    }
-    if (!isInteraction(rawInteraction)) {
-      return c.json({ type: "invalid_request", message: "Invalid interaction payload" }, 400);
-    }
-    const interaction = rawInteraction;
-
+  const handleInteraction = async (c: import("hono").Context<Env>, interaction: APIInteraction): Promise<Response> => {
     if (isPingInteraction(interaction)) {
       return c.json(pongResponse());
     }
@@ -248,7 +226,7 @@ export const createDiscordRoute = (dependencies: DiscordRouteDependencies) => {
         return handleComponent(c, interaction, deps);
       }
     } catch (error) {
-      console.error("discord_interaction_unhandled_error", { error: errorDetail(error) });
+      logger.log("error", { event: "discord_interaction_unhandled_error", error: errorDetail(error) });
       return c.json(
         ephemeralEmbed({
           title: "内部エラーが発生しました",
@@ -265,6 +243,35 @@ export const createDiscordRoute = (dependencies: DiscordRouteDependencies) => {
         color: EmbedColor.Error,
       })
     );
+  };
+
+  discord.post("/interactions", async (c) => {
+    const signature = c.req.header("x-signature-ed25519");
+    const timestamp = c.req.header("x-signature-timestamp");
+    if (!signature || !timestamp) {
+      return c.json({ type: "invalid_discord_signature", message: "Missing signature headers" }, 401);
+    }
+
+    const body = await c.req.text();
+    const isValid = await dependencies.verifySignature(c.env.DISCORD_PUBLIC_KEY, signature, timestamp, body);
+    if (!isValid) {
+      return c.json({ type: "invalid_discord_signature", message: "Invalid signature" }, 401);
+    }
+
+    let rawInteraction: unknown;
+    try {
+      rawInteraction = JSON.parse(body);
+    } catch {
+      return c.json({ type: "invalid_request", message: "Invalid interaction JSON" }, 400);
+    }
+    if (!isInteraction(rawInteraction)) {
+      return c.json({ type: "invalid_request", message: "Invalid interaction payload" }, 400);
+    }
+    const interaction = rawInteraction;
+
+    // 同じ interaction の後続処理（waitUntil を含む）の log を interaction ID と実行者で絞り込めるようにする
+    const discordUserId = interaction.member?.user.id ?? interaction.user?.id;
+    return withLogContext({ interactionId: interaction.id, discordUserId }, () => handleInteraction(c, interaction));
   });
 
   return discord;

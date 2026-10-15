@@ -1,9 +1,10 @@
 import { errors } from "../../../domain/errors.js";
 import { parseCommaSeparated } from "../../../env.js";
 import { inlineCode } from "../../../util/discord-markdown.js";
+import { withLogContext } from "../../../util/logger.js";
 import { ButtonStyle, ComponentType } from "../constants.js";
 import { editDeferredResponse, editDeferredWithError } from "../followup.js";
-import { getJapaneseErrorMessage, getStringOption, hasAdminRole, resolveRepo } from "../helpers.js";
+import { getJapaneseErrorMessage, logCommandError, getStringOption, hasAdminRole, resolveRepo } from "../helpers.js";
 import { deferredEphemeral, deferredMessageUpdate, EmbedColor, updateMessage } from "../interaction-response.js";
 import { assertNotLoadingSentinel } from "../timeout-budget.js";
 
@@ -28,7 +29,7 @@ export const handleRepoAdd = (
   const fullName = getStringOption(subcommandOptions, "full_name");
 
   c.executionCtx.waitUntil(
-    (async () => {
+    withLogContext({ repository: fullName }, async () => {
       try {
         const adminRoleIds = parseCommaSeparated(c.env.ADMIN_ROLE_IDS);
         if (!hasAdminRole(interaction, adminRoleIds)) {
@@ -60,10 +61,11 @@ export const handleRepoAdd = (
           color: EmbedColor.Success,
         });
       } catch (err) {
+        logCommandError("repo_add", err);
         const msg = getJapaneseErrorMessage(err);
         await editDeferredWithError(c.env.DISCORD_APPLICATION_ID, interaction.token, msg);
       }
-    })()
+    })
   );
 
   return c.json(deferredEphemeral());
@@ -78,7 +80,7 @@ export const handleRepoRemove = (
   const repoId = getStringOption(subcommandOptions, "repo");
 
   c.executionCtx.waitUntil(
-    (async () => {
+    withLogContext({ repoId }, async () => {
       try {
         const adminRoleIds = parseCommaSeparated(c.env.ADMIN_ROLE_IDS);
         if (!hasAdminRole(interaction, adminRoleIds)) {
@@ -119,10 +121,11 @@ export const handleRepoRemove = (
           ]
         );
       } catch (err) {
+        logCommandError("repo_remove", err);
         const msg = getJapaneseErrorMessage(err);
         await editDeferredWithError(c.env.DISCORD_APPLICATION_ID, interaction.token, msg);
       }
-    })()
+    })
   );
 
   return c.json(deferredEphemeral());
@@ -152,7 +155,7 @@ export const handleRepoRemoveComponent = (
   // 解除は KV の get / delete と index 再構築を伴い 3 秒に収まらないことがあるため、
   // deferred update で応答を確定してから followup で結果を書き戻す
   c.executionCtx.waitUntil(
-    (async () => {
+    withLogContext({ repoId }, async () => {
       try {
         const adminRoleIds = parseCommaSeparated(c.env.ADMIN_ROLE_IDS);
         if (!hasAdminRole(interaction, adminRoleIds)) {
@@ -177,6 +180,7 @@ export const handleRepoRemoveComponent = (
           []
         );
       } catch (error) {
+        logCommandError("repo_remove_confirm", error);
         await editDeferredResponse(
           c.env.DISCORD_APPLICATION_ID,
           interaction.token,
@@ -188,7 +192,7 @@ export const handleRepoRemoveComponent = (
           []
         );
       }
-    })()
+    })
   );
 
   return c.json(deferredMessageUpdate());

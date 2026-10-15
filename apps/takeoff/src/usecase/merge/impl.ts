@@ -2,6 +2,7 @@ import { errors } from "../../domain/errors.js";
 import { evaluateChecksAndStatusGate, evaluateMergeGate, evaluatePullRequestGate } from "../../domain/merge-gate.js";
 import { nowIso } from "../../domain/time.js";
 import { errorDetail } from "../../util/error-detail.js";
+import { logger } from "../../util/logger.js";
 import { getPullRequestHeadRef } from "../pull-request-branch.js";
 import { getPullRequestChecksForMergeGate } from "../pull-request-checks.js";
 import { getRegisteredPullRequest } from "../registered-pull-request.js";
@@ -167,7 +168,8 @@ export class MergeUsecaseImpl implements MergeUsecase {
       const mergeTimedOut = mergeSignal?.aborted;
       // 再検証または merge が失敗した場合は cooldown を解除し、すぐ再試行できるようにする
       await this.cooldownCache.delete(repo.repoId, params.prNumber).catch((deleteError: unknown) => {
-        console.error("merge_cooldown_clear_failed", {
+        logger.log("error", {
+          event: "merge_cooldown_clear_failed",
           repoId: repo.repoId,
           prNumber: params.prNumber,
           error: errorDetail(deleteError),
@@ -182,6 +184,14 @@ export class MergeUsecaseImpl implements MergeUsecase {
     }
 
     const mergedAt = new Date();
+    // audit 通知が失敗しても merge の結果を追えるよう、成功を app の log にも残す
+    logger.log("info", {
+      event: "merge_succeeded",
+      repoId: repo.repoId,
+      prNumber: freshPr.number,
+      commitSha: mergeResult.sha,
+      discordUserId: params.discordUserId,
+    });
     return {
       type: "merged",
       sha: mergeResult.sha,
@@ -208,7 +218,8 @@ export class MergeUsecaseImpl implements MergeUsecase {
             .catch((error: unknown) => {
               // audit 通知の error には Discord webhook URL（token を含む）が乗る経路があるため、
               // message は記録せず error の name だけを記録する
-              console.error("merge_audit_notification_failed", {
+              logger.log("error", {
+                event: "merge_audit_notification_failed",
                 repoId: repo.repoId,
                 prNumber: params.prNumber,
                 errorName: error instanceof Error ? error.name : typeof error,

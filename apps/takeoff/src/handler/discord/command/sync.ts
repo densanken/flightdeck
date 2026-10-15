@@ -1,7 +1,8 @@
 import { errors } from "../../../domain/errors.js";
 import { inlineCode } from "../../../util/discord-markdown.js";
+import { withLogContext } from "../../../util/logger.js";
 import { editDeferredResponse, editDeferredWithError } from "../followup.js";
-import { getJapaneseErrorMessage, getStringOption, resolveRepo } from "../helpers.js";
+import { getJapaneseErrorMessage, logCommandError, getStringOption, resolveRepo } from "../helpers.js";
 import { deferredEphemeral, EmbedColor } from "../interaction-response.js";
 
 import type { Env } from "../../../env.js";
@@ -17,7 +18,7 @@ export const handleSync = (
   const repoId = getStringOption(interaction.data.options, "repo");
 
   c.executionCtx.waitUntil(
-    (async () => {
+    withLogContext({ repoId }, async () => {
       try {
         if (!repoId) throw errors.invalidRequest("repo が指定されていません。");
 
@@ -34,10 +35,11 @@ export const handleSync = (
           color: EmbedColor.Success,
         });
       } catch (err) {
+        logCommandError("sync", err);
         const msg = getJapaneseErrorMessage(err);
         await editDeferredWithError(c.env.DISCORD_APPLICATION_ID, interaction.token, msg);
       }
-    })()
+    })
   );
 
   return c.json(deferredEphemeral());

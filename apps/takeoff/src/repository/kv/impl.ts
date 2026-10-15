@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { registeredRepositorySchema, repositoryIndexItemSchema } from "../../domain/repository.js";
+import { logger } from "../../util/logger.js";
 
 import type { RegisteredRepositorySnapshot, RegisteredRepositoryStore } from "./interface.js";
 import type { RegisteredRepository, RepositoryIndex, RepositoryIndexItem } from "../../domain/repository.js";
@@ -133,7 +134,8 @@ export class KvRegisteredRepositoryStore implements RegisteredRepositoryStore {
       await this.kv.delete(metadataKey(repoId, repo.registrationId));
     } catch (error) {
       // 登録 intent は削除済みなので、孤立 metadata の掃除失敗で index 更新を止めない
-      console.error("repository_metadata_delete_failed", {
+      logger.log("error", {
+        event: "repository_metadata_delete_failed",
         repoId,
         errorName: error instanceof Error ? error.name : typeof error,
       });

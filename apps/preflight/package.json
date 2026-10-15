@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@flightdeck/github-app-jwt": "workspace:*",
+    "@flightdeck/logger": "workspace:*",
     "@flightdeck/pr-title": "workspace:*",
     "hono": "^4.13.8"
   },

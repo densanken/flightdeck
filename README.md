@@ -9,6 +9,7 @@ densanken における Pull Request の運用・管理を自動化するため�
 | `apps/preflight`           | `preflight`                   | PR 作成者の自動アサインと PR タイトル検証                                           | [README](apps/preflight/README.md)           |
 | `apps/takeoff`             | `takeoff`                     | Discord スラッシュコマンドからの安全な PR マージ実行                                | [README](apps/takeoff/README.md)             |
 | `packages/github-app-jwt`  | `@flightdeck/github-app-jwt`  | GitHub App 認証用 JWT 生成パッケージ                                                | [README](packages/github-app-jwt/README.md)  |
+| `packages/logger`          | `@flightdeck/logger`          | logger                                                                              | [README](packages/logger/README.md)          |
 | `packages/pr-title`        | `@flightdeck/pr-title`        | Conventional Commits に準拠した PR タイトル検証ロジック                             | [README](packages/pr-title/README.md)        |
 | `packages/private-key-env` | `@flightdeck/private-key-env` | GitHub App の秘密鍵（PEM）を PKCS#8 へ変換し `.env` に書き込む CLI / ユーティリティ | [README](packages/private-key-env/README.md) |
 

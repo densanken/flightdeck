@@ -17,6 +17,8 @@ export interface TitleValidationOutcome {
   duplicateCommentsDeleted: number;
   supersededStatusesCleared: number;
   supersededSweepFailed: boolean;
+  // 掃除に失敗したときの最初の error で、GitHub の失敗を log で切り分けるために使う
+  supersededSweepError?: unknown;
 }
 
 export interface ValidatePullRequestTitleUseCase {

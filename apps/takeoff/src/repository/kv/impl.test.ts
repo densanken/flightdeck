@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { KvRegisteredRepositoryStore } from "./impl.js";
+import { logger } from "../../util/logger.js";
 
 import type { RegisteredRepository, RepositoryIndexItem } from "../../domain/repository.js";
 
@@ -364,12 +365,13 @@ describe("KvRegisteredRepositoryStore", () => {
       kv.entries.delete(key);
       return Promise.resolve();
     });
-    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const log = vi.spyOn(logger, "log").mockImplementation(() => undefined);
 
     await expect(repoStore.removeRepository("123")).resolves.toMatchObject({ items: [] });
 
     await expect(repoStore.getRepository("123")).resolves.toBeNull();
-    expect(log).toHaveBeenCalledExactlyOnceWith("repository_metadata_delete_failed", {
+    expect(log).toHaveBeenCalledExactlyOnceWith("error", {
+      event: "repository_metadata_delete_failed",
       repoId: "123",
       errorName: "Error",
     });

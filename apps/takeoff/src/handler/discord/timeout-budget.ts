@@ -4,6 +4,7 @@
  */
 import { errors } from "../../domain/errors.js";
 import { errorDetail } from "../../util/error-detail.js";
+import { logger } from "../../util/logger.js";
 
 import type { Env } from "../../env.js";
 import type { Context } from "hono";
@@ -62,7 +63,7 @@ export const warmInBackground = (c: Context<Env>, label: string, warming: Promis
   c.executionCtx.waitUntil(
     warming.catch((error: unknown) => {
       // warming の失敗は利用者の操作に影響しないが、恒常的な失敗を検知できるよう記録する
-      console.warn("discord_autocomplete_warming_failed", { label, error: errorDetail(error) });
+      logger.log("warn", { event: "discord_autocomplete_warming_failed", label, error: errorDetail(error) });
     })
   );
 };
@@ -70,7 +71,7 @@ export const warmInBackground = (c: Context<Env>, label: string, warming: Promis
 export type TimeoutLoadResult<T> = { status: "ready"; value: T } | { status: "loading"; warming: Promise<T> };
 
 const budgetExceeded = <T>(label: string, warming: Promise<T>): TimeoutLoadResult<T> => {
-  console.warn("discord_autocomplete_budget_exceeded", { label });
+  logger.log("warn", { event: "discord_autocomplete_budget_exceeded", label });
   return { status: "loading", warming };
 };
 

@@ -173,17 +173,21 @@ describe("githubRequest retry", () => {
     expect(sleep).toHaveBeenCalledWith(100);
   });
 
-  it("通常の permission 403 は再試行しない", async () => {
-    const { response, cancel } = responseWithCancelSpy(403);
+  it("通常の permission 403 は再試行せず、GitHub の message と必要な権限を error に残す", async () => {
+    const response = Response.json(
+      { message: "Resource not accessible by integration", documentation_url: "https://docs.github.com/rest" },
+      { status: 403, headers: { "X-Accepted-GitHub-Permissions": "contents=write" } }
+    );
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response);
     const sleep = vi.fn<(delayMs: number) => Promise<void>>().mockResolvedValue(undefined);
 
     await expect(request({ fetchImpl, retry: { sleep, now: () => 1_000 } })).rejects.toMatchObject({
       githubStatus: 403,
+      githubMessage: "Resource not accessible by integration",
+      acceptedPermissions: "contents=write",
     });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(sleep).not.toHaveBeenCalled();
-    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it("rate limit 403 は Retry-After がなければ X-RateLimit-Reset の epoch 秒まで待つ", async () => {
@@ -222,9 +226,9 @@ describe("githubRequest retry", () => {
   });
 
   it("Retry-After が retry budget を超えると待たずに失敗する", async () => {
-    const { response, cancel } = responseWithCancelSpy(429, {
-      "Retry-After": "3",
-      "X-GitHub-Request-Id": "request-id",
+    const response = new Response(null, {
+      status: 429,
+      headers: { "Retry-After": "3", "X-GitHub-Request-Id": "request-id" },
     });
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response);
     const sleep = vi.fn<(delayMs: number) => Promise<void>>().mockResolvedValue(undefined);
@@ -238,16 +242,13 @@ describe("githubRequest retry", () => {
     });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(sleep).not.toHaveBeenCalled();
-    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it("mutation は明示しない限り blind retry しない", async () => {
-    const { response, cancel } = responseWithCancelSpy(502);
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response);
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 502 }));
 
     await expect(request({ method: "POST", fetchImpl })).rejects.toMatchObject({ githubStatus: 502 });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it("認証 POST は明示したときだけ再試行できる", async () => {
@@ -263,7 +264,7 @@ describe("githubRequest retry", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
-  it("retry 継続時と最終 attempt の両方で response body を破棄する", async () => {
+  it("retry 継続時は待機の前に response body を破棄する", async () => {
     const first = responseWithCancelSpy(502);
     const last = responseWithCancelSpy(503);
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(first.response).mockResolvedValueOnce(last.response);
@@ -276,40 +277,52 @@ describe("githubRequest retry", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     expect(sleep).toHaveBeenCalledOnce();
     expect(first.cancel).toHaveBeenCalledOnce();
-    expect(last.cancel).toHaveBeenCalledOnce();
     expect(first.cancel.mock.invocationCallOrder[0]).toBeLessThan(sleep.mock.invocationCallOrder[0] ?? 0);
   });
 
-  it("response body の破棄失敗で元の GitHubError を上書きしない", async () => {
-    const { response, cancel } = responseWithCancelSpy(403, {
-      "X-GitHub-Request-Id": "request-id",
-      "Retry-After": "7",
-    });
-    cancel.mockRejectedValue(new Error("cancel failed"));
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response);
+  it("retry 継続時の response body の破棄失敗で元の GitHubError を上書きしない", async () => {
+    const first = responseWithCancelSpy(502);
+    first.cancel.mockRejectedValue(new Error("cancel failed"));
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(first.response)
+      .mockResolvedValueOnce(new Response(null, { status: 503, headers: { "X-GitHub-Request-Id": "request-id" } }));
+    const sleep = vi.fn<(delayMs: number) => Promise<void>>().mockResolvedValue(undefined);
 
-    await expect(request({ fetchImpl })).rejects.toMatchObject({
-      code: "GITHUB_API_FAILED",
-      githubStatus: 403,
-      githubRequestId: "request-id",
-      retryAfter: "7",
-    });
-    expect(cancel).toHaveBeenCalledOnce();
+    await expect(
+      request({ fetchImpl, retry: { maxAttempts: 2, sleep, random: () => 0, now: () => 1_000 } })
+    ).rejects.toMatchObject({ code: "GITHUB_API_FAILED", githubStatus: 503, githubRequestId: "request-id" });
+    expect(first.cancel).toHaveBeenCalledOnce();
   });
 
-  it("response body の破棄が完了しなくても元の GitHubError を返す", async () => {
-    const { response, cancel } = responseWithCancelSpy(503, {
-      "X-GitHub-Request-Id": "request-id",
-    });
-    cancel.mockReturnValue(new Promise<void>(() => undefined));
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response);
+  it("JSON でない error body では message を持たないまま元の GitHubError を返す", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response("<html>", { status: 403, headers: { "X-GitHub-Request-Id": "request-id" } }));
 
-    await expect(request({ method: "POST", fetchImpl })).rejects.toMatchObject({
+    const error = await request({ fetchImpl }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(GitHubError);
+    expect(error).toMatchObject({ githubStatus: 403, githubRequestId: "request-id", githubMessage: undefined });
+  });
+
+  it("error body の読み取り中に abort しても元の GitHubError を返す", async () => {
+    const controller = new AbortController();
+    // body の読み取りが始まった時点で deadline を迎え、そのまま body が届かない状況を作る
+    const body = new ReadableStream(
+      {
+        pull: () => {
+          controller.abort(new Error("deadline"));
+          return new Promise<void>(() => undefined);
+        },
+      },
+      { highWaterMark: 0 }
+    );
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(body, { status: 403 }));
+
+    await expect(request({ fetchImpl, signal: controller.signal })).rejects.toMatchObject({
       code: "GITHUB_API_FAILED",
-      githubStatus: 503,
-      githubRequestId: "request-id",
+      githubStatus: 403,
     });
-    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it("成功 response の body は caller が読み取るため破棄しない", async () => {

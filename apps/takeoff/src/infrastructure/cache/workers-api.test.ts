@@ -5,6 +5,7 @@ import { cacheKeys } from "./keys.js";
 import { TAKEOFF_CACHE_NAME, workersCache } from "./workers-api.js";
 import { buildCacheBaseUrl } from "../../config.js";
 import { mergeCooldownSchema } from "../../repository/cache/interface.js";
+import { logger } from "../../util/logger.js";
 
 // installation-id は getInstallationToken の URL に流れるため z.number().int().positive() で防御する
 const installationIdSchema = z.number().int().positive();
@@ -23,13 +24,14 @@ describe("workersCache.get schema 検証", () => {
 
   it("Cache API の read 障害を miss として扱い cooldown 利用側を fail-open にする", async () => {
     const key = cacheKeys.mergeCooldown("https://wc-read-failure.example.com", "repo-1", 42);
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {
-      // この test では console.error の出力を意図的に抑止する
+    const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {
+      // この test では log の出力を意図的に抑止する
     });
     vi.spyOn(caches, "open").mockRejectedValueOnce(new Error("cache unavailable"));
 
     await expect(workersCache.get(key, mergeCooldownSchema)).resolves.toBeNull();
-    expect(consoleErrorSpy).toHaveBeenCalledWith("workers_cache_get_failed", {
+    expect(logSpy).toHaveBeenCalledWith("error", {
+      event: "workers_cache_get_failed",
       error: "Error: cache unavailable",
     });
   });
@@ -60,17 +62,17 @@ describe("workersCache.get schema 検証", () => {
     { name: "小数", value: 1.5 },
   ])("installation-id に $name が混入したら null を返し workers_cache_value_invalid をログする", async ({ value }) => {
     const key = cacheKeys.installationId("https://wc-install-id-bad.example.com", "app", String(value));
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {
-      // この test では console.error の出力を意図的に抑止する
+    const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {
+      // この test では log の出力を意図的に抑止する
     });
     // set は value: unknown を受けるため、schema に合わない値も production の書き込み経路のまま seed できる
     await workersCache.set(key, value, 60);
 
     await expect(workersCache.get(key, installationIdSchema)).resolves.toBeNull();
-    const invalidCalls = consoleErrorSpy.mock.calls.filter((call) => call[0] === "workers_cache_value_invalid");
+    const invalidCalls = logSpy.mock.calls.filter((call) => call[1].event === "workers_cache_value_invalid");
     expect(invalidCalls).toHaveLength(1);
-    const detail = invalidCalls[0]?.[1] as { key: string; issueCount: number };
-    expect(detail.key).toBe(key);
-    expect(detail.issueCount).toBeGreaterThan(0);
+    const detail = invalidCalls[0]?.[1];
+    expect(detail?.key).toBe(key);
+    expect(detail?.issueCount).toBeGreaterThan(0);
   });
 });

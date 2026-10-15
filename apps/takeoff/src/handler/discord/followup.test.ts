@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { editDeferredResponse } from "./followup.js";
+import { logger } from "../../util/logger.js";
 
 describe("editDeferredResponse", () => {
   afterEach(() => {
@@ -10,14 +11,14 @@ describe("editDeferredResponse", () => {
   it("Discord の error response は status だけを記録する", async () => {
     const interactionToken = "secret-interaction-token";
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 500 }));
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {
-      // この test では console.error の出力を意図的に抑止する
+    const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {
+      // この test では log の出力を意図的に抑止する
     });
 
     await editDeferredResponse("application-id", interactionToken, { title: "Result" });
 
-    expect(consoleErrorSpy).toHaveBeenCalledWith("discord_followup_http_error", { status: 500 });
-    expect(JSON.stringify(consoleErrorSpy.mock.calls)).not.toContain(interactionToken);
+    expect(logSpy).toHaveBeenCalledWith("error", { event: "discord_followup_http_error", status: 500 });
+    expect(JSON.stringify(logSpy.mock.calls)).not.toContain(interactionToken);
   });
 
   it("Discord request の例外から interaction token を記録しない", async () => {
@@ -25,14 +26,17 @@ describe("editDeferredResponse", () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(
       new Error(`https://discord.com/api/v10/webhooks/application-id/${interactionToken}/messages/@original`)
     );
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {
-      // この test では console.error の出力を意図的に抑止する
+    const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {
+      // この test では log の出力を意図的に抑止する
     });
 
     await editDeferredResponse("application-id", interactionToken, { title: "Result" });
 
-    expect(consoleErrorSpy).toHaveBeenCalledWith("discord_followup_request_failed", { errorName: "Error" });
-    expect(JSON.stringify(consoleErrorSpy.mock.calls)).not.toContain(interactionToken);
+    expect(logSpy).toHaveBeenCalledWith("error", {
+      event: "discord_followup_request_failed",
+      errorName: "Error",
+    });
+    expect(JSON.stringify(logSpy.mock.calls)).not.toContain(interactionToken);
   });
 
   it("上限を超える description は上限内の最後の改行で切る", async () => {

@@ -2,10 +2,17 @@ import { errors } from "../../../domain/errors.js";
 import { nowIso } from "../../../domain/time.js";
 import { getPullRequestHeadRef } from "../../../usecase/pull-request-branch.js";
 import { escapeDiscordMarkdownLinkText, inlineCode, safeEmbedLinkUrl } from "../../../util/discord-markdown.js";
+import { withLogContext } from "../../../util/logger.js";
 import { truncateText } from "../../../util/truncate.js";
 import { MAX_EMBED_FIELD_VALUE_LENGTH, MAX_EMBED_TITLE_LENGTH } from "../constants.js";
 import { editDeferredResponse, editDeferredWithError } from "../followup.js";
-import { appendLinesWithinLimit, getJapaneseErrorMessage, getStringOption, parsePrNumber } from "../helpers.js";
+import {
+  appendLinesWithinLimit,
+  getJapaneseErrorMessage,
+  logCommandError,
+  getStringOption,
+  parsePrNumber,
+} from "../helpers.js";
 import { deferredEphemeral, EmbedColor } from "../interaction-response.js";
 import { assertNotLoadingSentinel } from "../timeout-budget.js";
 
@@ -30,7 +37,8 @@ export const handleStatus = (
   const prNumberStr = getStringOption(interaction.data.options, "pr");
 
   c.executionCtx.waitUntil(
-    (async () => {
+    // 後続処理の log を対象の repository と PR で絞り込めるようにする
+    withLogContext({ repoId, prNumber: prNumberStr ? Number(prNumberStr) : undefined }, async () => {
       try {
         if (!repoId) throw errors.invalidRequest("repo が指定されていません。");
         if (!prNumberStr) throw errors.invalidRequest("pr が指定されていません。");
@@ -100,10 +108,11 @@ export const handleStatus = (
           color: gateResult.canMerge ? EmbedColor.Success : EmbedColor.Warning,
         });
       } catch (err) {
+        logCommandError("status", err);
         const msg = getJapaneseErrorMessage(err);
         await editDeferredWithError(c.env.DISCORD_APPLICATION_ID, interaction.token, msg);
       }
-    })()
+    })
   );
 
   return c.json(deferredEphemeral());

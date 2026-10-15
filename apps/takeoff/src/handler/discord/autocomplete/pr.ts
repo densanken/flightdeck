@@ -11,6 +11,7 @@ import {
 import { loadCached } from "./cached-load.js";
 import { parseGitHubPrUrl, parseGitHubRepoUrl } from "./parse-github-url.js";
 import { errorDetail } from "../../../util/error-detail.js";
+import { logger } from "../../../util/logger.js";
 
 import type { CachedPullRequest } from "../../../domain/pull-request.js";
 import type { Env } from "../../../env.js";
@@ -110,7 +111,7 @@ export const handlePrAutocomplete = async (
     return c.json(autocompleteResponse(choices));
   } catch (error) {
     // 空候補は利用者から障害と区別できないため、運用側が検知できるよう記録する
-    console.error("discord_autocomplete_failed", { label: "pr", error: errorDetail(error) });
+    logger.log("error", { event: "discord_autocomplete_failed", label: "pr", error: errorDetail(error) });
     return c.json(autocompleteResponse([]));
   }
 };

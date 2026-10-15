@@ -223,6 +223,9 @@ importers:
       '@flightdeck/github-app-jwt':
         specifier: workspace:*
         version: link:../../packages/github-app-jwt
+      '@flightdeck/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
       '@flightdeck/pr-title':
         specifier: workspace:*
         version: link:../../packages/pr-title
@@ -239,6 +242,9 @@ importers:
       '@flightdeck/github-app-jwt':
         specifier: workspace:*
         version: link:../../packages/github-app-jwt
+      '@flightdeck/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
       '@flightdeck/pr-title':
         specifier: workspace:*
         version: link:../../packages/pr-title
@@ -261,6 +267,8 @@ importers:
       jose:
         specifier: ^6.2.12
         version: 6.2.12
+
+  packages/logger: {}
 
   packages/pr-title: {}
 

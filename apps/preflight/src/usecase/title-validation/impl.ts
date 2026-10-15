@@ -520,13 +520,20 @@ export class ValidatePullRequestTitleUseCaseImpl implements ValidatePullRequestT
         await this.stabilizeDetachedHeadStatus(command, commit.sha, signal, context);
       }
 
+      const rejected = written.find((result) => result.status === "rejected");
       return {
         ...outcome,
         supersededStatusesCleared: cleared,
-        supersededSweepFailed: written.some((result) => result.status === "rejected"),
+        supersededSweepFailed: rejected !== undefined,
+        supersededSweepError: rejected?.reason,
       };
-    } catch {
-      return { ...outcome, supersededStatusesCleared: cleared, supersededSweepFailed: true };
+    } catch (error) {
+      return {
+        ...outcome,
+        supersededStatusesCleared: cleared,
+        supersededSweepFailed: true,
+        supersededSweepError: error,
+      };
     }
   }
 

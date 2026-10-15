@@ -9,6 +9,7 @@ import {
 import { cacheKeys } from "../../infrastructure/cache/keys.js";
 import { memoryCache } from "../../infrastructure/cache/memory-cache.js";
 import { workersCache } from "../../infrastructure/cache/workers-api.js";
+import { logger } from "../../util/logger.js";
 
 // store.get() は memory cache を先に引くため、set() 直後に get() すると Cache API を通らず同一オブジェクト参照が返る
 // Cache API 経由の hit を検査するテストは memory を落としてから読む
@@ -17,14 +18,16 @@ const dropMemory = (key: string): void => {
 };
 
 const spyOnConsoleError = () =>
-  vi.spyOn(console, "error").mockImplementation(() => {
-    // この test では console.error の出力を意図的に抑止する
+  vi.spyOn(logger, "log").mockImplementation(() => {
+    // この test では log の出力を意図的に抑止する
   });
 
 // workersCache.get が schema 検証で値を捨てたことを、null という結果ではなく log で直接確認する
 // null は cache miss でも起きるため、結果だけでは検証経路を素通りしても test が成功する
 const expectValueInvalidLogged = (spy: { mock: { calls: unknown[][] } }, key: string): void => {
-  const invalidCalls = spy.mock.calls.filter((call) => call[0] === "workers_cache_value_invalid");
+  const invalidCalls = spy.mock.calls.filter(
+    (call) => (call[1] as { event?: string } | undefined)?.event === "workers_cache_value_invalid"
+  );
   expect(invalidCalls).toHaveLength(1);
   expect((invalidCalls[0]?.[1] as { key: string }).key).toBe(key);
 };
@@ -197,48 +200,48 @@ describe("cache store implementations", () => {
     const baseUrl = "https://repo-index-invalid-shape.example.com";
     const store = new CacheRepoIndexCacheStore(baseUrl, 60);
     const key = cacheKeys.repoIndex(baseUrl);
-    const consoleErrorSpy = spyOnConsoleError();
+    const logSpy = spyOnConsoleError();
     // 別 isolate や過去バージョンが書いた不正な値を模す
     await workersCache.set(key, { items: "not-an-array" }, 60);
 
     await expect(store.get()).resolves.toBeNull();
 
-    expectValueInvalidLogged(consoleErrorSpy, key);
+    expectValueInvalidLogged(logSpy, key);
   });
 
   it("Cache API に不正な shape の merge cooldown が入っていたら miss として null を返す", async () => {
     const baseUrl = "https://merge-cooldown-invalid-shape.example.com";
     const store = new CacheMergeCooldownStore(baseUrl, 60);
     const key = cacheKeys.mergeCooldown(baseUrl, "1", 42);
-    const consoleErrorSpy = spyOnConsoleError();
+    const logSpy = spyOnConsoleError();
     await workersCache.set(key, { repoId: 1, prNumber: "not-a-number" }, 60);
 
     await expect(store.get("1", 42)).resolves.toBeNull();
 
-    expectValueInvalidLogged(consoleErrorSpy, key);
+    expectValueInvalidLogged(logSpy, key);
   });
 
   it("Cache API に不正な shape の sync cooldown が入っていたら miss として null を返す", async () => {
     const baseUrl = "https://sync-cooldown-invalid-shape.example.com";
     const store = new CacheSyncCooldownStore(baseUrl, 60);
     const key = cacheKeys.syncCooldown(baseUrl, "1");
-    const consoleErrorSpy = spyOnConsoleError();
+    const logSpy = spyOnConsoleError();
     await workersCache.set(key, { repoId: 1, requestedAt: 123 }, 60);
 
     await expect(store.get("1")).resolves.toBeNull();
 
-    expectValueInvalidLogged(consoleErrorSpy, key);
+    expectValueInvalidLogged(logSpy, key);
   });
 
   it("Cache API に不正な shape の installation repository 一覧が入っていたら miss として null を返す", async () => {
     const baseUrl = "https://installation-repos-invalid-shape.example.com";
     const store = new CacheInstallationRepositoryStore(baseUrl, 60);
     const key = cacheKeys.installationRepositories(baseUrl);
-    const consoleErrorSpy = spyOnConsoleError();
+    const logSpy = spyOnConsoleError();
     await workersCache.set(key, { items: "not-an-array", fetchedAt: new Date().toISOString() }, 60);
 
     await expect(store.get()).resolves.toBeNull();
 
-    expectValueInvalidLogged(consoleErrorSpy, key);
+    expectValueInvalidLogged(logSpy, key);
   });
 });

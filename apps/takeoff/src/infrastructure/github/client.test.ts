@@ -151,7 +151,7 @@ const mockPullRequest = {
   draft: false,
   mergeable: true,
   merge_commit_sha: "test-merge-sha",
-  head: { sha: "abc", ref: "feature" },
+  head: { sha: "abc", ref: "feature", label: "org:feature", repo: { id: 101 } },
   base: { ref: "main", sha: "base-sha", repo: { id: 101 } },
   user: { login: "user" },
   updated_at: "2024-01-01T00:00:00Z",
@@ -163,7 +163,7 @@ const mockPullRequestSummary = {
   html_url: "https://github.com/org/repo/pull/1",
   state: "open",
   draft: false,
-  head: { sha: "abc", ref: "feature" },
+  head: { sha: "abc", ref: "feature", label: "org:feature", repo: { id: 101 } },
   base: { ref: "main", sha: "base-sha", repo: { id: 101 } },
   user: { login: "user" },
   updated_at: "2024-01-01T00:00:00Z",
@@ -243,6 +243,16 @@ describe("GitHubClientImpl - getPullRequest", () => {
     expect(result.number).toBe(1);
     expect(result.title).toBe("feat: test");
     expect(result.merge_commit_sha).toBe("test-merge-sha");
+    expect(result.head).toEqual(mockPullRequest.head);
+  });
+
+  it("fork の label を保持し、削除済み head repository の null も受け入れる", async () => {
+    const head = { ...mockPullRequest.head, ref: "main", label: "alice:main", repo: null };
+    const mockFetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse({ ...mockPullRequest, head }));
+
+    const result = await new GitHubClientImpl(mockFetcher).getPullRequest("token", "org", "repo", 1);
+
+    expect(result.head).toEqual(head);
   });
 
   it("ISO datetime 以外の updated_at を拒否する", async () => {

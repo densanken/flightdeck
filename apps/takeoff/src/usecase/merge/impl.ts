@@ -2,6 +2,7 @@ import { errors } from "../../domain/errors.js";
 import { evaluateChecksAndStatusGate, evaluateMergeGate, evaluatePullRequestGate } from "../../domain/merge-gate.js";
 import { nowIso } from "../../domain/time.js";
 import { errorDetail } from "../../util/error-detail.js";
+import { getPullRequestHeadRef } from "../pull-request-branch.js";
 import { getPullRequestChecksForMergeGate } from "../pull-request-checks.js";
 import { getRegisteredPullRequest } from "../registered-pull-request.js";
 import { getRequiredStatusChecksForMergeGate } from "../required-status-checks.js";
@@ -198,7 +199,7 @@ export class MergeUsecaseImpl implements MergeUsecase {
                 number: freshPr.number,
                 title: freshPr.title,
                 htmlUrl: freshPr.html_url,
-                headRef: freshPr.head.ref,
+                headRef: getPullRequestHeadRef(freshPr),
                 baseRef: freshPr.base.ref,
                 headSha: freshPr.head.sha,
               },

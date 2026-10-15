@@ -42,7 +42,7 @@ const testPr: GitHubPullRequest = {
   state: "open",
   draft: false,
   mergeable: true,
-  head: { sha: "abc123", ref: "feature-branch" },
+  head: { sha: "abc123", ref: "feature-branch", label: "org:feature-branch", repo: { id: 101 } },
   base: { ref: "main", sha: "base-sha", repo: { id: 101 } },
   user: { login: "alice" },
   updated_at: "2024-01-01T00:00:00Z",
@@ -102,6 +102,20 @@ afterEach(() => {
 });
 
 describe("handleStatus", () => {
+  it.each([
+    { repo: { id: 202 }, label: "alice:main" },
+    { repo: { id: 202 }, label: "org:main" },
+    { repo: null, label: "alice:main" },
+  ])("fork の head は所有者付きで表示する（$label、repo: $repo）", async ({ repo, label }) => {
+    getStatusMock.mockResolvedValue(
+      statusResult({ pr: { ...testPr, head: { ...testPr.head, ref: "main", label, repo } } })
+    );
+
+    await runHandler(createInteraction({ repo: "repo-1", pr: "42" }));
+
+    expect(editDeferredResponseMock.mock.calls[0]?.[2]?.fields?.[3]?.value).toBe(`\`${label}\` → \`main\``);
+  });
+
   it("マージ可のとき success embed に判定、Repository、Author、Branch の順で field を出す", async () => {
     getStatusMock.mockResolvedValue(statusResult({ gateResult: { canMerge: true, headSha: "abc123" } }));
 
@@ -205,7 +219,7 @@ describe("handleStatus", () => {
   });
 
   it("title は PR 番号を残して 256 文字に切り詰め、branch 名の ` は置き換えて inline code にする", async () => {
-    const pr = { ...testPr, title: "a".repeat(256), head: { sha: "abc123", ref: "x`y" } };
+    const pr = { ...testPr, title: "a".repeat(256), head: { ...testPr.head, ref: "x`y" } };
     getStatusMock.mockResolvedValue(statusResult({ pr }));
 
     await runHandler(createInteraction({ repo: "repo-1", pr: "42" }));

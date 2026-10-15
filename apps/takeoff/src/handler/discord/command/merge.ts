@@ -1,4 +1,5 @@
 import { errors } from "../../../domain/errors.js";
+import { getPullRequestHeadRef } from "../../../usecase/pull-request-branch.js";
 import { escapeDiscordMarkdownLinkText, inlineCode } from "../../../util/discord-markdown.js";
 import { MAX_EMBED_DESCRIPTION_LENGTH } from "../constants.js";
 import { editDeferredResponse, editDeferredWithError, FOLLOWUP_TIMEOUT_MS } from "../followup.js";
@@ -76,7 +77,7 @@ export const handleMerge = (
             prField,
             {
               name: "Branch",
-              value: `${inlineCode(result.pr.head.ref)} → ${inlineCode(result.pr.base.ref)}`,
+              value: `${inlineCode(getPullRequestHeadRef(result.pr))} → ${inlineCode(result.pr.base.ref)}`,
               inline: true,
             },
             { name: "Merge commit", value: inlineCode(result.sha.slice(0, 7)), inline: true },

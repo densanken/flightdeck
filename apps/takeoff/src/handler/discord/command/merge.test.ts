@@ -42,7 +42,7 @@ const testPr: GitHubPullRequest = {
   state: "open",
   draft: false,
   mergeable: true,
-  head: { sha: "abc123", ref: "feature-branch" },
+  head: { sha: "abc123", ref: "feature-branch", label: "org:feature-branch", repo: { id: 101 } },
   base: { ref: "main", sha: "base-sha", repo: { id: 101 } },
   user: { login: "alice" },
   updated_at: "2024-01-01T00:00:00Z",
@@ -98,6 +98,21 @@ afterEach(() => {
 });
 
 describe("handleMerge", () => {
+  it("fork の main からのマージは head の所有者を表示する", async () => {
+    mergeMock.mockResolvedValue({
+      type: "merged",
+      sha: "merge-sha",
+      pr: { ...testPr, head: { ...testPr.head, ref: "main", label: "alice:main", repo: { id: 202 } } },
+      repo: testRepo,
+      mergedAt: new Date(),
+      afterMerge: afterMergeMock,
+    });
+
+    await runHandler(createInteraction({ repo: "repo-1", pr: "42" }));
+
+    expect(editDeferredResponseMock.mock.calls[0]?.[2]?.fields?.[2]?.value).toBe("`alice:main` → `main`");
+  });
+
   it("成功 followup の完了まで後処理を開始しない", async () => {
     let finishFollowup: () => void = vi.fn();
     editDeferredResponseMock.mockImplementation(

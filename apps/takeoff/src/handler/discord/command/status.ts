@@ -1,5 +1,6 @@
 import { errors } from "../../../domain/errors.js";
 import { nowIso } from "../../../domain/time.js";
+import { getPullRequestHeadRef } from "../../../usecase/pull-request-branch.js";
 import { escapeDiscordMarkdownLinkText, inlineCode, safeEmbedLinkUrl } from "../../../util/discord-markdown.js";
 import { truncateText } from "../../../util/truncate.js";
 import { MAX_EMBED_FIELD_VALUE_LENGTH, MAX_EMBED_TITLE_LENGTH } from "../constants.js";
@@ -89,7 +90,11 @@ export const handleStatus = (
             { name: gateResult.canMerge ? "マージ可" : "マージ不可", value: statusValue },
             { name: "Repository", value: inlineCode(repo.fullName) },
             { name: "Author", value: pr.user?.login ?? "unknown", inline: true },
-            { name: "Branch", value: `${inlineCode(pr.head.ref)} → ${inlineCode(pr.base.ref)}`, inline: true },
+            {
+              name: "Branch",
+              value: `${inlineCode(getPullRequestHeadRef(pr))} → ${inlineCode(pr.base.ref)}`,
+              inline: true,
+            },
           ],
           timestamp: nowIso(),
           color: gateResult.canMerge ? EmbedColor.Success : EmbedColor.Warning,

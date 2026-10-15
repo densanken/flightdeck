@@ -30,7 +30,7 @@ const testPr: GitHubPullRequest = {
   state: "open",
   draft: false,
   mergeable: true,
-  head: { sha: "abc123", ref: "feature-branch" },
+  head: { sha: "abc123", ref: "feature-branch", label: "org:feature-branch", repo: { id: 101 } },
   base: { ref: "main", sha: "base-sha", repo: { id: 101 } },
   user: { login: "alice" },
   updated_at: "2024-01-01T00:00:00Z",

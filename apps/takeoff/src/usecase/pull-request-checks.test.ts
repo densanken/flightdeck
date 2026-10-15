@@ -14,7 +14,7 @@ const pullRequest: GitHubPullRequest = {
   draft: false,
   mergeable: true,
   merge_commit_sha: "test-merge-sha",
-  head: { sha: "head-sha", ref: "feature" },
+  head: { sha: "head-sha", ref: "feature", label: "org:feature", repo: { id: 101 } },
   base: { ref: "main", sha: "base-sha", repo: { id: 101 } },
   user: { login: "alice" },
   updated_at: "2024-01-01T00:00:00Z",

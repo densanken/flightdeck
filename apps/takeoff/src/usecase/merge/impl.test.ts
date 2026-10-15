@@ -32,7 +32,7 @@ const testPr: GitHubPullRequest = {
   state: "open",
   draft: false,
   mergeable: true,
-  head: { sha: "abc123", ref: "feature-branch" },
+  head: { sha: "abc123", ref: "feature-branch", label: "org:feature-branch", repo: { id: 101 } },
   base: { ref: "main", sha: "base-sha", repo: { id: 101 } },
   user: { login: "alice" },
   updated_at: "2024-01-01T00:00:00Z",
@@ -109,6 +109,21 @@ const createUsecase = () =>
 
 describe("MergeUsecaseImpl", () => {
   describe("正常に merge できるケース", () => {
+    it("fork の head の所有者を audit 通知へ引き継ぐ", async () => {
+      githubClient.pullRequests = [
+        { ...testPr, head: { ...testPr.head, ref: "main", label: "alice:main", repo: { id: 202 } } },
+      ];
+
+      const result = await createUsecase().merge(defaultParams());
+      if (result.type !== "merged") throw new Error("Expected merged");
+      await result.afterMerge();
+
+      expect(notifyMergeAuditMock.mock.calls[0]?.[0].pullRequest).toMatchObject({
+        headRef: "alice:main",
+        baseRef: "main",
+      });
+    });
+
     it("audit の停滞は merge 結果を遅らせず、後処理では cache warming も並行して試行する", async () => {
       let finishAudit: () => void = vi.fn();
       notifyMergeAuditMock.mockImplementation(

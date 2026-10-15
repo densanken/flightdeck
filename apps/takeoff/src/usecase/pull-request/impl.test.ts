@@ -26,7 +26,7 @@ describe("listOpenPullRequests", () => {
     html_url: "https://github.com/org/repo/pull/1",
     state: "open",
     draft: false,
-    head: { sha: "head-sha", ref: "feature" },
+    head: { sha: "head-sha", ref: "feature", label: "org:feature", repo: { id: 101 } },
     base: { ref: "main", sha: "base-sha", repo: { id: 101 } },
     user: { login: "alice" },
     updated_at: "2024-01-01T00:00:00Z",

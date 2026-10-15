@@ -76,11 +76,11 @@ export const githubRequest = async (input: {
 
     if (input.expectedStatuses.includes(response.status)) return response;
     if (!isRetryableResponse(response) || attempt === maxAttempts || !retryEnabled) {
-      throwResponseError(input.errorCode, response);
+      throw await responseError(input.errorCode, response, input.signal);
     }
 
     const delayMs = retryDelayMs(response, attempt, now(), random);
-    if (now() + delayMs > retryDeadline) throwResponseError(input.errorCode, response);
+    if (now() + delayMs > retryDeadline) throw await responseError(input.errorCode, response, input.signal);
     discardResponseBody(response);
     await sleepBeforeRetry(sleep, delayMs, input.signal);
   }
@@ -140,13 +140,39 @@ const retryDelayMs = (response: Response | undefined, attempt: number, nowMs: nu
   return Math.ceil(exponentialDelay * (1 + Math.max(0, Math.min(1, random()))));
 };
 
-const responseError = (errorCode: GitHubErrorCode, response: Response): GitHubError =>
+// error body の読み取りは診断用の補足なので、本来の処理の時間を使い込まないよう短い期限を別に設ける
+const ERROR_BODY_TIMEOUT_MS = 1_000;
+
+// body 全体は PR の内容などを含みうるため、GitHub が生成する top-level の message だけを残す
+const readGitHubMessage = async (response: Response, signal: AbortSignal): Promise<string | undefined> => {
+  try {
+    const body = await raceWithSignal(
+      response.json<{ message?: unknown } | null>(),
+      AbortSignal.any([signal, AbortSignal.timeout(ERROR_BODY_TIMEOUT_MS)])
+    );
+    return typeof body?.message === "string" ? body.message : undefined;
+  } catch {
+    // message は診断用の補足なので、読めなくても元の GitHubError を返す
+    discardResponseBody(response);
+    return undefined;
+  }
+};
+
+const responseError = async (
+  errorCode: GitHubErrorCode,
+  response: Response,
+  signal: AbortSignal
+): Promise<GitHubError> =>
   new GitHubError(
     errorCode,
     `GitHub API returned ${String(response.status)}`,
     response.status,
     response.headers.get("x-github-request-id") ?? undefined,
-    response.headers.get("retry-after") ?? undefined
+    response.headers.get("retry-after") ?? undefined,
+    {
+      githubMessage: await readGitHubMessage(response, signal),
+      acceptedPermissions: response.headers.get("x-accepted-github-permissions") ?? undefined,
+    }
   );
 
 const discardResponseBody = (response: Response): void => {
@@ -156,12 +182,6 @@ const discardResponseBody = (response: Response): void => {
   } catch {
     // response body の破棄失敗は、元の retry 判定や GitHubError を変えない
   }
-};
-
-const throwResponseError = (errorCode: GitHubErrorCode, response: Response): never => {
-  const error = responseError(errorCode, response);
-  discardResponseBody(response);
-  throw error;
 };
 
 export const invalidShapeError = (response: Response, code: GitHubErrorCode, resource: string): GitHubError =>

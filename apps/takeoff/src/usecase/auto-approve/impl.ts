@@ -1,3 +1,5 @@
+import { logger } from "../../util/logger.js";
+
 import type {
   AutoApproveByRunIdParams,
   AutoApproveByRunIdResult,
@@ -64,6 +66,15 @@ export class AutoApproveUsecaseImpl implements AutoApproveUsecase {
       }
 
       if (await this.client.approveWorkflowRun(token, owner, repo, run.id)) {
+        // 承認の結果を利用者へ伝える応答が失敗しても、どの run を承認したかを追えるようにする
+        logger.log("info", {
+          event: "workflow_run_approved",
+          repository: `${owner}/${repo}`,
+          headSha,
+          runId: run.id,
+          runName: run.name,
+          actorLogin: login,
+        });
         approved.push({ runId: run.id, name: run.name, actorLogin: login });
       } else {
         awaitingApproval += 1;

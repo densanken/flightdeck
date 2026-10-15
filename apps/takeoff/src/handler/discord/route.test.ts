@@ -5,6 +5,7 @@ import { createDiscordRoute } from "./route.js";
 import { composeDiscordDependencies } from "../../composition/discord.js";
 import { verifyDiscordSignature } from "../../infrastructure/discord/signature.js";
 import { KvRegisteredRepositoryStore } from "../../repository/kv/impl.js";
+import { logger } from "../../util/logger.js";
 
 import type { DiscordDependencies } from "./dependencies.js";
 import type { Env } from "../../env.js";
@@ -152,8 +153,8 @@ describe("Discord interaction route", () => {
   });
 
   it("dispatch 中の予期しない例外を ephemeral error へ変換する", async () => {
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {
-      // この test では console.error の出力を意図的に抑止する
+    const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {
+      // この test では log の出力を意図的に抑止する
     });
     try {
       const signed = await createSignedRequest({
@@ -172,7 +173,7 @@ describe("Discord interaction route", () => {
       expect(body.data.flags).toBe(64);
       expect(body.data.embeds[0]?.title).toBe("内部エラーが発生しました");
     } finally {
-      consoleError.mockRestore();
+      logSpy.mockRestore();
     }
   });
 

@@ -417,7 +417,7 @@ describe("composeApp", () => {
     });
   });
 
-  it("GitHub の失敗は処理済みとして記録せず、secret と request body を log へ出さない", async () => {
+  it("GitHub の失敗は処理済みとして記録せず、secret と request body を log へ出さずに GitHub の message を残す", async () => {
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValue(jsonResponse({ message: "permission denied" }, 403, { "x-github-request-id": "request-id" }));
@@ -437,9 +437,8 @@ describe("composeApp", () => {
     expect(logs).not.toContain(TEST_WEBHOOK_SECRET);
     expect(logs).not.toContain(privateKeyPem);
     expect(logs).not.toContain(body);
-    // defense-in-depth の検証
-    // request.ts は 403 body を parse せず固定 message を使うため本 assertion 単体は trivially-true 寄りで、error body 非 log の実防御は logging.test.ts 側で担保する
-    expect(logs).not.toContain("permission denied");
+    // GitHub の error body からは top-level の message だけを切り分け用の field として残す
+    expect(logs).toContain('"githubMessage":"permission denied"');
   });
 
   it("全 open PR fallback の totalCount 不一致警告を、composition が配線した Logger 経由で deliveryId 付きで記録する", async () => {

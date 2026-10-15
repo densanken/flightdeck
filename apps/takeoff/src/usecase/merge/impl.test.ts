@@ -4,6 +4,7 @@ import { MergeUsecaseImpl } from "./impl.js";
 import { AppError } from "../../domain/errors.js";
 import { MockMergeCooldownStore } from "../../repository/cache/impl.mock.js";
 import { MockRegisteredRepositoryStore } from "../../repository/kv/impl.mock.js";
+import { logger } from "../../util/logger.js";
 import { MockGitHubClient } from "../github.mock.js";
 import { MockPullRequestUsecase } from "../pull-request/impl.mock.js";
 
@@ -109,6 +110,23 @@ const createUsecase = () =>
 
 describe("MergeUsecaseImpl", () => {
   describe("正常に merge できるケース", () => {
+    it("merge の成功を対象と実行者付きで記録する", async () => {
+      const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {
+        // この test では log の出力を意図的に抑止する
+      });
+
+      const result = await createUsecase().merge(defaultParams());
+
+      if (result.type !== "merged") throw new Error("Expected merged");
+      expect(logSpy).toHaveBeenCalledWith("info", {
+        event: "merge_succeeded",
+        repoId: "101",
+        prNumber: 42,
+        commitSha: result.sha,
+        discordUserId: "user-1",
+      });
+    });
+
     it("fork の head の所有者を audit 通知へ引き継ぐ", async () => {
       githubClient.pullRequests = [
         { ...testPr, head: { ...testPr.head, ref: "main", label: "alice:main", repo: { id: 202 } } },
@@ -213,8 +231,8 @@ describe("MergeUsecaseImpl", () => {
 
     it("audit webhook 送信が失敗しても merge 結果は返る", async () => {
       const secret = "https://discord.com/api/webhooks/1/secret-token";
-      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {
-        // この test では console.error の出力を意図的に抑止する
+      const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {
+        // この test では log の出力を意図的に抑止する
       });
       notifyMergeAuditMock.mockRejectedValue(new Error(secret));
       const usecase = createUsecase();
@@ -224,12 +242,13 @@ describe("MergeUsecaseImpl", () => {
       expect(result.type).toBe("merged");
       if (result.type !== "merged") throw new Error("Expected merged");
       await result.afterMerge();
-      expect(consoleErrorSpy).toHaveBeenCalledWith("merge_audit_notification_failed", {
+      expect(logSpy).toHaveBeenCalledWith("error", {
+        event: "merge_audit_notification_failed",
         repoId: "101",
         prNumber: 42,
         errorName: "Error",
       });
-      expect(JSON.stringify(consoleErrorSpy.mock.calls)).not.toContain(secret);
+      expect(JSON.stringify(logSpy.mock.calls)).not.toContain(secret);
     });
 
     it("PR リストキャッシュウォームが失敗しても merge 結果は返る", async () => {

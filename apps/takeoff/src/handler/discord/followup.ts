@@ -1,5 +1,6 @@
 import { MAX_EMBED_DESCRIPTION_LENGTH } from "./constants.js";
 import { EmbedColor } from "./interaction-response.js";
+import { logger } from "../../util/logger.js";
 import { truncateText } from "../../util/truncate.js";
 
 import type { APIEmbed, APIMessageTopLevelComponent } from "discord-api-types/v10";
@@ -38,12 +39,13 @@ export const editDeferredResponse = async (
       signal: AbortSignal.timeout(FOLLOWUP_TIMEOUT_MS),
     });
     if (!response.ok) {
-      console.error("discord_followup_http_error", { status: response.status });
+      logger.log("error", { event: "discord_followup_http_error", status: response.status });
     }
   } catch (error) {
     // fetch の例外 message には request URL（interaction token を含む）が乗ることがあるため、
     // message は記録せず error の name だけを記録する
-    console.error("discord_followup_request_failed", {
+    logger.log("error", {
+      event: "discord_followup_request_failed",
       errorName: error instanceof Error ? error.name : typeof error,
     });
   }

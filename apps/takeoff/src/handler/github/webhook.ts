@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 
 import { gitHubRepositoryEventSchema, gitHubWorkflowRunEventSchema } from "./payload.js";
+import { logger } from "../../util/logger.js";
 
 import type { Env } from "../../env.js";
 import type { AutoApproveUsecase } from "../../usecase/auto-approve/interface.js";
@@ -26,8 +27,9 @@ const handleWorkflowRunEvent = (c: Context<Env>, deps: GitHubWebhookDependencies
   const parsed = gitHubWorkflowRunEventSchema.safeParse(json);
   if (!parsed.success) {
     // ZodError は payload 由来の値を含むため、安定した event 名と issue 数だけを記録する
-    console.error("github_webhook_payload_invalid", {
-      event: "workflow_run",
+    logger.log("error", {
+      event: "github_webhook_payload_invalid",
+      githubEvent: "workflow_run",
       issueCount: parsed.error.issues.length,
     });
     return ok(c);
@@ -60,14 +62,20 @@ const handleWorkflowRunEvent = (c: Context<Env>, deps: GitHubWebhookDependencies
       .then(
         (result) => {
           if (result.type === "not_registered") return;
-          console.log(
-            `auto-approve: run=${String(payload.workflow_run.id)} actor=${payload.workflow_run.actor.login} approved=${String(result.approved)} reason=${result.reason}`
-          );
+          logger.log("info", {
+            event: "github_webhook_auto_approve",
+            repositoryId: String(payload.repository.id),
+            runId: payload.workflow_run.id,
+            actorLogin: payload.workflow_run.actor.login,
+            approved: result.approved,
+            reason: result.reason,
+          });
         },
         (error: unknown) => {
           // auto-approve 経路の error は GitHub API 由来で message の安全性を保証できないため、
           // message は記録せず error の name だけを記録する
-          console.error("github_webhook_auto_approve_failed", {
+          logger.log("error", {
+            event: "github_webhook_auto_approve_failed",
             repositoryId: String(payload.repository.id),
             runId: payload.workflow_run.id,
             errorName: errorNameOf(error),
@@ -87,7 +95,11 @@ const handleRepositoryEvent = (
   const parsed = gitHubRepositoryEventSchema.safeParse(json);
   if (!parsed.success) {
     // ZodError は payload 由来の値を含むため、安定した event 名と issue 数だけを記録する
-    console.error("github_webhook_payload_invalid", { event: "repository", issueCount: parsed.error.issues.length });
+    logger.log("error", {
+      event: "github_webhook_payload_invalid",
+      githubEvent: "repository",
+      issueCount: parsed.error.issues.length,
+    });
     return ok(c);
   }
 
@@ -100,10 +112,11 @@ const handleRepositoryEvent = (
   c.executionCtx.waitUntil(
     deps.repositoryAdminUsecase.reconcileRepository(repositoryId, c.env.GITHUB_ORG).then(
       (result) => {
-        console.log("github_repository_reconciled", { deliveryId, repositoryId, outcome: result.type });
+        logger.log("info", { event: "github_repository_reconciled", deliveryId, repositoryId, outcome: result.type });
       },
       (error: unknown) => {
-        console.error("github_repository_reconcile_failed", {
+        logger.log("error", {
+          event: "github_repository_reconcile_failed",
           deliveryId,
           repositoryId,
           errorName: errorNameOf(error),
@@ -138,7 +151,7 @@ export const createGitHubWebhookRoute = (dependencies: GitHubWebhookRouteDepende
     // 署名検証までの想定外の失敗は、Hono 既定の error handler へ渡さず固定の 500 で返す
     // 署名検証前の payload と event 名は信用できないため、記録するのは形式検証済みの delivery ID と段階、error の name に限る
     const receiveFailed = (stage: "body_read" | "signature_verification", error: unknown) => {
-      console.error("github_webhook_receive_failed", { deliveryId, stage, errorName: errorNameOf(error) });
+      logger.log("error", { event: "github_webhook_receive_failed", deliveryId, stage, errorName: errorNameOf(error) });
       return c.json({ error: "internal error" }, 500);
     };
 

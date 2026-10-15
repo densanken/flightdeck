@@ -1,6 +1,7 @@
 import { AppError } from "../../domain/errors.js";
 import { nowIso } from "../../domain/time.js";
 import { errorDetail } from "../../util/error-detail.js";
+import { logger } from "../../util/logger.js";
 
 import type { RepositoryAdminUsecase, RepositoryReconcileResult } from "./interface.js";
 import type { RegisteredRepository, RepositoryIndex } from "../../domain/repository.js";
@@ -65,7 +66,7 @@ export class RepositoryAdminUsecaseImpl implements RepositoryAdminUsecase {
     try {
       await this.pullRequestListCache.delete(repoId);
     } catch (error) {
-      console.error("pr_list_cache_invalidate_failed", { repoId, error: errorDetail(error) });
+      logger.log("error", { event: "pr_list_cache_invalidate_failed", repoId, error: errorDetail(error) });
     }
     return true;
   }

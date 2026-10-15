@@ -6,10 +6,13 @@ import { RecordingLogger } from "../../test-helper/platform.js";
 import { TitleValidationExecutionError } from "../../usecase/title-validation/errors.js";
 
 describe("logFeatureFailure", () => {
-  it("GitHub の error は body と message を除いた安全な metadata だけを log へ出す", () => {
+  it("GitHub の error は error 自身の message を除き、GitHub の message と必要な権限を含む metadata を log へ出す", () => {
     const logger = new RecordingLogger();
     // GitHub の error body 相当の文字列を message に含めても log へ出ないことを sentinel で検証する
-    const githubError = new GitHubError("GITHUB_API_FAILED", "permission denied", 403, "req-1", "30");
+    const githubError = new GitHubError("GITHUB_API_FAILED", "permission denied", 403, "req-1", "30", {
+      githubMessage: "Resource not accessible by integration",
+      acceptedPermissions: "contents=write",
+    });
 
     logFeatureFailure({ feature: "title-validation", outcome: "failed", error: githubError }, logger, {}, Date.now());
 
@@ -23,6 +26,8 @@ describe("logFeatureFailure", () => {
       githubStatus: 403,
       githubRequestId: "req-1",
       retryAfter: "30",
+      githubMessage: "Resource not accessible by integration",
+      acceptedPermissions: "contents=write",
     });
     expect(JSON.stringify(logger.records)).not.toContain("permission denied");
   });
@@ -42,6 +47,24 @@ describe("logFeatureFailure", () => {
       retryAfter: "10",
     });
     expect(JSON.stringify(logger.records)).not.toContain("leaked github body");
+  });
+
+  it("想定外の例外は message を出さず、型名と stack の先頭 frame で区別できるようにする", () => {
+    const logger = new RecordingLogger();
+    const error = new ReferenceError("payload-derived secret\n    at secret-frame-like-line");
+
+    logFeatureFailure({ feature: "auto-assign", outcome: "failed", error }, logger, {}, Date.now());
+
+    const record = logger.records.at(-1)?.record;
+    expect(record).toMatchObject({
+      result: "internal_error",
+      errorCode: "INTERNAL_ERROR",
+      errorName: "ReferenceError",
+    });
+    expect(record?.errorLocation).toMatch(/^at /);
+    expect(record?.errorLocation).not.toContain("secret-frame-like-line");
+    expect(JSON.stringify(logger.records)).not.toContain("payload-derived secret");
+    expect(JSON.stringify(logger.records)).not.toContain("secret-frame-like-line");
   });
 
   it("設定不備は値を出さず key と reason だけを log へ出す", () => {
@@ -140,6 +163,9 @@ describe("logFeatureResult", () => {
         duplicateCommentsDeleted: 3,
         supersededStatusesCleared: 4,
         supersededSweepFailed: true,
+        supersededSweepError: new GitHubError("GITHUB_API_FAILED", "failed", 403, "req-3", undefined, {
+          githubMessage: "Resource not accessible by integration",
+        }),
       },
       logger,
       {},
@@ -157,6 +183,12 @@ describe("logFeatureResult", () => {
     expect(logger.records[2]?.record.commentCount).toBe(2);
     expect(logger.records[3]?.record.commentCount).toBe(3);
     expect(logger.records[4]?.record.commitCount).toBe(4);
+    expect(logger.records[5]?.record).toMatchObject({
+      errorCode: "GITHUB_API_FAILED",
+      githubStatus: 403,
+      githubRequestId: "req-3",
+      githubMessage: "Resource not accessible by integration",
+    });
     expect(logger.records.every((entry) => entry.record.feature === "title-validation")).toBe(true);
   });
 

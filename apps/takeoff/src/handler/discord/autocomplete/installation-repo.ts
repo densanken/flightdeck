@@ -5,6 +5,7 @@ import { createTimeoutBudget, LOADING_VALUE, REPOSITORY_LIST_LOADING_MESSAGE } f
 import { loadCached } from "./cached-load.js";
 import { parseGitHubRepoUrl } from "./parse-github-url.js";
 import { errorDetail } from "../../../util/error-detail.js";
+import { logger } from "../../../util/logger.js";
 
 import type { Env } from "../../../env.js";
 import type { DiscordDependencies } from "../dependencies.js";
@@ -70,7 +71,7 @@ export const handleRepoAddAutocomplete = async (
     return c.json(autocompleteResponse(choices));
   } catch (error) {
     // 空候補は利用者から障害と区別できないため、運用側が検知できるよう記録する
-    console.error("discord_autocomplete_failed", { label: "repo_add", error: errorDetail(error) });
+    logger.log("error", { event: "discord_autocomplete_failed", label: "repo_add", error: errorDetail(error) });
     return c.json(autocompleteResponse([]));
   }
 };

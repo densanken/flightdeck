@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@flightdeck/github-app-jwt": "workspace:*",
+    "@flightdeck/logger": "workspace:*",
     "@flightdeck/pr-title": "workspace:*",
     "discord-api-types": "^0.38.56",
     "hono": "^4.13.12",

@@ -1,5 +1,10 @@
-export type LogLevel = "debug" | "info" | "warn" | "error";
+import { createLogger as createBaseLogger } from "@flightdeck/logger";
 
+import type { Logger as BaseLogger, LogLevel } from "@flightdeck/logger";
+
+export type { LogLevel };
+
+// preflight の log に載せる field を固定し、field 名の誤記を型で検出する
 export interface LogRecord {
   event: string;
   result?: string;
@@ -21,9 +26,13 @@ export interface LogRecord {
   timedOut?: boolean;
   githubStatus?: number;
   githubRequestId?: string;
+  githubMessage?: string;
+  acceptedPermissions?: string;
   retryAfter?: string;
   durationMs?: number;
   errorCode?: string;
+  errorName?: string;
+  errorLocation?: string;
   configKey?: string;
   configReason?: string;
   headSha?: string;
@@ -31,27 +40,6 @@ export interface LogRecord {
   observedTotalCount?: number;
 }
 
-export interface Logger {
-  log(level: LogLevel, record: LogRecord): void;
-}
+export type Logger = BaseLogger<LogRecord>;
 
-interface LogSink {
-  debug(message: string): void;
-  info(message: string): void;
-  warn(message: string): void;
-  error(message: string): void;
-}
-
-const priorities: Record<LogLevel, number> = {
-  debug: 10,
-  info: 20,
-  warn: 30,
-  error: 40,
-};
-
-export const createLogger = (minimumLevel: LogLevel = "info", sink: LogSink = console): Logger => ({
-  log(level, record) {
-    if (priorities[level] < priorities[minimumLevel]) return;
-    sink[level](JSON.stringify({ level, ...record }));
-  },
-});
+export const createLogger = createBaseLogger<LogRecord>;

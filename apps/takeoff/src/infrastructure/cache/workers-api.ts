@@ -1,4 +1,5 @@
 import { errorDetail } from "../../util/error-detail.js";
+import { logger } from "../../util/logger.js";
 
 import type { z } from "zod";
 
@@ -24,12 +25,12 @@ export const workersCache = {
       const raw: unknown = await response.json();
       const parsed = schema.safeParse(raw);
       if (!parsed.success) {
-        console.error("workers_cache_value_invalid", { key, issueCount: parsed.error.issues.length });
+        logger.log("error", { event: "workers_cache_value_invalid", key, issueCount: parsed.error.issues.length });
         return null;
       }
       return parsed.data;
     } catch (error) {
-      console.error("workers_cache_get_failed", { error: errorDetail(error) });
+      logger.log("error", { event: "workers_cache_get_failed", error: errorDetail(error) });
       return null;
     }
   },
@@ -45,7 +46,7 @@ export const workersCache = {
       });
       await cache.put(new Request(key), response);
     } catch (error) {
-      console.error("workers_cache_set_failed", { error: errorDetail(error) });
+      logger.log("error", { event: "workers_cache_set_failed", error: errorDetail(error) });
     }
   },
 
@@ -54,7 +55,7 @@ export const workersCache = {
       const cache = await openCache();
       await cache.delete(new Request(key));
     } catch (error) {
-      console.error("workers_cache_delete_failed", { error: errorDetail(error) });
+      logger.log("error", { event: "workers_cache_delete_failed", error: errorDetail(error) });
     }
   },
 };

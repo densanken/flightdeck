@@ -1,4 +1,5 @@
 import { escapeDiscordMarkdownLinkText, inlineCode } from "../../util/discord-markdown.js";
+import { logger } from "../../util/logger.js";
 import { truncateText } from "../../util/truncate.js";
 
 import type { MergeAuditNotifier, MergeAuditPayload } from "../../usecase/merge/interface.js";
@@ -54,7 +55,7 @@ export const notifyMergeAudit = async (webhookUrl: string, payload: MergeAuditPa
   });
 
   if (!response.ok) {
-    console.error("merge_audit_webhook_http_error", { status: response.status });
+    logger.log("error", { event: "merge_audit_webhook_http_error", status: response.status });
   }
 };
 

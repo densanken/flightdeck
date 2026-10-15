@@ -1,5 +1,5 @@
 import { failureErrorCode } from "./feature-result.js";
-import { logFeatureFailure, logFeatureResult, policyLog } from "./logging.js";
+import { githubErrorFields, logFeatureFailure, logFeatureResult, policyLog, unexpectedErrorFields } from "./logging.js";
 import { triggersTitleValidation } from "../../domain/webhook-actions.js";
 import { AppError, ConfigurationError } from "../../errors.js";
 
@@ -114,6 +114,7 @@ const postPendingTitleStatus = async (
     policyLog(dependencies.logger, "warn", "pending_status_failed", context, startedAt, "title-validation", {
       errorCode: error instanceof Error ? error.name : "unknown_error",
       timedOut: pendingSignal.aborted,
+      ...githubErrorFields(error),
     });
   }
 };
@@ -196,6 +197,8 @@ export const createGitHubWebhookProcessor =
         errorCode: appError?.code ?? "INTERNAL_ERROR",
         configKey: configurationError?.configKey,
         configReason: configurationError?.reason,
+        ...githubErrorFields(error),
+        ...unexpectedErrorFields(error),
       });
       return { status: "failed", errorCode: appError?.code ?? "INTERNAL_ERROR" };
     }

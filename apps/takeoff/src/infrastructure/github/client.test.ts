@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { GitHubClientImpl, GitHubError, createGitHubResponseError } from "./client.js";
+import { logger } from "../../util/logger.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -102,6 +103,28 @@ describe("createGitHubResponseError - 認証・認可エラー", () => {
 
     expect(error.type).toBe("github_app_permission_missing");
     expect(error.statusCode).toBe(503);
+  });
+
+  it("失敗した response の status と GitHub の message、必要な権限を記録する", async () => {
+    const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {
+      // この test では log の出力を意図的に抑止する
+    });
+    const response = jsonResponse(
+      { message: "Resource not accessible by integration", documentation_url: "https://docs.github.com/rest" },
+      403,
+      { "X-GitHub-Request-Id": "request-id", "X-Accepted-GitHub-Permissions": "contents=write" }
+    );
+
+    await createGitHubResponseError(response, "mergePullRequest org/repo#1", "pr_not_found");
+
+    expect(logSpy).toHaveBeenCalledWith("warn", {
+      event: "github_api_failed",
+      context: "mergePullRequest org/repo#1",
+      githubStatus: 403,
+      githubRequestId: "request-id",
+      acceptedPermissions: "contents=write",
+      githubMessage: "Resource not accessible by integration",
+    });
   });
 
   it("Rules API を private repository で使えない 403 は権限不足に誤分類しない", async () => {
@@ -456,14 +479,26 @@ describe("GitHubClientImpl - approveWorkflowRun", () => {
     expect(result).toBe(true);
   });
 
-  it("status 403 で false を返す", async () => {
+  it("status 403 で false を返し、GitHub が承認を拒否した理由を記録する", async () => {
+    const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {
+      // この test では log の出力を意図的に抑止する
+    });
     const mockFetcher = vi.fn<typeof fetch>();
     const client = new GitHubClientImpl(mockFetcher);
-    mockFetcher.mockResolvedValueOnce(new Response("Forbidden", { status: 403 }));
+    mockFetcher.mockResolvedValueOnce(jsonResponse({ message: "This run is not waiting for approval" }, 403));
 
     const result = await client.approveWorkflowRun("token", "org", "repo", 1);
 
     expect(result).toBe(false);
+    expect(logSpy).toHaveBeenCalledWith(
+      "warn",
+      expect.objectContaining({
+        event: "github_api_failed",
+        context: "approveWorkflowRun org/repo#1",
+        githubStatus: 403,
+        githubMessage: "This run is not waiting for approval",
+      })
+    );
   });
 
   it("その他のステータスで GitHubError を投げる", async () => {
@@ -529,8 +564,8 @@ describe("GitHubClientImpl - listActionRequiredRuns", () => {
       actor: { login: "user" },
     }));
     mockFetcher.mockResolvedValueOnce(jsonResponse({ total_count: 101, workflow_runs: workflowRuns }));
-    vi.spyOn(console, "error").mockImplementation(() => {
-      // この test では console.error の出力を意図的に抑止する
+    vi.spyOn(logger, "log").mockImplementation(() => {
+      // この test では log の出力を意図的に抑止する
     });
 
     await expect(client.listActionRequiredRuns("token", "org", "repo", "abc123")).rejects.toMatchObject({

@@ -6,6 +6,7 @@ import { composeGitHubWebhookDependencies } from "../../composition/github.js";
 import { composeDependencyGraph } from "../../composition/shared.js";
 import { githubAppAuth } from "../../infrastructure/github/app-auth.js";
 import { verifyGitHubWebhookSignature } from "../../infrastructure/github/webhook-signature.js";
+import { logger } from "../../util/logger.js";
 
 import type { GitHubWebhookRouteDependencies } from "./webhook.js";
 import type { Env } from "../../env.js";
@@ -215,8 +216,8 @@ describe("GitHub webhook handler", () => {
 
   it("workflow_run の schema 不一致は 200 で受理し payload を混入させず autoApprove も呼ばない", async () => {
     mockedVerify.mockResolvedValue(true);
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {
-      // この test では console.error の出力を意図的に抑止する
+    const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {
+      // この test では log の出力を意図的に抑止する
     });
     const env = createMockEnv();
     const sentinel = "LEAK_SENTINEL_9f3a";
@@ -226,20 +227,20 @@ describe("GitHub webhook handler", () => {
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({ ok: true });
-    const invalidCalls = consoleErrorSpy.mock.calls.filter((call) => call[0] === "github_webhook_payload_invalid");
+    const invalidCalls = logSpy.mock.calls.filter((call) => call[1].event === "github_webhook_payload_invalid");
     expect(invalidCalls).toHaveLength(1);
-    const detail = invalidCalls[0]?.[1] as { event: string; issueCount: number };
-    expect(detail.event).toBe("workflow_run");
-    expect(detail.issueCount).toBeGreaterThan(0);
+    const detail = invalidCalls[0]?.[1];
+    expect(detail?.githubEvent).toBe("workflow_run");
+    expect(detail?.issueCount).toBeGreaterThan(0);
     expect(mockedAutoApprove).not.toHaveBeenCalled();
     // ZodError（payload 由来の値）はログへ乗せない
-    expect(JSON.stringify(consoleErrorSpy.mock.calls)).not.toContain(sentinel);
+    expect(JSON.stringify(logSpy.mock.calls)).not.toContain(sentinel);
   });
 
   it("repository の schema 不一致は 200 で受理し KV を書かず payload も混入させない", async () => {
     mockedVerify.mockResolvedValue(true);
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {
-      // この test では console.error の出力を意図的に抑止する
+    const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {
+      // この test では log の出力を意図的に抑止する
     });
     const env = createMockEnv();
     const sentinel = "LEAK_SENTINEL_repo";
@@ -251,13 +252,13 @@ describe("GitHub webhook handler", () => {
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({ ok: true });
-    const invalidCalls = consoleErrorSpy.mock.calls.filter((call) => call[0] === "github_webhook_payload_invalid");
+    const invalidCalls = logSpy.mock.calls.filter((call) => call[1].event === "github_webhook_payload_invalid");
     expect(invalidCalls).toHaveLength(1);
-    const detail = invalidCalls[0]?.[1] as { event: string; issueCount: number };
-    expect(detail.event).toBe("repository");
-    expect(detail.issueCount).toBeGreaterThan(0);
+    const detail = invalidCalls[0]?.[1];
+    expect(detail?.githubEvent).toBe("repository");
+    expect(detail?.issueCount).toBeGreaterThan(0);
     expect(kvPutMock(env)).not.toHaveBeenCalled();
-    expect(JSON.stringify(consoleErrorSpy.mock.calls)).not.toContain(sentinel);
+    expect(JSON.stringify(logSpy.mock.calls)).not.toContain(sentinel);
   });
 
   it("X-GitHub-Event が workflow_run 以外で 200 を返す", async () => {
@@ -369,8 +370,8 @@ describe("GitHub webhook handler", () => {
     const secret = "github_pat_secret";
     mockedVerify.mockResolvedValue(true);
     mockedAutoApprove.mockRejectedValue(new Error(secret));
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {
-      // この test では console.error の出力を意図的に抑止する
+    const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {
+      // この test では log の出力を意図的に抑止する
     });
     const env = createMockEnv();
 
@@ -378,12 +379,13 @@ describe("GitHub webhook handler", () => {
 
     expect((await response).status).toBe(200);
     await waitUntilSettled();
-    expect(consoleErrorSpy).toHaveBeenCalledWith("github_webhook_auto_approve_failed", {
+    expect(logSpy).toHaveBeenCalledWith("error", {
+      event: "github_webhook_auto_approve_failed",
       repositoryId: "1",
       runId: 100,
       errorName: "Error",
     });
-    expect(JSON.stringify(consoleErrorSpy.mock.calls)).not.toContain(secret);
+    expect(JSON.stringify(logSpy.mock.calls)).not.toContain(secret);
   });
 
   it("repository renamed は payload 座標でなく repository ID の GitHub 最新 C へ収束する", async () => {
@@ -608,8 +610,8 @@ describe("GitHub webhook handler", () => {
     mockedVerify.mockResolvedValue(true);
     vi.spyOn(githubAppAuth, "getAuthenticatedToken").mockResolvedValue("installation-token");
     vi.spyOn(globalThis, "fetch").mockResolvedValue(githubResponse);
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {
-      // この test では console.error の出力を意図的に抑止する
+    const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {
+      // この test では log の出力を意図的に抑止する
     });
     const env = createMockEnv();
     kvGetMock(env).mockResolvedValue({
@@ -640,7 +642,8 @@ describe("GitHub webhook handler", () => {
 
     expect((await response).status).toBe(200);
     await waitUntilSettled();
-    expect(consoleErrorSpy).toHaveBeenCalledWith("github_repository_reconcile_failed", {
+    expect(logSpy).toHaveBeenCalledWith("error", {
+      event: "github_repository_reconcile_failed",
       deliveryId: "delivery-1",
       repositoryId: "1",
       errorName: "GitHubError",
@@ -679,8 +682,8 @@ describe("GitHub webhook handler", () => {
 
   it("KV の登録値が壊れているときは auto-approve の失敗として記録する", async () => {
     mockedVerify.mockResolvedValue(true);
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {
-      // この test では console.error の出力を意図的に抑止する
+    const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {
+      // この test では log の出力を意図的に抑止する
     });
     const env = createMockEnv();
     kvGetMock(env).mockResolvedValue({ repoId: "1", broken: true });
@@ -689,7 +692,8 @@ describe("GitHub webhook handler", () => {
 
     expect((await response).status).toBe(200);
     await waitUntilSettled();
-    expect(consoleErrorSpy).toHaveBeenCalledWith("github_webhook_auto_approve_failed", {
+    expect(logSpy).toHaveBeenCalledWith("error", {
+      event: "github_webhook_auto_approve_failed",
       repositoryId: "1",
       runId: 100,
       errorName: "Error",
@@ -697,8 +701,8 @@ describe("GitHub webhook handler", () => {
   });
 
   it("署名検証が例外を投げたら固定の 500 を返し、delivery ID と段階を記録する", async () => {
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {
-      // この test では console.error の出力を意図的に抑止する
+    const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {
+      // この test では log の出力を意図的に抑止する
     });
     mockedVerify.mockRejectedValue(new TypeError("verifier broken"));
     const env = createMockEnv();
@@ -708,7 +712,8 @@ describe("GitHub webhook handler", () => {
 
     expect(res.status).toBe(500);
     await expect(res.json()).resolves.toEqual({ error: "internal error" });
-    expect(consoleErrorSpy).toHaveBeenCalledWith("github_webhook_receive_failed", {
+    expect(logSpy).toHaveBeenCalledWith("error", {
+      event: "github_webhook_receive_failed",
       deliveryId: "delivery-1",
       stage: "signature_verification",
       errorName: "TypeError",
@@ -716,8 +721,8 @@ describe("GitHub webhook handler", () => {
   });
 
   it("body の読み取りが例外を投げたら固定の 500 を返し、delivery ID と段階を記録する", async () => {
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {
-      // この test では console.error の出力を意図的に抑止する
+    const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {
+      // この test では log の出力を意図的に抑止する
     });
     vi.spyOn(Request.prototype, "arrayBuffer").mockRejectedValue(new TypeError("stream broken"));
     const env = createMockEnv();
@@ -727,7 +732,8 @@ describe("GitHub webhook handler", () => {
 
     expect(res.status).toBe(500);
     await expect(res.json()).resolves.toEqual({ error: "internal error" });
-    expect(consoleErrorSpy).toHaveBeenCalledWith("github_webhook_receive_failed", {
+    expect(logSpy).toHaveBeenCalledWith("error", {
+      event: "github_webhook_receive_failed",
       deliveryId: "delivery-1",
       stage: "body_read",
       errorName: "TypeError",

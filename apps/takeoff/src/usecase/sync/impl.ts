@@ -1,6 +1,7 @@
 import { errors } from "../../domain/errors.js";
 import { nowIso } from "../../domain/time.js";
 import { errorDetail } from "../../util/error-detail.js";
+import { logger } from "../../util/logger.js";
 
 import type { SyncUsecase } from "./interface.js";
 import type { CachedPullRequestList } from "../../domain/pull-request.js";
@@ -34,7 +35,11 @@ export class SyncUsecaseImpl implements SyncUsecase {
     } catch (error) {
       // warming に失敗したら cooldown を解除し、すぐ再試行できるようにする
       await this.syncCooldownCache.delete(repo.repoId).catch((deleteError: unknown) => {
-        console.error("sync_cooldown_clear_failed", { repoId: repo.repoId, error: errorDetail(deleteError) });
+        logger.log("error", {
+          event: "sync_cooldown_clear_failed",
+          repoId: repo.repoId,
+          error: errorDetail(deleteError),
+        });
       });
       throw error;
     }

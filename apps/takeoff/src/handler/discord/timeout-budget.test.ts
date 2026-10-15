@@ -8,12 +8,13 @@ import {
   warmInBackground,
 } from "./timeout-budget.js";
 import { AppError } from "../../domain/errors.js";
+import { logger } from "../../util/logger.js";
 
 import type { Env } from "../../env.js";
 import type { Context } from "hono";
 
 const silenceConsole = (): void => {
-  vi.spyOn(console, "warn").mockImplementation(() => {
+  vi.spyOn(logger, "log").mockImplementation(() => {
     // 超過の記録はここでは検証しない
   });
 };
@@ -72,13 +73,16 @@ describe("loadWithTimeout", () => {
   });
 
   it("制限時間を超えたことを label 付きで記録する", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {
+    const warn = vi.spyOn(logger, "log").mockImplementation(() => {
       // 記録内容だけを検証する
     });
 
     await loadWithTimeout(() => new Promise<string>(() => undefined), 0, "repository_index");
 
-    expect(warn).toHaveBeenCalledWith("discord_autocomplete_budget_exceeded", { label: "repository_index" });
+    expect(warn).toHaveBeenCalledWith("warn", {
+      event: "discord_autocomplete_budget_exceeded",
+      label: "repository_index",
+    });
   });
 
   it("timeout 前の失敗はそのまま呼び出し側へ投げる", async () => {
@@ -135,7 +139,7 @@ describe("warmInBackground", () => {
     }) as unknown as Context<Env>;
 
   it("warming の失敗を label 付きで記録する", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {
+    const warn = vi.spyOn(logger, "log").mockImplementation(() => {
       // 記録内容だけを検証する
     });
     const promises: Promise<unknown>[] = [];
@@ -143,7 +147,8 @@ describe("warmInBackground", () => {
     warmInBackground(createContext(promises), "repository_index", Promise.reject(new Error("boom")));
     await Promise.all(promises);
 
-    expect(warn).toHaveBeenCalledWith("discord_autocomplete_warming_failed", {
+    expect(warn).toHaveBeenCalledWith("warn", {
+      event: "discord_autocomplete_warming_failed",
       label: "repository_index",
       error: "Error: boom",
     });

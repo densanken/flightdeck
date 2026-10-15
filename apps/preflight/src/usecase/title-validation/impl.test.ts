@@ -358,6 +358,7 @@ describe("ValidatePullRequestTitleUseCaseImpl", () => {
       duplicateCommentsDeleted: 0,
       supersededStatusesCleared: 1,
       supersededSweepFailed: true,
+      supersededSweepError: new Error("status write failed"),
     });
   });
 
@@ -376,6 +377,7 @@ describe("ValidatePullRequestTitleUseCaseImpl", () => {
       duplicateCommentsDeleted: 0,
       supersededStatusesCleared: 2,
       supersededSweepFailed: true,
+      supersededSweepError: new Error("confirmation failed"),
     });
   });
 
@@ -392,6 +394,7 @@ describe("ValidatePullRequestTitleUseCaseImpl", () => {
       duplicateCommentsDeleted: 0,
       supersededStatusesCleared: 0,
       supersededSweepFailed: true,
+      supersededSweepError: new Error("graphql down"),
     });
   });
 

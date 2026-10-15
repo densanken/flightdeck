@@ -1,7 +1,55 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { appendLinesWithinLimit, getJapaneseErrorMessage, parsePrNumber } from "./helpers.js";
+import { appendLinesWithinLimit, getJapaneseErrorMessage, logCommandError, parsePrNumber } from "./helpers.js";
 import { AppError, errors } from "../../domain/errors.js";
+import { logger } from "../../util/logger.js";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("logCommandError", () => {
+  it("AppError は想定内の失敗として種別と詳細を warn で記録する", () => {
+    const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {
+      // この test では log の出力を意図的に抑止する
+    });
+
+    logCommandError("merge", errors.prNotFound());
+
+    expect(logSpy).toHaveBeenCalledWith(
+      "warn",
+      expect.objectContaining({ event: "discord_command_failed", command: "merge", errorType: "pr_not_found" })
+    );
+  });
+
+  it("外部サービスの障害を示す AppError は error で記録する", () => {
+    const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {
+      // この test では log の出力を意図的に抑止する
+    });
+
+    logCommandError("merge", errors.unexpectedGithubError("GitHub API error 500"));
+
+    expect(logSpy).toHaveBeenCalledWith(
+      "error",
+      expect.objectContaining({ event: "discord_command_failed", errorType: "unexpected_github_error" })
+    );
+  });
+
+  it("AppError 以外の例外は実装の不具合として error で記録する", () => {
+    const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {
+      // この test では log の出力を意図的に抑止する
+    });
+
+    logCommandError("merge", new TypeError("broken"));
+
+    expect(logSpy).toHaveBeenCalledWith("error", {
+      event: "discord_command_failed",
+      command: "merge",
+      errorType: undefined,
+      error: "TypeError: broken",
+    });
+  });
+});
 
 describe("getJapaneseErrorMessage", () => {
   const cases: { name: string; error: AppError; expected: string }[] = [

@@ -1,7 +1,8 @@
 import { errors } from "../../../domain/errors.js";
 import { escapeDiscordMarkdownLinkText, inlineCode } from "../../../util/discord-markdown.js";
+import { withLogContext } from "../../../util/logger.js";
 import { editDeferredResponse, editDeferredWithError } from "../followup.js";
-import { getJapaneseErrorMessage, getStringOption, resolveRepo } from "../helpers.js";
+import { getJapaneseErrorMessage, logCommandError, getStringOption, resolveRepo } from "../helpers.js";
 import { deferredEphemeral, deferredMessageUpdate } from "../interaction-response.js";
 import { buildPaginatedEmbed, parseRequestedPage } from "../pagination.js";
 
@@ -44,16 +45,17 @@ export const handlePulls = (
   const repoId = getStringOption(interaction.data.options, "repo");
 
   c.executionCtx.waitUntil(
-    (async () => {
+    withLogContext({ repoId }, async () => {
       try {
         if (!repoId) throw errors.invalidRequest("repo が指定されていません。");
 
         const page = await loadPullsPage(deps, repoId, 0);
         await editDeferredResponse(c.env.DISCORD_APPLICATION_ID, interaction.token, page.embed, page.components);
       } catch (error) {
+        logCommandError("pulls", error);
         await editDeferredWithError(c.env.DISCORD_APPLICATION_ID, interaction.token, getJapaneseErrorMessage(error));
       }
-    })()
+    })
   );
 
   return c.json(deferredEphemeral());
@@ -67,11 +69,11 @@ export const handlePullsPage = (
   interaction: APIMessageComponentInteraction,
   deps: DiscordDependencies
 ): Response => {
+  const repoId = interaction.data.custom_id.split(":").at(-3);
+
   c.executionCtx.waitUntil(
-    (async () => {
+    withLogContext({ repoId }, async () => {
       try {
-        const parts = interaction.data.custom_id.split(":");
-        const repoId = parts.at(-3);
         if (!repoId) throw errors.invalidRequest("リポジトリを特定できません。");
 
         const page = await loadPullsPage(deps, repoId, parseRequestedPage(interaction.data.custom_id));
@@ -79,9 +81,10 @@ export const handlePullsPage = (
       } catch (error) {
         // components を送らないため既存のページ送りボタンは残る
         // 一時的な失敗をそのまま押し直せる
+        logCommandError("pulls_page", error);
         await editDeferredWithError(c.env.DISCORD_APPLICATION_ID, interaction.token, getJapaneseErrorMessage(error));
       }
-    })()
+    })
   );
 
   return c.json(deferredMessageUpdate());

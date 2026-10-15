@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleRepoAddAutocomplete } from "./installation-repo.js";
 import { handlePrAutocomplete } from "./pr.js";
 import { handleRepoAutocomplete } from "./repo.js";
+import { logger } from "../../../util/logger.js";
 import { resetSingleFlight } from "../single-flight.js";
 import { AUTOCOMPLETE_TIMEOUT_MS, LOADING_VALUE } from "../timeout-budget.js";
 
@@ -87,7 +88,7 @@ beforeEach(() => {
   waitUntilPromises = [];
   // in-flight は isolate 内で共有されるため、前の test の warming を持ち越さない
   resetSingleFlight();
-  vi.spyOn(console, "warn").mockImplementation(() => {
+  vi.spyOn(logger, "log").mockImplementation(() => {
     // 超過の記録は timeout-budget.test.ts で検証する
   });
 });
@@ -179,7 +180,7 @@ describe("handleRepoAutocomplete", () => {
   });
 
   it("読み込みの失敗を記録して空候補へ degrade する", async () => {
-    const error = vi.spyOn(console, "error").mockImplementation(() => {
+    const error = vi.spyOn(logger, "log").mockImplementation(() => {
       // 記録内容だけを検証する
     });
     const deps = {
@@ -192,7 +193,8 @@ describe("handleRepoAutocomplete", () => {
     const res = await handleRepoAutocomplete(createContext(), "", deps);
 
     expect(bodyOf(res).data.choices).toEqual([]);
-    expect(error).toHaveBeenCalledWith("discord_autocomplete_failed", {
+    expect(error).toHaveBeenCalledWith("error", {
+      event: "discord_autocomplete_failed",
       label: "repo",
       error: "Error: cache down",
     });
@@ -295,7 +297,7 @@ describe("handlePrAutocomplete", () => {
   });
 
   it("PR 一覧の読み込みの失敗を記録して空候補へ degrade する", async () => {
-    const error = vi.spyOn(console, "error").mockImplementation(() => {
+    const error = vi.spyOn(logger, "log").mockImplementation(() => {
       // 記録内容だけを検証する
     });
     const deps = {
@@ -308,7 +310,8 @@ describe("handlePrAutocomplete", () => {
     const res = await handlePrAutocomplete(createContext(), "repo-1", "", deps);
 
     expect(bodyOf(res).data.choices).toEqual([]);
-    expect(error).toHaveBeenCalledWith("discord_autocomplete_failed", {
+    expect(error).toHaveBeenCalledWith("error", {
+      event: "discord_autocomplete_failed",
       label: "pr",
       error: "Error: pr list down",
     });
@@ -403,7 +406,7 @@ describe("handleRepoAddAutocomplete", () => {
   });
 
   it("installation 一覧の読み込みの失敗を記録して空候補へ degrade する", async () => {
-    const error = vi.spyOn(console, "error").mockImplementation(() => {
+    const error = vi.spyOn(logger, "log").mockImplementation(() => {
       // 記録内容だけを検証する
     });
     const deps = {
@@ -415,7 +418,8 @@ describe("handleRepoAddAutocomplete", () => {
     const res = await handleRepoAddAutocomplete(createContext(), "", deps);
 
     expect(bodyOf(res).data.choices).toEqual([]);
-    expect(error).toHaveBeenCalledWith("discord_autocomplete_failed", {
+    expect(error).toHaveBeenCalledWith("error", {
+      event: "discord_autocomplete_failed",
       label: "repo_add",
       error: "Error: installation cache down",
     });

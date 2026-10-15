@@ -13,6 +13,7 @@ import {
   toGitHubRequiredStatusChecks,
 } from "./types.js";
 import { AppError } from "../../domain/errors.js";
+import { logger } from "../../util/logger.js";
 
 import type { AppErrorType } from "../../domain/errors.js";
 import type {
@@ -64,24 +65,45 @@ const readResponseText = async (response: Response): Promise<string> => {
   }
 };
 
-const readGitHubErrorMessage = (body: string): string => {
+const parseGitHubErrorMessage = (body: string): string | undefined => {
   try {
     const parsed = JSON.parse(body) as { message?: unknown };
-    if (typeof parsed.message === "string") return parsed.message;
+    return typeof parsed.message === "string" ? parsed.message : undefined;
   } catch {
-    // JSON として解釈できない場合は response body をそのまま message として扱う
+    return undefined;
   }
+};
+
+// 失敗した GitHub API の response body を読み、切り分けに必要な metadata を記録して body を返す
+// body 全体は PR の内容などを含みうるため、GitHub が生成する top-level の message だけを記録する
+const readGitHubFailure = async (response: Response, errorContext: string): Promise<string> => {
+  const body = await readResponseText(response);
+  // 5xx と認証失敗は GitHub 側か App の設定の障害なので error、それ以外は呼び出し元が扱う失敗として warn にする
+  logger.log(response.status >= 500 || response.status === 401 ? "error" : "warn", {
+    event: "github_api_failed",
+    context: errorContext,
+    githubStatus: response.status,
+    githubRequestId: response.headers.get("x-github-request-id") ?? undefined,
+    githubMessage: parseGitHubErrorMessage(body),
+    acceptedPermissions: response.headers.get("x-accepted-github-permissions") ?? undefined,
+  });
   return body;
 };
 
-const createMergeMethodNotAllowedError = async (response: Response): Promise<GitHubError> => {
-  const body = await readResponseText(response);
-  const message = readGitHubErrorMessage(body);
-  const normalized = message.toLowerCase();
+const createMergeMethodNotAllowedError = async (response: Response, errorContext: string): Promise<GitHubError> => {
+  const body = await readGitHubFailure(response, errorContext);
+  const message = parseGitHubErrorMessage(body);
+  // JSON として解釈できない場合は response body 全体で分類する
+  const normalized = (message ?? body).toLowerCase();
   if (normalized.includes("merge conflict") || normalized.includes("not mergeable")) {
     return new GitHubError("merge_conflict", "Pull request is not mergeable", 409);
   }
-  return new GitHubError("merge_blocked", `Pull request merge was rejected by GitHub: ${message}`, 409);
+  // error の message は log に残るため、body 全体ではなく GitHub の message だけを載せる
+  return new GitHubError(
+    "merge_blocked",
+    `Pull request merge was rejected by GitHub: ${message ?? "unknown reason"}`,
+    409
+  );
 };
 
 export const createGitHubResponseError = async (
@@ -89,7 +111,7 @@ export const createGitHubResponseError = async (
   errorContext: string,
   notFoundType: AppErrorType
 ): Promise<GitHubError> => {
-  const body = (await readResponseText(response)).toLowerCase();
+  const body = (await readGitHubFailure(response, errorContext)).toLowerCase();
   const remaining = response.headers.get("x-ratelimit-remaining");
   const isRateLimited =
     response.status === 429 || remaining === "0" || response.headers.has("retry-after") || body.includes("rate limit");
@@ -252,7 +274,8 @@ export class GitHubClientImpl implements GitHubClient {
     if (data.total_count > data.check_runs.length) {
       // 呼び出し元（merge, status usecase）は error message をそのまま Discord へ出さないため、
       // 詳細はここで log へ残す
-      console.error("github_check_runs_exceed_single_page", {
+      logger.log("error", {
+        event: "github_check_runs_exceed_single_page",
         owner,
         repo,
         ref,
@@ -296,7 +319,8 @@ export class GitHubClientImpl implements GitHubClient {
     if (data.total_count > data.statuses.length) {
       // 呼び出し元（merge, status usecase）は error message をそのまま Discord へ出さないため、
       // 詳細はここで log へ残す
-      console.error("github_combined_status_exceed_single_page", {
+      logger.log("error", {
+        event: "github_combined_status_exceed_single_page",
         owner,
         repo,
         ref,
@@ -394,19 +418,16 @@ export class GitHubClientImpl implements GitHubClient {
       }
     );
 
+    const errorContext = `mergePullRequest ${owner}/${repo}#${String(number)}`;
     if (response.status === 409) {
+      await readGitHubFailure(response, errorContext);
       throw new GitHubError("head_sha_changed", "Head SHA has changed", 409);
     }
     if (response.status === 405) {
-      throw await createMergeMethodNotAllowedError(response);
+      throw await createMergeMethodNotAllowedError(response, errorContext);
     }
 
-    const result = await parseResponse(
-      response,
-      gitHubMergeResponseSchema,
-      `mergePullRequest ${owner}/${repo}#${String(number)}`,
-      "pr_not_found"
-    );
+    const result = await parseResponse(response, gitHubMergeResponseSchema, errorContext, "pr_not_found");
     if (!result.merged) {
       throw new GitHubError("merge_conflict", "GitHub did not merge the pull request", 409);
     }
@@ -438,12 +459,12 @@ export class GitHubClientImpl implements GitHubClient {
       }
     );
     if (response.status === 201) return true;
-    if (response.status === 403) return false;
-    throw await createGitHubResponseError(
-      response,
-      `approveWorkflowRun ${owner}/${repo}#${String(runId)}`,
-      "unexpected_github_error"
-    );
+    const errorContext = `approveWorkflowRun ${owner}/${repo}#${String(runId)}`;
+    if (response.status === 403) {
+      await readGitHubFailure(response, errorContext);
+      return false;
+    }
+    throw await createGitHubResponseError(response, errorContext, "unexpected_github_error");
   }
 
   async listActionRequiredRuns(
@@ -469,7 +490,8 @@ export class GitHubClientImpl implements GitHubClient {
       "unexpected_github_error"
     );
     if (data.total_count > data.workflow_runs.length) {
-      console.error("github_action_required_runs_exceed_single_page", {
+      logger.log("error", {
+        event: "github_action_required_runs_exceed_single_page",
         owner,
         repo,
         headSha,

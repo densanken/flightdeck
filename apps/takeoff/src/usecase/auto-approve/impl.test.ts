@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AutoApproveUsecaseImpl } from "./impl.js";
 import { MockRegisteredRepositoryStore } from "../../repository/kv/impl.mock.js";
+import { logger } from "../../util/logger.js";
 import { MockGitHubClient } from "../github.mock.js";
 
 let mockClient: MockGitHubClient;
@@ -101,6 +102,25 @@ describe("approveActionRequiredRuns", () => {
     const result = await usecase.approveActionRequiredRuns("token", "owner", "repo", "abc123");
 
     expect(result.approved).toHaveLength(0);
+  });
+
+  it("承認した run を対象と run ID 付きで記録する", async () => {
+    const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {
+      // この test では log の出力を意図的に抑止する
+    });
+    mockClient.orgMembers.add("alice");
+    mockClient.workflowRuns = [{ id: 1, name: "CI", status: "action_required", actor: { login: "alice" } }];
+
+    await usecase.approveActionRequiredRuns("token", "owner", "repo", "sha123");
+
+    expect(logSpy).toHaveBeenCalledWith("info", {
+      event: "workflow_run_approved",
+      repository: "owner/repo",
+      headSha: "sha123",
+      runId: 1,
+      runName: "CI",
+      actorLogin: "alice",
+    });
   });
 
   it("org メンバーの run だけを承認する", async () => {

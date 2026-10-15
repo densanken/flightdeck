@@ -1,6 +1,8 @@
 import { ApplicationCommandOptionType } from "./constants.js";
 import { assertNotLoadingSentinel } from "./timeout-budget.js";
 import { AppError, errors } from "../../domain/errors.js";
+import { errorDetail } from "../../util/error-detail.js";
+import { logger } from "../../util/logger.js";
 
 import type { DiscordDependencies } from "./dependencies.js";
 import type { AppErrorType } from "../../domain/errors.js";
@@ -77,6 +79,26 @@ export const hasAdminRole = (
   if (!interaction.member) return false;
   const memberRoles = interaction.member.roles;
   return adminRoleIds.some((roleId) => memberRoles.includes(roleId));
+};
+
+// 利用者には日本語の message だけを返すため、切り分けに使う error の種別と詳細は別に記録する
+// 外部サービスや App の設定の障害で、利用者が操作をやり直しても解決しない error type
+const failureErrorTypes = new Set<AppErrorType>([
+  "unexpected_github_error",
+  "unexpected_discord_error",
+  "github_app_permission_missing",
+  "github_rate_limited",
+]);
+
+// 利用者の入力や PR の状態による想定内の失敗は warn、障害と想定外の例外は error にする
+export const logCommandError = (command: string, err: unknown): void => {
+  const expected = err instanceof AppError && !failureErrorTypes.has(err.type);
+  logger.log(expected ? "warn" : "error", {
+    event: "discord_command_failed",
+    command,
+    errorType: err instanceof AppError ? err.type : undefined,
+    error: errorDetail(err),
+  });
 };
 
 export const getJapaneseErrorMessage = (err: unknown): string => {

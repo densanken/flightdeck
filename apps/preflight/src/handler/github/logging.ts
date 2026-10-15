@@ -26,6 +26,34 @@ export const policyLog = (
   });
 };
 
+// GitHub API の失敗を切り分けるための metadata を、GitHubError 以外では空にして返す
+export const githubErrorFields = (
+  error: unknown
+): Pick<LogRecord, "githubStatus" | "githubRequestId" | "retryAfter" | "githubMessage" | "acceptedPermissions"> =>
+  error instanceof GitHubError
+    ? {
+        githubStatus: error.githubStatus,
+        githubRequestId: error.githubRequestId,
+        retryAfter: error.retryAfter,
+        githubMessage: error.githubMessage,
+        acceptedPermissions: error.acceptedPermissions,
+      }
+    : {};
+
+// 想定外の例外は message に payload 由来の値が乗りうるため、型名と stack の先頭 frame だけを残す
+export const unexpectedErrorFields = (error: unknown): Pick<LogRecord, "errorName" | "errorLocation"> =>
+  error instanceof Error && !(error instanceof AppError)
+    ? {
+        errorName: error.name,
+        // stack の先頭は "name: message" で message が複数行にわたることがあるため、その行数分を飛ばして探す
+        errorLocation: error.stack
+          ?.split("\n")
+          .slice(error.message.split("\n").length)
+          .find((line) => line.trimStart().startsWith("at "))
+          ?.trim(),
+      }
+    : {};
+
 export const logFeatureFailure = (
   featureResult: Extract<FeatureResult, { outcome: "failed" }>,
   logger: Logger,
@@ -34,7 +62,6 @@ export const logFeatureFailure = (
 ): void => {
   const error = underlyingError(featureResult.error);
   const appError = error instanceof AppError ? error : undefined;
-  const githubError = error instanceof GitHubError ? error : undefined;
   const configurationError = error instanceof ConfigurationError ? error : undefined;
   const result =
     featureResult.error instanceof TitleValidationExecutionError
@@ -48,9 +75,8 @@ export const logFeatureFailure = (
     errorCode: appError?.code ?? "INTERNAL_ERROR",
     configKey: configurationError?.configKey,
     configReason: configurationError?.reason,
-    githubStatus: githubError?.githubStatus,
-    githubRequestId: githubError?.githubRequestId,
-    retryAfter: githubError?.retryAfter,
+    ...githubErrorFields(error),
+    ...unexpectedErrorFields(error),
   });
 };
 
@@ -91,6 +117,10 @@ export const logFeatureResult = (
   // gate は head commit の status で決まるため、掃除の失敗は delivery を落とさない
   // log だけ残す
   if (feature.supersededSweepFailed) {
-    policyLog(logger, "warn", "superseded_sweep_failed", context, startedAt, feature.feature);
+    const error = feature.supersededSweepError;
+    policyLog(logger, "warn", "superseded_sweep_failed", context, startedAt, feature.feature, {
+      errorCode: error instanceof AppError ? error.code : error instanceof Error ? error.name : undefined,
+      ...githubErrorFields(error),
+    });
   }
 };

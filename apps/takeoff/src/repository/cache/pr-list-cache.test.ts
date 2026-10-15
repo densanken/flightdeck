@@ -4,15 +4,18 @@ import { PullRequestListCacheImpl } from "./impl.js";
 import { cacheKeys } from "../../infrastructure/cache/keys.js";
 import { memoryCache } from "../../infrastructure/cache/memory-cache.js";
 import { workersCache } from "../../infrastructure/cache/workers-api.js";
+import { logger } from "../../util/logger.js";
 
 const spyOnConsoleError = () =>
-  vi.spyOn(console, "error").mockImplementation(() => {
-    // この test では console.error の出力を意図的に抑止する
+  vi.spyOn(logger, "log").mockImplementation(() => {
+    // この test では log の出力を意図的に抑止する
   });
 
 // null は cache miss でも起きるため、schema 検証で捨てたことは log で直接確認する
 const expectValueInvalidLogged = (spy: { mock: { calls: unknown[][] } }, key: string): void => {
-  const invalidCalls = spy.mock.calls.filter((call) => call[0] === "workers_cache_value_invalid");
+  const invalidCalls = spy.mock.calls.filter(
+    (call) => (call[1] as { event?: string } | undefined)?.event === "workers_cache_value_invalid"
+  );
   expect(invalidCalls).toHaveLength(1);
   expect((invalidCalls[0]?.[1] as { key: string }).key).toBe(key);
 };
@@ -77,24 +80,24 @@ describe("PullRequestListCacheImpl", () => {
     const baseUrl = "https://pr-list-missing-items.example.com";
     const cache = new PullRequestListCacheImpl(baseUrl, 60);
     const key = cacheKeys.prList(baseUrl, "11");
-    const consoleErrorSpy = spyOnConsoleError();
+    const logSpy = spyOnConsoleError();
     // 別 isolate や過去バージョンが書いた不正な値を模す
     await workersCache.set(key, { repoId: "11", fetchedAt: new Date().toISOString() }, 60);
 
     await expect(cache.get("11")).resolves.toBeNull();
 
-    expectValueInvalidLogged(consoleErrorSpy, key);
+    expectValueInvalidLogged(logSpy, key);
   });
 
   it("fetchedAt が string でない不正な shape は miss として null を返す", async () => {
     const baseUrl = "https://pr-list-invalid-fetchedat.example.com";
     const cache = new PullRequestListCacheImpl(baseUrl, 60);
     const key = cacheKeys.prList(baseUrl, "12");
-    const consoleErrorSpy = spyOnConsoleError();
+    const logSpy = spyOnConsoleError();
     await workersCache.set(key, { repoId: "12", items: [], fetchedAt: 123 }, 60);
 
     await expect(cache.get("12")).resolves.toBeNull();
 
-    expectValueInvalidLogged(consoleErrorSpy, key);
+    expectValueInvalidLogged(logSpy, key);
   });
 });

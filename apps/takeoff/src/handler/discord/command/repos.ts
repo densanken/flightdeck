@@ -1,5 +1,5 @@
 import { editDeferredResponse, editDeferredWithError } from "../followup.js";
-import { getJapaneseErrorMessage } from "../helpers.js";
+import { getJapaneseErrorMessage, logCommandError } from "../helpers.js";
 import { deferredEphemeral, deferredMessageUpdate } from "../interaction-response.js";
 import { buildPaginatedEmbed, parseRequestedPage } from "../pagination.js";
 
@@ -34,6 +34,7 @@ export const handleRepos = (
         const page = buildReposPage(await deps.repositoryAdminUsecase.getRepositoryIndex(), 0);
         await editDeferredResponse(c.env.DISCORD_APPLICATION_ID, interaction.token, page.embed, page.components);
       } catch (error) {
+        logCommandError("repos", error);
         await editDeferredWithError(c.env.DISCORD_APPLICATION_ID, interaction.token, getJapaneseErrorMessage(error));
       }
     })()
@@ -61,6 +62,7 @@ export const handleReposPage = (
       } catch (error) {
         // components を送らないため既存のページ送りボタンは残る
         // 一時的な失敗をそのまま押し直せる
+        logCommandError("repos_page", error);
         await editDeferredWithError(c.env.DISCORD_APPLICATION_ID, interaction.token, getJapaneseErrorMessage(error));
       }
     })()

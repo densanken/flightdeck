@@ -140,10 +140,16 @@ const retryDelayMs = (response: Response | undefined, attempt: number, nowMs: nu
   return Math.ceil(exponentialDelay * (1 + Math.max(0, Math.min(1, random()))));
 };
 
+// error body の読み取りは診断用の補足なので、本来の処理の時間を使い込まないよう短い期限を別に設ける
+const ERROR_BODY_TIMEOUT_MS = 1_000;
+
 // body 全体は PR の内容などを含みうるため、GitHub が生成する top-level の message だけを残す
 const readGitHubMessage = async (response: Response, signal: AbortSignal): Promise<string | undefined> => {
   try {
-    const body = await raceWithSignal(response.json<{ message?: unknown } | null>(), signal);
+    const body = await raceWithSignal(
+      response.json<{ message?: unknown } | null>(),
+      AbortSignal.any([signal, AbortSignal.timeout(ERROR_BODY_TIMEOUT_MS)])
+    );
     return typeof body?.message === "string" ? body.message : undefined;
   } catch {
     // message は診断用の補足なので、読めなくても元の GitHubError を返す

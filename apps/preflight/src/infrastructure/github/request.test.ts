@@ -305,6 +305,13 @@ describe("githubRequest retry", () => {
     expect(error).toMatchObject({ githubStatus: 403, githubRequestId: "request-id", githubMessage: undefined });
   });
 
+  it("error body が届かなくても、呼び出し元の signal を待たずに元の GitHubError を返す", async () => {
+    const body = new ReadableStream({ pull: () => new Promise<void>(() => undefined) }, { highWaterMark: 0 });
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(body, { status: 403 }));
+
+    await expect(request({ fetchImpl })).rejects.toMatchObject({ code: "GITHUB_API_FAILED", githubStatus: 403 });
+  });
+
   it("error body の読み取り中に abort しても元の GitHubError を返す", async () => {
     const controller = new AbortController();
     // body の読み取りが始まった時点で deadline を迎え、そのまま body が届かない状況を作る

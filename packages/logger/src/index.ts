@@ -22,8 +22,9 @@ const priorities: Record<LogLevel, number> = {
 };
 
 const SECRET_PATTERNS = [
-  // GitHub token (ghp_, ghs_, gho_, ghu_, ghr_)
+  // GitHub token (ghp_, ghs_, gho_, ghu_, ghr_) と fine-grained personal access token (github_pat_)
   /\b(ghp|ghs|gho|ghu|ghr)_[A-Za-z0-9_]{36,}\b/g,
+  /\bgithub_pat_[A-Za-z0-9_]{22,}\b/g,
   // Authorization header に載る Bearer, Bot, token 形式の値
   // 文中の "token could not ..." などを誤って隠さないよう、credential らしい長さの値だけを対象にする
   /(\b(?:Bearer|Bot|token)\s+)[A-Za-z0-9._~+/=-]{20,}/gi,

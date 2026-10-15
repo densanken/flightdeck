@@ -44,11 +44,12 @@ record が `level` や `message` を持っている場合、その値は logger 
 
 `redactSecrets(message)` は、次の値を `<redacted>` に置き換えた文字列を返します。
 
-- GitHub の token（`ghp_`, `ghs_`, `gho_`, `ghu_`, `ghr_` で始まる値）
+- GitHub の token（`ghp_`, `ghs_`, `gho_`, `ghu_`, `ghr_`, `github_pat_` で始まる値）
 - `Bearer`, `Bot`, `token` に続く 20 文字以上の credential 形式の値
 - PEM 形式の秘密鍵
 - Discord Webhook URL に含まれる token
 
 秘匿化は既知の形式だけを対象にします。
 request や response の body 全体、利用者の入力など、何が含まれるか分からない値は record に入れないでください。
-GitHub API が返す top-level の `message` や、app が組み立てた error の message は record に入れることができます。
+GitHub API が返す top-level の `message` は record に入れることができます。
+app が組み立てた error の message は、URL の query や外部から受け取った値など、credential を含みうる値を埋め込んでいないことを確認してから record に入れてください。

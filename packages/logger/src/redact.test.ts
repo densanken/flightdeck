@@ -8,6 +8,11 @@ describe("redactSecrets", () => {
     expect(redactSecrets(msg)).not.toContain("ghs_");
   });
 
+  it("fine-grained personal access token を秘匿化する", () => {
+    const msg = "reason: github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz0123456789";
+    expect(redactSecrets(msg)).toBe("reason: <redacted>");
+  });
+
   it("Bearer token を秘匿化する", () => {
     const msg = "Authorization: Bearer abc123secrettoken456789";
     const result = redactSecrets(msg);

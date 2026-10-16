@@ -482,9 +482,14 @@ export class GitHubClientImpl implements GitHubClient {
         paths.push(file.filename);
         if (file.previous_filename) paths.push(file.previous_filename);
       }
-      if (!response.headers.get("link")?.includes('rel="next"')) break;
+      if (!response.headers.get("link")?.includes('rel="next"')) return paths;
     }
-    return paths;
+    // 上限まで取得しても続きがある場合、一覧は不完全なので完全な一覧として返さない
+    throw new GitHubError(
+      "unexpected_github_error",
+      `Pull request files exceed pagination limit: listPullRequestFilePaths ${owner}/${repo}#${String(number)}`,
+      502
+    );
   }
 
   async isOrgMember(token: string, org: string, username: string): Promise<boolean> {

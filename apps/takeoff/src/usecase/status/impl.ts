@@ -1,6 +1,7 @@
 import { errors } from "../../domain/errors.js";
 import { evaluateMergeGate } from "../../domain/merge-gate.js";
 import { nowIso } from "../../domain/time.js";
+import { detectForkWorkflowDrift } from "../fork-workflow-drift.js";
 import { getPullRequestChecksForMergeGate } from "../pull-request-checks.js";
 import { getRegisteredPullRequest } from "../registered-pull-request.js";
 import { getRequiredStatusChecksForMergeGate } from "../required-status-checks.js";
@@ -34,9 +35,10 @@ export class StatusUsecaseImpl implements StatusUsecase {
       pr.head.sha
     );
 
-    const [pullRequestChecks, requiredStatusChecks] = await Promise.all([
+    const [pullRequestChecks, requiredStatusChecks, forkWorkflowDrift] = await Promise.all([
       getPullRequestChecksForMergeGate(this.githubClient, token, repo.owner, repo.name, pr),
       getRequiredStatusChecksForMergeGate(this.githubClient, token, repo.owner, repo.name, pr.base.ref),
+      detectForkWorkflowDrift(this.githubClient, token, repo.owner, repo.name, pr),
     ]);
 
     let gateResult = evaluateMergeGate(
@@ -59,6 +61,7 @@ export class StatusUsecaseImpl implements StatusUsecase {
 
     return {
       gateResult,
+      forkWorkflowDrift,
       pr,
       repo,
     };

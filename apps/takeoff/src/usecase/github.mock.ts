@@ -7,6 +7,7 @@ import type {
   GitHubPullRequestSummary,
   GitHubRepository,
   GitHubRequiredStatusCheck,
+  GitHubWorkflowFile,
   GitHubWorkflowRun,
 } from "./github.js";
 
@@ -101,5 +102,18 @@ export class MockGitHubClient implements GitHubClient {
     _headSha: string
   ): Promise<GitHubWorkflowRun[]> {
     return Promise.resolve(this.workflowRuns);
+  }
+
+  // ref ごとの .github/workflows の中身で、未設定の ref は workflow を持たない commit として扱う
+  workflowFiles = new Map<string, GitHubWorkflowFile[]>();
+
+  listWorkflowFiles(_token: string, _owner: string, _repo: string, ref: string): Promise<GitHubWorkflowFile[]> {
+    return Promise.resolve(this.workflowFiles.get(ref) ?? []);
+  }
+
+  pullRequestFilePaths: string[] = [];
+
+  listPullRequestFilePaths(_token: string, _owner: string, _repo: string, _number: number): Promise<string[]> {
+    return Promise.resolve(this.pullRequestFilePaths);
   }
 }

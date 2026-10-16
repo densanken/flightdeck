@@ -65,6 +65,18 @@ describe("getJapaneseErrorMessage", () => {
       expected: "指定されたリポジトリが見つからないか、GitHub App からアクセスできません。",
     },
     { name: "pr_not_found", error: errors.prNotFound(), expected: "指定された PR が見つかりません。" },
+    {
+      name: "fork_workflow_changed",
+      error: errors.forkWorkflowChanged(),
+      expected:
+        "この PR は `.github/workflows` を変更しているため、GitHub App ではマージできません。workflow を変更できる権限を持つメンバーが、GitHub 上でマージしてください。",
+    },
+    {
+      name: "fork_workflow_out_of_sync",
+      error: errors.forkWorkflowOutOfSync(),
+      expected:
+        "fork の `.github/workflows` が base と異なるため、GitHub がマージを拒否しました。PR 画面の「Update branch」で base に追従してから、再度実行してください。",
+    },
     { name: "pr_not_open", error: errors.prNotOpen(), expected: "PR が open ではありません。" },
     { name: "pr_is_draft", error: errors.prIsDraft(), expected: "PR が draft です。" },
     {

@@ -415,6 +415,70 @@ describe("GitHubClientImpl - mergePullRequest", () => {
   });
 });
 
+describe("GitHubClientImpl - listWorkflowFiles", () => {
+  it("指定した ref の .github/workflows 直下の path と sha を返す", async () => {
+    const mockFetcher = vi.fn<typeof fetch>();
+    const client = new GitHubClientImpl(mockFetcher);
+    mockFetcher.mockResolvedValueOnce(
+      jsonResponse([{ name: "ci.yml", path: ".github/workflows/ci.yml", sha: "ci-sha", type: "file" }])
+    );
+
+    await expect(client.listWorkflowFiles("token", "org", "repo", "head-sha")).resolves.toEqual([
+      { path: ".github/workflows/ci.yml", sha: "ci-sha" },
+    ]);
+    expect(mockFetcher.mock.calls[0]?.[0]).toBe(
+      "https://api.github.com/repos/org/repo/contents/.github/workflows?ref=head-sha"
+    );
+  });
+
+  it("workflow の directory がない commit では空配列を返す", async () => {
+    const mockFetcher = vi.fn<typeof fetch>();
+    const client = new GitHubClientImpl(mockFetcher);
+    mockFetcher.mockResolvedValueOnce(new Response("Not Found", { status: 404 }));
+
+    await expect(client.listWorkflowFiles("token", "org", "repo", "head-sha")).resolves.toEqual([]);
+  });
+});
+
+describe("GitHubClientImpl - listPullRequestFilePaths", () => {
+  it("全 page の file の path を、rename 前の path も含めて返す", async () => {
+    const mockFetcher = vi.fn<typeof fetch>();
+    const client = new GitHubClientImpl(mockFetcher);
+    mockFetcher
+      .mockResolvedValueOnce(
+        jsonResponse([{ filename: "docs/a.md" }], 200, {
+          Link: '<https://api.github.com/repos/org/repo/pulls/1/files?page=2>; rel="next"',
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse([{ filename: "ci/build.yml", previous_filename: ".github/workflows/build.yml" }])
+      );
+
+    await expect(client.listPullRequestFilePaths("token", "org", "repo", 1)).resolves.toEqual([
+      "docs/a.md",
+      "ci/build.yml",
+      ".github/workflows/build.yml",
+    ]);
+    expect(mockFetcher).toHaveBeenCalledTimes(2);
+  });
+  it("上限の 30 page を取得しても続きがあるときは、不完全な一覧として error にする", async () => {
+    const mockFetcher = vi.fn<typeof fetch>();
+    const client = new GitHubClientImpl(mockFetcher);
+    mockFetcher.mockImplementation(() =>
+      Promise.resolve(
+        jsonResponse([{ filename: "docs/a.md" }], 200, {
+          Link: '<https://api.github.com/repos/org/repo/pulls/1/files?page=next>; rel="next"',
+        })
+      )
+    );
+
+    await expect(client.listPullRequestFilePaths("token", "org", "repo", 1)).rejects.toMatchObject({
+      type: "unexpected_github_error",
+    });
+    expect(mockFetcher).toHaveBeenCalledTimes(30);
+  });
+});
+
 describe("GitHubClientImpl - isOrgMember", () => {
   it("status 204 で true を返す", async () => {
     const mockFetcher = vi.fn<typeof fetch>();

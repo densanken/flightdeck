@@ -82,6 +82,7 @@ const createInteraction = (options: { repo?: string; pr?: string }): APIChatInpu
 
 const statusResult = (overrides: Partial<StatusResult>): StatusResult => ({
   gateResult: { canMerge: true, headSha: "abc123" },
+  forkWorkflowDrift: "none",
   pr: testPr,
   repo: testRepo,
   ...overrides,
@@ -135,6 +136,30 @@ describe("handleStatus", () => {
     });
     expect(embed?.description).toBeUndefined();
     expect(embed?.timestamp).toEqual(expect.any(String));
+  });
+
+  it("fork の workflow が base と食い違うときは、判定を変えずに追従を促す注意 field を出す", async () => {
+    getStatusMock.mockResolvedValue(
+      statusResult({ gateResult: { canMerge: true, headSha: "abc123" }, forkWorkflowDrift: "base_changed" })
+    );
+
+    await runHandler(createInteraction({ repo: "repo-1", pr: "42" }));
+
+    const embed = editDeferredResponseMock.mock.calls[0]?.[2];
+    expect(embed?.color).toBe(EmbedColor.Success);
+    expect(embed?.fields?.[0]).toMatchObject({ name: "マージ可" });
+    expect(embed?.fields?.[1]?.name).toBe("注意");
+    expect(embed?.fields?.[1]?.value).toContain("Update branch");
+  });
+
+  it("PR 自体が workflow を変更しているときは、権限を持つメンバーによる merge を促す注意 field を出す", async () => {
+    getStatusMock.mockResolvedValue(statusResult({ forkWorkflowDrift: "pr_changed" }));
+
+    await runHandler(createInteraction({ repo: "repo-1", pr: "42" }));
+
+    const embed = editDeferredResponseMock.mock.calls[0]?.[2];
+    expect(embed?.fields?.[1]?.name).toBe("注意");
+    expect(embed?.fields?.[1]?.value).toContain("GitHub 上でマージしてください");
   });
 
   it("マージ不可のとき warning embed の判定 field に原因と失敗 check の list を出す", async () => {

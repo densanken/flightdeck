@@ -82,6 +82,11 @@ export interface GitHubWorkflowRun {
   };
 }
 
+export interface GitHubWorkflowFile {
+  path: string;
+  sha: string;
+}
+
 export interface GitHubRequiredStatusCheck {
   context: string;
   integrationId: number | null;
@@ -116,6 +121,8 @@ export interface GitHubClient {
   isOrgMember(token: string, org: string, username: string): Promise<boolean>;
   approveWorkflowRun(token: string, owner: string, repo: string, runId: number): Promise<boolean>;
   listActionRequiredRuns(token: string, owner: string, repo: string, headSha: string): Promise<GitHubWorkflowRun[]>;
+  listWorkflowFiles(token: string, owner: string, repo: string, ref: string): Promise<GitHubWorkflowFile[]>;
+  listPullRequestFilePaths(token: string, owner: string, repo: string, number: number): Promise<string[]>;
 }
 
 export interface InstallationTokenProvider {

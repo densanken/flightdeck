@@ -6,9 +6,11 @@ import {
   gitHubEffectiveBranchRulesSchema,
   gitHubInstallationReposResponseSchema,
   gitHubMergeResponseSchema,
+  gitHubPullRequestFilesSchema,
   gitHubPullRequestSchema,
   gitHubPullRequestSummarySchema,
   gitHubRepositorySchema,
+  gitHubWorkflowFilesSchema,
   gitHubWorkflowRunsResponseSchema,
   toGitHubRequiredStatusChecks,
 } from "./types.js";
@@ -25,6 +27,7 @@ import type {
   GitHubPullRequestSummary,
   GitHubRepository,
   GitHubRequiredStatusCheck,
+  GitHubWorkflowFile,
   GitHubWorkflowRun,
 } from "../../usecase/github.js";
 
@@ -432,6 +435,61 @@ export class GitHubClientImpl implements GitHubClient {
       throw new GitHubError("merge_conflict", "GitHub did not merge the pull request", 409);
     }
     return result;
+  }
+
+  async listWorkflowFiles(token: string, owner: string, repo: string, ref: string): Promise<GitHubWorkflowFile[]> {
+    const encodedOwner = encodeURIComponent(owner);
+    const encodedRepo = encodeURIComponent(repo);
+    const response = await this.fetcher(
+      `${GITHUB_API_BASE}/repos/${encodedOwner}/${encodedRepo}/contents/.github/workflows?ref=${encodeURIComponent(ref)}`,
+      {
+        headers: headers(token),
+        signal: withGitHubTimeout(),
+      }
+    );
+    // workflow を持たない commit では directory 自体が存在しない
+    // ref 自体を解決できない場合も 404 になるが、PR の head と base は解決できる前提で区別しない
+    if (response.status === 404) return [];
+    return parseResponse(
+      response,
+      gitHubWorkflowFilesSchema,
+      `listWorkflowFiles ${owner}/${repo}@${ref}`,
+      "unexpected_github_error"
+    );
+  }
+
+  // PR の差分（head と分岐元の比較）に含まれる file の path を、rename 前の path も含めて返す
+  async listPullRequestFilePaths(token: string, owner: string, repo: string, number: number): Promise<string[]> {
+    const encodedOwner = encodeURIComponent(owner);
+    const encodedRepo = encodeURIComponent(repo);
+    const paths: string[] = [];
+    // GitHub は 1 PR あたり最大 3,000 file までしか返さないため、30 page で打ち切る
+    for (let page = 1; page <= 30; page += 1) {
+      const response = await this.fetcher(
+        `${GITHUB_API_BASE}/repos/${encodedOwner}/${encodedRepo}/pulls/${String(number)}/files?per_page=100&page=${String(page)}`,
+        {
+          headers: headers(token),
+          signal: withGitHubTimeout(),
+        }
+      );
+      const files = await parseResponse(
+        response,
+        gitHubPullRequestFilesSchema,
+        `listPullRequestFilePaths ${owner}/${repo}#${String(number)} page=${String(page)}`,
+        "pr_not_found"
+      );
+      for (const file of files) {
+        paths.push(file.filename);
+        if (file.previous_filename) paths.push(file.previous_filename);
+      }
+      if (!response.headers.get("link")?.includes('rel="next"')) return paths;
+    }
+    // 上限まで取得しても続きがある場合、一覧は不完全なので完全な一覧として返さない
+    throw new GitHubError(
+      "unexpected_github_error",
+      `Pull request files exceed pagination limit: listPullRequestFilePaths ${owner}/${repo}#${String(number)}`,
+      502
+    );
   }
 
   async isOrgMember(token: string, org: string, username: string): Promise<boolean> {

@@ -81,7 +81,6 @@ export const hasAdminRole = (
   return adminRoleIds.some((roleId) => memberRoles.includes(roleId));
 };
 
-// 利用者には日本語の message だけを返すため、切り分けに使う error の種別と詳細は別に記録する
 // 外部サービスや App の設定の障害で、利用者が操作をやり直しても解決しない error type
 const failureErrorTypes = new Set<AppErrorType>([
   "unexpected_github_error",
@@ -90,6 +89,7 @@ const failureErrorTypes = new Set<AppErrorType>([
   "github_rate_limited",
 ]);
 
+// 利用者には日本語の message だけを返すため、切り分けに使う error の種別と詳細は別に記録する
 // 利用者の入力や PR の状態による想定内の失敗は warn、障害と想定外の例外は error にする
 export const logCommandError = (command: string, err: unknown): void => {
   const expected = err instanceof AppError && !failureErrorTypes.has(err.type);
@@ -100,6 +100,10 @@ export const logCommandError = (command: string, err: unknown): void => {
     error: errorDetail(err),
   });
 };
+
+// fork の workflow が base と食い違っているときの案内で、/merge の失敗と /status の注意で共有する
+export const FORK_WORKFLOW_SYNC_GUIDE = "PR 画面の「Update branch」で base に追従してから、";
+export const FORK_WORKFLOW_CHANGED_GUIDE = "workflow を変更できる権限を持つメンバーが、GitHub 上でマージしてください。";
 
 export const getJapaneseErrorMessage = (err: unknown): string => {
   if (err instanceof AppError) {
@@ -119,6 +123,8 @@ export const getJapaneseErrorMessage = (err: unknown): string => {
       pr_recently_updated: "PR の最終更新から 1 分経過していません。しばらく待ってから再度実行してください。",
       merge_conflict: "マージコンフリクトがあります。",
       merge_blocked: "ブランチプロテクションなどにより GitHub がマージを拒否しました。",
+      fork_workflow_changed: `この PR は \`.github/workflows\` を変更しているため、GitHub App ではマージできません。${FORK_WORKFLOW_CHANGED_GUIDE}`,
+      fork_workflow_out_of_sync: `fork の \`.github/workflows\` が base と異なるため、GitHub がマージを拒否しました。${FORK_WORKFLOW_SYNC_GUIDE}再度実行してください。`,
       mergeability_checking: "GitHub がマージ可能性を確認中です。10 秒ほど待ってからもう一度実行してください。",
       checks_pending: "一部の check がまだ実行中です。",
       checks_failed: "一部の check が失敗しています。",

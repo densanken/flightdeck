@@ -29,6 +29,8 @@ const createDeps = () => ({
     isOrgMember: vi.fn(),
     approveWorkflowRun: vi.fn(),
     listActionRequiredRuns: vi.fn(),
+    listWorkflowFiles: vi.fn(),
+    listPullRequestFilePaths: vi.fn(),
   },
   tokenProvider: { getToken: vi.fn().mockResolvedValue("token") },
   repoStore: new MockRegisteredRepositoryStore(),

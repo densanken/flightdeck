@@ -96,6 +96,38 @@ describe("StatusUsecaseImpl", () => {
     });
   });
 
+  describe("fork の workflow の食い違い", () => {
+    const forkPr = { ...testPr, head: { ...testPr.head, label: "alice:main", repo: { id: 202 } } };
+
+    it("食い違いがあれば merge 可否を変えずに食い違いの種類を返す", async () => {
+      githubClient.pullRequests = [forkPr];
+      githubClient.workflowFiles.set(forkPr.base.ref, [{ path: ".github/workflows/ci.yml", sha: "new" }]);
+
+      const result = await createUsecase().getStatus(defaultParams);
+
+      expect(result.gateResult.canMerge).toBe(true);
+      expect(result.forkWorkflowDrift).toBe("base_changed");
+    });
+
+    it("食い違いがなければ none を返す", async () => {
+      githubClient.pullRequests = [forkPr];
+
+      const result = await createUsecase().getStatus(defaultParams);
+
+      expect(result.forkWorkflowDrift).toBe("none");
+    });
+
+    it("workflow の確認に失敗しても /status の結果は返す", async () => {
+      githubClient.pullRequests = [forkPr];
+      vi.spyOn(githubClient, "listWorkflowFiles").mockRejectedValue(new Error("contents unavailable"));
+
+      const result = await createUsecase().getStatus(defaultParams);
+
+      expect(result.gateResult.canMerge).toBe(true);
+      expect(result.forkWorkflowDrift).toBe("none");
+    });
+  });
+
   describe("merge が不可のケース", () => {
     it("PR が open でないとき canMerge: false を返す", async () => {
       githubClient.pullRequests = [{ ...testPr, state: "closed" }];

@@ -12,6 +12,8 @@ import {
   logCommandError,
   getStringOption,
   parsePrNumber,
+  FORK_WORKFLOW_CHANGED_GUIDE,
+  FORK_WORKFLOW_SYNC_GUIDE,
 } from "../helpers.js";
 import { deferredEphemeral, EmbedColor } from "../interaction-response.js";
 import { assertNotLoadingSentinel } from "../timeout-budget.js";
@@ -54,7 +56,12 @@ export const handleStatus = (
           prNumber,
         });
 
-        const { gateResult, pr, repo } = result;
+        const { gateResult, forkWorkflowDrift, pr, repo } = result;
+        const forkWorkflowNotice = {
+          none: undefined,
+          base_changed: `fork の \`.github/workflows\` が base と異なるため、このままでは GitHub にマージを拒否される見込みです。${FORK_WORKFLOW_SYNC_GUIDE}${inlineCode("/merge")} を実行してください。`,
+          pr_changed: `この PR は \`.github/workflows\` を変更しているため、GitHub App ではマージできない見込みです。${FORK_WORKFLOW_CHANGED_GUIDE}`,
+        }[forkWorkflowDrift];
 
         const items: string[] = [];
         if (!gateResult.canMerge) {
@@ -96,6 +103,7 @@ export const handleStatus = (
           url: pr.html_url,
           fields: [
             { name: gateResult.canMerge ? "マージ可" : "マージ不可", value: statusValue },
+            ...(forkWorkflowNotice ? [{ name: "注意", value: forkWorkflowNotice }] : []),
             { name: "Repository", value: inlineCode(repo.fullName) },
             { name: "Author", value: pr.user?.login ?? "unknown", inline: true },
             {

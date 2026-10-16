@@ -12,6 +12,8 @@ export type AppErrorType =
   | "pr_recently_updated"
   | "merge_conflict"
   | "merge_blocked"
+  | "fork_workflow_out_of_sync"
+  | "fork_workflow_changed"
   | "mergeability_checking"
   | "checks_pending"
   | "checks_failed"
@@ -55,6 +57,16 @@ export const errors = {
   invalidPrTitle: (message: string) => new AppError("invalid_pr_title", message),
   prRecentlyUpdated: () => new AppError("pr_recently_updated", "Wait one minute after the last pull request update"),
   mergeConflict: () => new AppError("merge_conflict", "Pull request has merge conflicts"),
+  forkWorkflowOutOfSync: () =>
+    new AppError(
+      "fork_workflow_out_of_sync",
+      "GitHub rejected the merge because the fork's workflow files differ from the base branch"
+    ),
+  forkWorkflowChanged: () =>
+    new AppError(
+      "fork_workflow_changed",
+      "GitHub rejected the merge because the fork pull request changes workflow files"
+    ),
   mergeabilityChecking: () =>
     new AppError("mergeability_checking", "GitHub is still calculating mergeability. Try again in about 10 seconds."),
   checksPending: (details: unknown) => new AppError("checks_pending", "Some check runs are still pending", details),

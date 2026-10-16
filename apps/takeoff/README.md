@@ -38,7 +38,7 @@ Discord のスラッシュコマンドで操作できます。
 | `/repo remove repo:<repo>`        | 管理対象からリポジトリを解除                                | 管理者（`ADMIN_ROLE_IDS`） |
 
 > **CI 承認の自動トリガー:**
-> `/merge` および `/status` コマンドを実行した際、同一 Organization メンバーによるフォーク元 PR で承認待ちになっている GitHub Actions があれば、自動的に承認処理を行ってから判定に進みます。
+> `/merge` および `/status` コマンドを実行した際、同一 Organization メンバーによるフォークからの PR で承認待ちになっている GitHub Actions があれば、自動的に承認処理を行ってから判定に進みます。
 
 ## セットアップ
 
@@ -123,12 +123,26 @@ pnpm dev
 
 ### 外部フォーク PR の自動承認
 
-フォーク元から作成された PR では GitHub Actions の実行に承認（`action_required`）が必要になります。Takeoff では以下の経路で自動承認を行います。
+フォークから作成された PR では GitHub Actions の実行に承認（`action_required`）が必要になります。Takeoff では以下の経路で自動承認を行います。
 
 1. **Webhook:** `workflow_run.requested` 受信時に即座に自動承認。
 2. **Discord コマンド:** `/status` または `/merge` 実行時に未承認 run があれば自動承認。
 
 ※PR 作成者が Organization メンバーでない場合はセキュリティ保護のため自動承認されません。
+
+### フォーク PR の workflow ファイルの食い違い
+
+フォークからの PR で、head と base の `.github/workflows` の内容が異なる場合、GitHub は Workflows 権限を持たない GitHub App によるマージを拒否します。
+食い違いは、次のどちらかで生じます。
+
+- フォークの head が base より遅れていて、base 側で workflow ファイルが追加・変更・削除されている
+- PR 自体が workflow ファイルを変更している
+
+`/merge` は、GitHub に拒否されたときに食い違いの原因を確認し、原因に応じた対処を案内します。
+`/status` は、食い違いがあれば注意を表示します。マージ可否の判定には影響しません。
+
+base 側の変更が原因と案内された場合は、PR 画面の「Update branch」で base に追従してから、`/merge` を再実行してください。
+PR 自体の変更が原因と案内された場合は、base に追従しても解消しません。workflow を変更できる権限を持つメンバーが、GitHub 上でマージしてください。
 
 ### 連続実行の制御（Cooldown）
 

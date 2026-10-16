@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MergeUsecaseImpl } from "./impl.js";
-import { AppError } from "../../domain/errors.js";
+import { AppError, errors } from "../../domain/errors.js";
 import { MockMergeCooldownStore } from "../../repository/cache/impl.mock.js";
 import { MockRegisteredRepositoryStore } from "../../repository/kv/impl.mock.js";
 import { logger } from "../../util/logger.js";
@@ -109,6 +109,72 @@ const createUsecase = () =>
   );
 
 describe("MergeUsecaseImpl", () => {
+  describe("GitHub が権限不足として merge を拒否したケース", () => {
+    const forkPr = { ...testPr, head: { ...testPr.head, label: "alice:main", repo: { id: 202 } } };
+
+    beforeEach(() => {
+      githubClient.pullRequests = [forkPr];
+      vi.spyOn(githubClient, "mergePullRequest").mockRejectedValue(errors.githubAppPermissionMissing());
+    });
+
+    it("fork の workflow が base と食い違うときは追従の案内に置き換える", async () => {
+      githubClient.workflowFiles.set(forkPr.base.ref, [{ path: ".github/workflows/ci.yml", sha: "new" }]);
+
+      await expect(createUsecase().merge(defaultParams())).rejects.toMatchObject({
+        type: "fork_workflow_out_of_sync",
+      });
+    });
+
+    it("PR 自体が workflow を変更しているときは、権限を持つメンバーによる merge の案内に置き換える", async () => {
+      githubClient.workflowFiles.set(forkPr.head.sha, [{ path: ".github/workflows/ci.yml", sha: "changed-by-pr" }]);
+      githubClient.pullRequestFilePaths = [".github/workflows/ci.yml"];
+
+      await expect(createUsecase().merge(defaultParams())).rejects.toMatchObject({
+        type: "fork_workflow_changed",
+      });
+    });
+
+    it("workflow が食い違っていなければ権限不足のまま返す", async () => {
+      await expect(createUsecase().merge(defaultParams())).rejects.toMatchObject({
+        type: "github_app_permission_missing",
+      });
+    });
+
+    it("workflow の確認に失敗したときは権限不足のまま返す", async () => {
+      vi.spyOn(githubClient, "listWorkflowFiles").mockRejectedValue(new Error("contents unavailable"));
+
+      await expect(createUsecase().merge(defaultParams())).rejects.toMatchObject({
+        type: "github_app_permission_missing",
+      });
+    });
+
+    it("workflow の確認が merge の期限までに終わらなければ、timeout ではなく権限不足として返す", async () => {
+      vi.spyOn(githubClient, "listWorkflowFiles").mockReturnValue(new Promise(() => undefined));
+
+      await expect(
+        createUsecase().merge({ ...defaultParams(), mergeDeadline: Date.now() + 1_500 })
+      ).rejects.toMatchObject({ type: "github_app_permission_missing" });
+    });
+
+    it("権限不足以外の拒否では workflow を確認しない", async () => {
+      vi.spyOn(githubClient, "mergePullRequest").mockRejectedValue(errors.mergeConflict());
+      const list = vi.spyOn(githubClient, "listWorkflowFiles");
+
+      await expect(createUsecase().merge(defaultParams())).rejects.toMatchObject({ type: "merge_conflict" });
+      expect(list).not.toHaveBeenCalled();
+    });
+
+    it("同じ repository の branch からの PR では workflow を確認しない", async () => {
+      githubClient.pullRequests = [testPr];
+      const list = vi.spyOn(githubClient, "listWorkflowFiles");
+
+      await expect(createUsecase().merge(defaultParams())).rejects.toMatchObject({
+        type: "github_app_permission_missing",
+      });
+      expect(list).not.toHaveBeenCalled();
+    });
+  });
+
   describe("正常に merge できるケース", () => {
     it("merge の成功を対象と実行者付きで記録する", async () => {
       const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {

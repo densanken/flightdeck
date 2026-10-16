@@ -1,8 +1,9 @@
-import { errors } from "../../domain/errors.js";
+import { AppError, errors } from "../../domain/errors.js";
 import { evaluateChecksAndStatusGate, evaluateMergeGate, evaluatePullRequestGate } from "../../domain/merge-gate.js";
 import { nowIso } from "../../domain/time.js";
 import { errorDetail } from "../../util/error-detail.js";
 import { logger } from "../../util/logger.js";
+import { detectForkWorkflowDrift } from "../fork-workflow-drift.js";
 import { getPullRequestHeadRef } from "../pull-request-branch.js";
 import { getPullRequestChecksForMergeGate } from "../pull-request-checks.js";
 import { getRegisteredPullRequest } from "../registered-pull-request.js";
@@ -25,6 +26,36 @@ export class MergeUsecaseImpl implements MergeUsecase {
     private readonly auditNotifier: MergeAuditNotifier,
     private readonly autoApproveUsecase: AutoApproveUsecase
   ) {}
+
+  // fork の workflow の食い違いによる 403 は App の権限不足と同じ応答で返るため、食い違いを確認できたときだけ追従の案内に置き換える
+  // 確認できない場合は元の error を返し、権限不足の案内を変えない
+  // 確認は Discord へ結果を返す時間を残すため、merge の期限までに終わらなければ打ち切る
+  private async explainMergeRejection(
+    error: unknown,
+    token: string,
+    owner: string,
+    repo: string,
+    pr: GitHubPullRequest,
+    deadline: number
+  ): Promise<unknown> {
+    if (!(error instanceof AppError && error.type === "github_app_permission_missing")) return error;
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) return error;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const drift = await Promise.race([
+      detectForkWorkflowDrift(this.githubClient, token, owner, repo, pr),
+      new Promise<"none">((resolve) => {
+        timer = setTimeout(() => {
+          resolve("none");
+        }, remainingMs);
+      }),
+    ]).finally(() => {
+      clearTimeout(timer);
+    });
+    if (drift === "base_changed") return errors.forkWorkflowOutOfSync();
+    if (drift === "pr_changed") return errors.forkWorkflowChanged();
+    return error;
+  }
 
   async merge(params: MergeUsecaseParams): Promise<MergeResult> {
     const repo = await this.repoStore.getRepository(params.repoId);
@@ -80,7 +111,6 @@ export class MergeUsecaseImpl implements MergeUsecase {
 
     let freshPr: GitHubPullRequest;
     let mergeResult: GitHubMergeResponse;
-    let mergeSignal: AbortSignal | undefined;
     try {
       // まず最新の base branch と PR 状態を読み、check の再取得対象を決める
       freshPr = await getRegisteredPullRequest(this.githubClient, token, repo, params.prNumber);
@@ -157,15 +187,25 @@ export class MergeUsecaseImpl implements MergeUsecase {
       if (remainingMs < 1_000) {
         throw errors.invalidRequest("マージ前の検証に時間がかかりました。もう一度実行してください。");
       }
-      mergeSignal = AbortSignal.timeout(Math.ceil(remainingMs));
-      mergeResult = await this.githubClient.mergePullRequest(token, repo.owner, repo.name, params.prNumber, {
-        commitTitle: `${freshPr.title} (#${String(freshPr.number)})`,
-        sha: gateResult.headSha,
-        mergeMethod: "squash",
-        signal: mergeSignal,
-      });
+      const mergeSignal = AbortSignal.timeout(Math.ceil(remainingMs));
+      const mergingPr = freshPr;
+      mergeResult = await this.githubClient
+        .mergePullRequest(token, repo.owner, repo.name, params.prNumber, {
+          commitTitle: `${mergingPr.title} (#${String(mergingPr.number)})`,
+          sha: gateResult.headSha,
+          mergeMethod: "squash",
+          signal: mergeSignal,
+        })
+        .catch(async (error: unknown) => {
+          // 拒否の理由を調べる間に timer が切れても、GitHub の応答を受け取った時点の状態で timeout を判定する
+          if (mergeSignal.aborted) {
+            throw errors.invalidRequest(
+              "マージ結果の確認がタイムアウトしました。GitHub 上で PR の状態を確認してから再度実行してください。"
+            );
+          }
+          throw await this.explainMergeRejection(error, token, repo.owner, repo.name, mergingPr, params.mergeDeadline);
+        });
     } catch (error) {
-      const mergeTimedOut = mergeSignal?.aborted;
       // 再検証または merge が失敗した場合は cooldown を解除し、すぐ再試行できるようにする
       await this.cooldownCache.delete(repo.repoId, params.prNumber).catch((deleteError: unknown) => {
         logger.log("error", {
@@ -175,11 +215,6 @@ export class MergeUsecaseImpl implements MergeUsecase {
           error: errorDetail(deleteError),
         });
       });
-      if (mergeTimedOut) {
-        throw errors.invalidRequest(
-          "マージ結果の確認がタイムアウトしました。GitHub 上で PR の状態を確認してから再度実行してください。"
-        );
-      }
       throw error;
     }
 

@@ -10,6 +10,7 @@ import type {
   GitHubRepository,
   GitHubRequiredStatusCheck,
   GitHubStatusContext,
+  GitHubWorkflowFile,
   GitHubWorkflowRun,
 } from "../../usecase/github.js";
 
@@ -87,6 +88,22 @@ export const gitHubMergeResponseSchema = z.object({
   merged: z.boolean(),
   message: z.string(),
 }) satisfies z.ZodType<GitHubMergeResponse>;
+
+// Contents API でディレクトリを取得すると、直下の entry の配列が返る
+export const gitHubWorkflowFilesSchema = z.array(
+  z.object({
+    path: z.string(),
+    sha: z.string(),
+  })
+) satisfies z.ZodType<GitHubWorkflowFile[]>;
+
+// rename された file は変更前の path も持つ
+export const gitHubPullRequestFilesSchema = z.array(
+  z.object({
+    filename: z.string(),
+    previous_filename: z.string().optional(),
+  })
+);
 
 export const gitHubInstallationSchema = z.object({
   id: z.number().int(),

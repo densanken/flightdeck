@@ -1,7 +1,7 @@
 {
   "name": "takeoff",
   "main": "src/main.ts",
-  "compatibility_date": "2026-08-15",
+  "compatibility_date": "2026-11-01",
   "compatibility_flags": ["nodejs_compat"],
   // 公開 host は Cloudflare Dashboard の Custom Domains で管理する
   "workers_dev": false,

@@ -1,3 +1,5 @@
+import { verifyGitHubWebhookSignature } from "@flightdeck/github-webhook-signature";
+
 import { createApp } from "../app.js";
 import { TITLE_STATUS_MESSAGES } from "../domain/title-status-message.js";
 import { getGitHubAuthConfig, getRuntimeOptions, getWebhookSecret, parseGitHubAppBotUserId } from "../env.js";
@@ -7,7 +9,6 @@ import { createGitHubWebhookProcessor, HARD_DEADLINE_MS } from "../handler/githu
 import { setPullRequestTitleStatus } from "../infrastructure/github/commit-status.js";
 import { GitHubInstallationSession } from "../infrastructure/github/installation-session.js";
 import { GitHubPullRequestGatewayImpl } from "../infrastructure/github/pull-request-gateway.js";
-import { verifyWebhookSignature } from "../infrastructure/github/webhook-signature.js";
 import { CacheDeliveryRepository } from "../repository/delivery/impl.js";
 import { AssignPullRequestAuthorUseCaseImpl } from "../usecase/assignment/impl.js";
 import { PullRequestPolicyUseCaseImpl } from "../usecase/pull-request-policy/impl.js";
@@ -34,7 +35,7 @@ export interface PlatformDependencies {
   cacheOperationTimeoutMs?: number;
   createHardDeadlineSignal?: () => AbortSignal;
   createSoftDeadlineSignal?: () => AbortSignal;
-  verifySignature?: typeof verifyWebhookSignature;
+  verifySignature?: typeof verifyGitHubWebhookSignature;
 }
 
 export const composeGitHubWebhookProcessor =
@@ -125,7 +126,7 @@ const composeQueuedGitHubWebhookHandler =
         },
         getWebhookSecret: () => getWebhookSecret(env),
         logger: platform.logger ?? createLogger(runtimeOptions.logLevel),
-        verifySignature: platform.verifySignature ?? verifyWebhookSignature,
+        verifySignature: platform.verifySignature ?? verifyGitHubWebhookSignature,
         createDeadlineSignal: platform.createHardDeadlineSignal,
       })(request);
     } catch (error) {

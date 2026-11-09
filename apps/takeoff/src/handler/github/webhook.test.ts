@@ -5,7 +5,6 @@ import { createGitHubWebhookRoute } from "./webhook.js";
 import { composeGitHubWebhookDependencies } from "../../composition/github.js";
 import { composeDependencyGraph } from "../../composition/shared.js";
 import { githubAppAuth } from "../../infrastructure/github/app-auth.js";
-import { verifyGitHubWebhookSignature } from "../../infrastructure/github/webhook-signature.js";
 import { logger } from "../../util/logger.js";
 
 import type { GitHubWebhookRouteDependencies } from "./webhook.js";
@@ -13,11 +12,7 @@ import type { Env } from "../../env.js";
 import type { RegisteredRepositorySnapshot } from "../../repository/kv/interface.js";
 import type { AutoApproveUsecase } from "../../usecase/auto-approve/interface.js";
 
-vi.mock("../../infrastructure/github/webhook-signature.js", () => ({
-  verifyGitHubWebhookSignature: vi.fn(),
-}));
-
-const mockedVerify = vi.mocked(verifyGitHubWebhookSignature);
+const mockedVerify = vi.fn<GitHubWebhookRouteDependencies["verifySignature"]>();
 const mockedAutoApprove = vi.fn<AutoApproveUsecase["autoApproveByRunId"]>();
 const mockAutoApproveUsecase: AutoApproveUsecase = {
   autoApproveByRunId: mockedAutoApprove,
@@ -51,7 +46,7 @@ const createApp = (overrides: Partial<GitHubWebhookRouteDependencies> = {}): Hon
       ...composeGitHubWebhookDependencies(env),
       autoApproveUsecase: mockAutoApproveUsecase,
     }),
-    verifySignature: verifyGitHubWebhookSignature,
+    verifySignature: mockedVerify,
     ...overrides,
   });
   const instance = new Hono<Env>();

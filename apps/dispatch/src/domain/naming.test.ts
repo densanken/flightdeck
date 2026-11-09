@@ -30,7 +30,7 @@ describe("naming", () => {
     expect(sourceOf(branch)).toBeUndefined();
   });
 
-  it.each(["o/.github", "o/a..b", "o/x.lock"])(
+  it.each(["o/.github", "o/a..b", "o/x.lock", "o/src."])(
     "git の ref の component として使えない名前（%s）は、書き込みの前に設定エラーにする",
     (source) => {
       expect(() => managedBranchName(source)).toThrow(expect.objectContaining({ kind: "config" }));

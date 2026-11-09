@@ -52,6 +52,14 @@ describe("pullRequestBody", () => {
     expect(body).toContain("- [`1234567`](https://github.com/a/src/commit/1234567890) `` use `x` ``");
   });
 
+  it("` の連続が多い件名でも、例外にせず上限を超える行を省く", () => {
+    const body = pullRequestBody({
+      ...input,
+      included: { commits: [{ sha: "abcdef0123", subject: "`a".repeat(200_000) }], total: 1 },
+    });
+    expect(body).toContain("- ほか 1 件（これより古いコミット）");
+  });
+
   it("本文が上限を超えないよう、一覧の古い側を省き、省いた件数を先頭に示す", () => {
     const commits = Array.from({ length: 250 }, (_, index) => ({
       sha: String(index).padStart(40, "0"),

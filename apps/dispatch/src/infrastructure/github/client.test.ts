@@ -210,6 +210,7 @@ describe("compareCommits", () => {
         commits: [
           { sha: "A", commit: { message: "first\r\n\r\nbody" } },
           { sha: "B", commit: { message: "second" } },
+          { sha: "C", commit: { message: "third\r\r@someone" } },
         ],
       }),
     });
@@ -218,6 +219,7 @@ describe("compareCommits", () => {
       commits: [
         { sha: "A", subject: "first" },
         { sha: "B", subject: "second" },
+        { sha: "C", subject: "third" },
       ],
       total: 300,
     });

@@ -196,6 +196,7 @@ export class GitHubGatewayImpl implements DispatchGateway {
   }
 
   // GitHub は新しい側の最大 250 件を、古い順に返す（total_commits は省いた分を含む総数）
+  // Markdown は単独の CR も改行とみなすため、件名は CR でも区切る
   // base が repository にない、または head と共通の祖先がなければ 404 になる
   // 応答は変更されたファイルと patch も含むため、大きすぎれば解釈せずに一覧を諦める
   async compareCommits(repository: string, base: string, head: string): Promise<IncludedCommits | undefined> {
@@ -210,7 +211,7 @@ export class GitHubGatewayImpl implements DispatchGateway {
     const { total_commits, commits } = parseResponse(compareSchema, compared, "compare");
 
     return {
-      commits: commits.map(({ sha, commit }) => ({ sha, subject: commit.message.split(/\r?\n/)[0] ?? "" })),
+      commits: commits.map(({ sha, commit }) => ({ sha, subject: commit.message.split(/\r\n?|\n/)[0] ?? "" })),
       total: total_commits,
     };
   }

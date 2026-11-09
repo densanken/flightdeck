@@ -9,11 +9,11 @@ const MAX_TITLE_LENGTH = 256;
 export const isManagedBranch = (branch: string): boolean => branch.startsWith(MANAGED_BRANCH_PREFIX);
 
 // source の owner/repo をそのまま含めるので、branch 名から source を一意に戻せる
-// repo 名が git の ref の component として使えない形（. で始まる、.lock で終わる、.. を含む）なら、書き込みの前に設定エラーにする
+// repo 名が git の ref の component として使えない形（. で始まる、. か .lock で終わる、.. を含む）なら、書き込みの前に設定エラーにする
 // owner は英数字と - だけなので、検査しない
 export const managedBranchName = (source: string): string => {
   const name = splitRepository(source).name;
-  if (name.startsWith(".") || name.endsWith(".lock") || name.includes("..")) {
+  if (name.startsWith(".") || name.endsWith(".") || name.endsWith(".lock") || name.includes("..")) {
     throw new DispatchError("config", `the source repository name cannot be used in a branch name: ${source}`);
   }
 

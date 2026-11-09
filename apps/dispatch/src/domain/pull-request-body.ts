@@ -20,8 +20,11 @@ const commitLink = (repository: string, sha: string): string =>
 
 // 中の ` より長い区切りで囲む
 // commit の件名も code span に入れ、parent の PR で mention や issue の link にならないようにする
+// 件名が長くても引数の上限に当たらないよう、最長の連続は spread せずに求める
 const codeSpan = (text: string): string => {
-  const fence = "`".repeat(Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length)) + 1);
+  const longest = (text.match(/`+/g) ?? []).reduce((max, run) => Math.max(max, run.length), 0);
+  const fence = "`".repeat(longest + 1);
+
   return `${fence} ${text} ${fence}`;
 };
 

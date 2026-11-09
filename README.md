@@ -4,14 +4,16 @@ densanken における Pull Request の運用・管理を自動化するため�
 
 ## ワークスペース構成
 
-| パス                       | パッケージ名                  | 概要                                                                                | ドキュメント                                 |
-| -------------------------- | ----------------------------- | ----------------------------------------------------------------------------------- | -------------------------------------------- |
-| `apps/preflight`           | `preflight`                   | PR 作成者の自動アサインと PR タイトル検証                                           | [README](apps/preflight/README.md)           |
-| `apps/takeoff`             | `takeoff`                     | Discord スラッシュコマンドからの安全な PR マージ実行                                | [README](apps/takeoff/README.md)             |
-| `packages/github-app-jwt`  | `@flightdeck/github-app-jwt`  | GitHub App 認証用 JWT 生成パッケージ                                                | [README](packages/github-app-jwt/README.md)  |
-| `packages/logger`          | `@flightdeck/logger`          | logger                                                                              | [README](packages/logger/README.md)          |
-| `packages/pr-title`        | `@flightdeck/pr-title`        | Conventional Commits に準拠した PR タイトル検証ロジック                             | [README](packages/pr-title/README.md)        |
-| `packages/private-key-env` | `@flightdeck/private-key-env` | GitHub App の秘密鍵（PEM）を PKCS#8 へ変換し `.env` に書き込む CLI / ユーティリティ | [README](packages/private-key-env/README.md) |
+| パス                                | パッケージ名                           | 概要                                                                                | ドキュメント                                          |
+| ----------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `apps/preflight`                    | `preflight`                            | PR 作成者の自動アサインと PR タイトル検証                                           | [README](apps/preflight/README.md)                    |
+| `apps/takeoff`                      | `takeoff`                              | Discord スラッシュコマンドからの安全な PR マージ実行                                | [README](apps/takeoff/README.md)                      |
+| `apps/dispatch`                     | `dispatch`                             | ソースリポジトリの更新を親リポジトリの Submodule へ反映する PR の自動作成           | [README](apps/dispatch/README.md)                     |
+| `packages/github-app-jwt`           | `@flightdeck/github-app-jwt`           | GitHub App 認証用 JWT 生成パッケージ                                                | [README](packages/github-app-jwt/README.md)           |
+| `packages/github-webhook-signature` | `@flightdeck/github-webhook-signature` | GitHub Webhook の署名（`X-Hub-Signature-256`）の検証                                | [README](packages/github-webhook-signature/README.md) |
+| `packages/logger`                   | `@flightdeck/logger`                   | logger                                                                              | [README](packages/logger/README.md)                   |
+| `packages/pr-title`                 | `@flightdeck/pr-title`                 | Conventional Commits に準拠した PR タイトル検証ロジック                             | [README](packages/pr-title/README.md)                 |
+| `packages/private-key-env`          | `@flightdeck/private-key-env`          | GitHub App の秘密鍵（PEM）を PKCS#8 へ変換し `.env` に書き込む CLI / ユーティリティ | [README](packages/private-key-env/README.md)          |
 
 ※PR タイトルの命名規約（利用可能な type、scope、全角記号の制限など）については、[@flightdeck/pr-title のドキュメント](packages/pr-title/README.md#タイトルの検証ルール) を参照してください。
 
@@ -61,6 +63,9 @@ pnpm --filter preflight dev
 
 # Takeoff の起動
 pnpm --filter takeoff dev
+
+# Dispatch の起動
+pnpm --filter dispatch dev
 ```
 
 ## コマンド一覧

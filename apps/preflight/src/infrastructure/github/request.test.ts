@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { GITHUB_API_BASE_URL, githubRequest, invalidShapeError, nextPageUrl, readGitHubJson } from "./request.js";
-import { GitHubError } from "../../errors.js";
+import { GitHubError, SubrequestBudgetExceededError } from "../../errors.js";
 
 const request = (overrides: Partial<Parameters<typeof githubRequest>[0]> = {}) =>
   githubRequest({
@@ -24,6 +24,21 @@ const responseWithCancelSpy = (status: number, headers?: HeadersInit) => {
 };
 
 describe("githubRequest retry", () => {
+  it("予算切れを再試行や通信エラーへの変換をせずに返す", async () => {
+    const budgetError = new SubrequestBudgetExceededError("normal", 24, 24);
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockImplementationOnce(() => {
+        throw budgetError;
+      });
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    await expect(request({ fetchImpl, retry: { sleep, random: () => 0 } })).rejects.toBe(budgetError);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl.mock.calls[0]?.[1]?.redirect).toBe("manual");
+    expect(sleep).toHaveBeenCalledTimes(1);
+  });
+
   it("fetch 中の abort を REQUEST_TIMEOUT に分類し、元の理由を保持する", async () => {
     const controller = new AbortController();
     const timeoutReason = new DOMException("deadline exceeded", "TimeoutError");

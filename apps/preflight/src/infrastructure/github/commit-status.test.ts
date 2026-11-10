@@ -6,38 +6,26 @@ import {
   setPullRequestTitleStatus,
 } from "./commit-status.js";
 
-const commitNode = (
-  oid: string,
-  overrides: {
-    state?: unknown;
-    openHeads?: string[];
-    closedHeads?: string[];
-    totalCount?: number;
-  } = {}
-) => {
-  const nodes = [
-    ...(overrides.openHeads ?? []).map((headRefOid) => ({ state: "OPEN", headRefOid })),
-    ...(overrides.closedHeads ?? []).map((headRefOid) => ({ state: "CLOSED", headRefOid })),
-  ];
-  return {
-    commit: {
-      oid,
-      status:
-        overrides.state === undefined || overrides.state === null ? null : { context: { state: overrides.state } },
-      associatedPullRequests: { totalCount: overrides.totalCount ?? nodes.length, nodes },
-    },
-  };
-};
+const commitNode = (oid: string, overrides: { state?: unknown } = {}) => ({
+  commit: {
+    oid,
+    status: overrides.state === undefined || overrides.state === null ? null : { context: { state: overrides.state } },
+  },
+});
 
 const commitsResponse = (
   nodes: unknown[],
   pageInfo: { hasNextPage: boolean; endCursor: string | null } = { hasNextPage: false, endCursor: null }
-) => Response.json({ data: { repository: { pullRequest: { commits: { nodes, pageInfo } } } } });
+) =>
+  Response.json({ data: { repository: { pullRequest: { commits: { nodes, pageInfo, totalCount: nodes.length } } } } });
 
 const sweepInput = (fetchImpl: typeof fetch) => ({
   owner: "owner",
   repo: "repo",
   pullRequestNumber: 7,
+  logger: { log: vi.fn() },
+  deliveryId: "delivery",
+  maxPages: 16,
   installationToken: "token",
   fetchImpl,
   signal: new AbortController().signal,
@@ -153,6 +141,20 @@ describe("setPullRequestTitleStatus", () => {
 });
 
 describe("listPullRequestCommitTitleStatuses", () => {
+  it("後続の比較と書き込みの予算を残して commit 一覧を打ち切る", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        commitsResponse([commitNode("old", { state: "FAILURE" })], { hasNextPage: true, endCursor: "next" })
+      );
+    const log = vi.fn();
+    await expect(
+      listPullRequestCommitTitleStatuses({ ...sweepInput(fetchImpl), logger: { log }, maxPages: 1 })
+    ).resolves.toHaveLength(1);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(log).toHaveBeenCalledWith("warn", expect.objectContaining({ result: "sweep_commit_budget_exhausted" }));
+  });
+
   it("GraphQL の全 status state を domain の分類へ正規化し、status が無ければ null を返す", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
       commitsResponse([
@@ -166,7 +168,6 @@ describe("listPullRequestCommitTitleStatuses", () => {
           commit: {
             oid: "context-not-found",
             status: { context: null },
-            associatedPullRequests: { totalCount: 0, nodes: [] },
           },
         },
       ])
@@ -176,44 +177,30 @@ describe("listPullRequestCommitTitleStatuses", () => {
       {
         sha: "stale-error",
         statusState: "not_success",
-        isOpenPullRequestHead: false,
-        associatedPullRequestsTruncated: false,
       },
       {
         sha: "stale-expected",
         statusState: "not_success",
-        isOpenPullRequestHead: false,
-        associatedPullRequestsTruncated: false,
       },
       {
         sha: "stale-failure",
         statusState: "not_success",
-        isOpenPullRequestHead: false,
-        associatedPullRequestsTruncated: false,
       },
       {
         sha: "stale-pending",
         statusState: "not_success",
-        isOpenPullRequestHead: false,
-        associatedPullRequestsTruncated: false,
       },
       {
         sha: "already-success",
         statusState: "success",
-        isOpenPullRequestHead: false,
-        associatedPullRequestsTruncated: false,
       },
       {
         sha: "never-validated",
         statusState: null,
-        isOpenPullRequestHead: false,
-        associatedPullRequestsTruncated: false,
       },
       {
         sha: "context-not-found",
         statusState: null,
-        isOpenPullRequestHead: false,
-        associatedPullRequestsTruncated: false,
       },
     ]);
     const body = JSON.parse(fetchImpl.mock.calls[0]?.[1]?.body as string) as { variables: Record<string, unknown> };
@@ -245,7 +232,6 @@ describe("listPullRequestCommitTitleStatuses", () => {
       {
         commit: {
           oid: "missing-status",
-          associatedPullRequests: { totalCount: 0, nodes: [] },
         },
       },
     ],
@@ -255,7 +241,6 @@ describe("listPullRequestCommitTitleStatuses", () => {
         commit: {
           oid: "missing-context",
           status: {},
-          associatedPullRequests: { totalCount: 0, nodes: [] },
         },
       },
     ],
@@ -265,30 +250,6 @@ describe("listPullRequestCommitTitleStatuses", () => {
     await expect(listPullRequestCommitTitleStatuses(sweepInput(fetchImpl))).rejects.toMatchObject({
       code: "GITHUB_API_FAILED",
     });
-  });
-
-  it("open PR の head かどうかを state で判定し、件数が切れたら truncated にする", async () => {
-    const fetchImpl = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(
-        commitsResponse([
-          commitNode("stacked-head", { state: "FAILURE", openHeads: ["stacked-head"] }),
-          commitNode("contained-only", { state: "FAILURE", openHeads: ["other-sha"] }),
-          commitNode("closed-head", { state: "FAILURE", closedHeads: ["closed-head"] }),
-          commitNode("too-many-prs", { state: "FAILURE", openHeads: ["other-sha"], totalCount: 99 }),
-        ])
-      );
-
-    const commits = await listPullRequestCommitTitleStatuses(sweepInput(fetchImpl));
-
-    expect(commits.map((commit) => [commit.sha, commit.isOpenPullRequestHead])).toEqual([
-      ["stacked-head", true],
-      ["contained-only", false],
-      // closed PR の head は掃除してよい
-      ["closed-head", false],
-      ["too-many-prs", false],
-    ]);
-    expect(commits.map((commit) => commit.associatedPullRequestsTruncated)).toEqual([false, false, false, true]);
   });
 
   it("cursor を辿って全 page を走査し、循環では失敗する", async () => {
@@ -343,7 +304,6 @@ describe("listPullRequestCommitTitleStatuses", () => {
 
   it("GitHub の実 response を解釈できる", async () => {
     const head = "f9cbe703248efa25c564788935c6bdffae621605";
-    const associated = { totalCount: 1, nodes: [{ state: "OPEN", headRefOid: head }] };
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
       Response.json({
         data: {
@@ -355,24 +315,22 @@ describe("listPullRequestCommitTitleStatuses", () => {
                     commit: {
                       oid: "43ef307146b744dc9fb967fbcfc634dbed8aa018",
                       status: null,
-                      associatedPullRequests: associated,
                     },
                   },
                   {
                     commit: {
                       oid: "56c92e51ab446e4df04b77c20a5047ffdb4ee3d5",
                       status: { context: { state: "SUCCESS" } },
-                      associatedPullRequests: associated,
                     },
                   },
                   {
                     commit: {
                       oid: head,
                       status: { context: { state: "SUCCESS" } },
-                      associatedPullRequests: associated,
                     },
                   },
                 ],
+                totalCount: 3,
                 pageInfo: { hasNextPage: false, endCursor: "Mw" },
               },
             },
@@ -385,16 +343,12 @@ describe("listPullRequestCommitTitleStatuses", () => {
       {
         sha: "43ef307146b744dc9fb967fbcfc634dbed8aa018",
         statusState: null,
-        isOpenPullRequestHead: false,
-        associatedPullRequestsTruncated: false,
       },
       {
         sha: "56c92e51ab446e4df04b77c20a5047ffdb4ee3d5",
         statusState: "success",
-        isOpenPullRequestHead: false,
-        associatedPullRequestsTruncated: false,
       },
-      { sha: head, statusState: "success", isOpenPullRequestHead: true, associatedPullRequestsTruncated: false },
+      { sha: head, statusState: "success" },
     ]);
   });
 });

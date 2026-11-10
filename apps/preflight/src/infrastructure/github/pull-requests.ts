@@ -1,9 +1,29 @@
-import { GITHUB_API_BASE_URL, githubRequest, invalidShapeError, nextPageUrl, readGitHubJson } from "./request.js";
+import { isOutsideDefaultBranch, parseAssociatedPullRequests } from "./associated-pull-requests.js";
+import { GITHUB_API_BASE_URL, githubRequest, invalidShapeError, readGitHubJson } from "./request.js";
 import { GitHubError } from "../../errors.js";
-import { positiveSafeInteger } from "../../util/type-guards.js";
+import { MAX_OPEN_PULL_REQUEST_PAGES } from "../../usecase/title-validation/dependencies.js";
+import { isRecord, positiveSafeInteger } from "../../util/type-guards.js";
 
 import type { AssociatedPullRequestTitle, PullRequestTitleState } from "../../usecase/title-validation/dependencies.js";
 import type { Logger } from "../../util/logger.js";
+
+const CURRENT_POLICY_QUERY = `
+  query CurrentPolicy($owner: String!, $repo: String!, $number: Int!, $sha: String!, $oid: GitObjectID!) {
+    repository(owner: $owner, name: $repo) {
+      pullRequest(number: $number) { title state isDraft headRefOid }
+      object(oid: $oid) {
+        ... on Commit {
+          associatedPullRequests(first: 100) {
+            totalCount
+            nodes { number title state isDraft headRefOid }
+            pageInfo { hasNextPage }
+          }
+        }
+      }
+      defaultBranchRef { compare(headRef: $sha) { status headTarget { oid } } }
+    }
+  }
+`;
 
 const OPEN_PULL_REQUESTS_QUERY = `
   query OpenPullRequests($owner: String!, $repo: String!, $cursor: String) {
@@ -31,64 +51,12 @@ const OPEN_PULL_REQUESTS_QUERY = `
   }
 `;
 
-// 1 ページ 100 件で 5,000 件相当
-// 上限内で完了すれば成功、上限を超えるページが必要になったら安全側に倒し、
-// head SHA 一致 PR の取得を「完了できなかった」失敗として扱う
-const MAX_OPEN_PULL_REQUEST_PAGES = 50;
-
-interface ParsedPullRequest {
-  title: string;
-  state: "closed" | "open";
-  draft: boolean;
-  headSha: string;
-}
-
-interface CommitAssociatedPullRequest extends AssociatedPullRequestTitle {
-  state: "closed" | "open";
-}
-
 interface OpenPullRequestPage {
   totalCount: number;
   pullRequests: AssociatedPullRequestTitle[];
   hasNextPage: boolean;
   endCursor: string | null;
 }
-
-const parsePullRequest = (value: unknown): ParsedPullRequest | null => {
-  if (typeof value !== "object" || value === null) return null;
-  const pullRequest = value as Record<string, unknown>;
-  if (
-    typeof pullRequest.title !== "string" ||
-    (pullRequest.state !== "closed" && pullRequest.state !== "open") ||
-    typeof pullRequest.draft !== "boolean" ||
-    typeof pullRequest.head !== "object" ||
-    pullRequest.head === null
-  ) {
-    return null;
-  }
-  const headSha = (pullRequest.head as Record<string, unknown>).sha;
-  if (typeof headSha !== "string" || headSha.length === 0) return null;
-  return {
-    title: pullRequest.title,
-    state: pullRequest.state,
-    draft: pullRequest.draft,
-    headSha,
-  };
-};
-
-const parseCommitAssociatedPullRequest = (value: unknown): CommitAssociatedPullRequest | null => {
-  if (typeof value !== "object" || value === null) return null;
-  const record = value as Record<string, unknown>;
-  const parsed = parsePullRequest(value);
-  if (!parsed || !positiveSafeInteger(record.number)) return null;
-  return {
-    number: record.number,
-    title: parsed.title,
-    headSha: parsed.headSha,
-    draft: parsed.draft,
-    state: parsed.state,
-  };
-};
 
 const parseOpenPullRequestPage = (value: unknown): OpenPullRequestPage | null => {
   if (typeof value !== "object" || value === null) return null;
@@ -138,62 +106,6 @@ const parseOpenPullRequestPage = (value: unknown): OpenPullRequestPage | null =>
   };
 };
 
-const listCommitAssociatedPullRequests = async (input: {
-  owner: string;
-  repo: string;
-  headSha: string;
-  installationToken: string;
-  fetchImpl: typeof fetch;
-  signal: AbortSignal;
-}): Promise<AssociatedPullRequestTitle[]> => {
-  const owner = encodeURIComponent(input.owner);
-  const repo = encodeURIComponent(input.repo);
-  const sha = encodeURIComponent(input.headSha);
-  const path = `/repos/${owner}/${repo}/commits/${sha}/pulls`;
-  let url = `${GITHUB_API_BASE_URL}${path}?per_page=100&page=1`;
-  const visitedUrls = new Set<string>();
-  const seenNumbers = new Set<number>();
-  const matches: AssociatedPullRequestTitle[] = [];
-
-  for (;;) {
-    if (visitedUrls.has(url)) throw new GitHubError("GITHUB_API_FAILED", "GitHub pagination cycle detected");
-    visitedUrls.add(url);
-    const response = await githubRequest({
-      url,
-      method: "GET",
-      token: input.installationToken,
-      expectedStatuses: [200],
-      errorCode: "GITHUB_API_FAILED",
-      fetchImpl: input.fetchImpl,
-      signal: input.signal,
-    });
-    const body = await readGitHubJson(response, "GITHUB_API_FAILED", input.signal);
-    if (!Array.isArray(body)) throw invalidShapeError(response, "GITHUB_API_FAILED", "commit-associated pull requests");
-    for (const value of body as unknown[]) {
-      const pullRequest = parseCommitAssociatedPullRequest(value);
-      if (!pullRequest) throw invalidShapeError(response, "GITHUB_API_FAILED", "commit-associated pull requests");
-      if (seenNumbers.has(pullRequest.number)) {
-        throw new GitHubError("GITHUB_API_FAILED", "Duplicate pull request in GitHub pagination response");
-      }
-      seenNumbers.add(pullRequest.number);
-      if (pullRequest.state === "open" && pullRequest.headSha === input.headSha) {
-        matches.push({
-          number: pullRequest.number,
-          title: pullRequest.title,
-          headSha: pullRequest.headSha,
-          draft: pullRequest.draft,
-        });
-      }
-    }
-    const next = nextPageUrl(response.headers.get("link"), url, path, {
-      invalidUrl: "Invalid GitHub pull request pagination URL",
-      invalidPath: "Invalid GitHub pull request pagination URL",
-    });
-    if (!next) return matches.sort((left, right) => left.number - right.number);
-    url = next;
-  }
-};
-
 const totalCountMismatchWarning = (input: {
   logger: Logger;
   deliveryId: string;
@@ -215,10 +127,10 @@ const totalCountMismatchWarning = (input: {
   });
 };
 
-const listAllOpenPullRequestsForHeadSha = async (input: {
+export const listOpenPullRequestsForHeadShas = async (input: {
   owner: string;
   repo: string;
-  headSha: string;
+  headShas: string[];
   installationToken: string;
   fetchImpl: typeof fetch;
   signal: AbortSignal;
@@ -228,6 +140,7 @@ const listAllOpenPullRequestsForHeadSha = async (input: {
   const seenPullRequestNumbers = new Set<number>();
   const seenCursors = new Set<string>();
   const associatedPullRequests: AssociatedPullRequestTitle[] = [];
+  const headShas = new Set(input.headShas);
   let totalPullRequests = 0;
   let expectedTotalCount: number | undefined;
   let cursor: string | null = null;
@@ -253,8 +166,7 @@ const listAllOpenPullRequestsForHeadSha = async (input: {
     });
     const pullRequestPage = parseOpenPullRequestPage(await readGitHubJson(response, "GITHUB_API_FAILED", input.signal));
     if (!pullRequestPage) throw invalidShapeError(response, "GITHUB_API_FAILED", "pull requests");
-    // totalCount は pagination 中の open PR 増減で変わりうる
-    // head SHA 一致 PR を取得できたかどうかの成功判定には使わず、診断用の警告として記録するだけにする
+    // pagination 中の件数変化では一覧の網羅性を確認できない
     expectedTotalCount ??= pullRequestPage.totalCount;
     if (pullRequestPage.totalCount !== expectedTotalCount) {
       totalCountMismatchWarning({
@@ -262,10 +174,11 @@ const listAllOpenPullRequestsForHeadSha = async (input: {
         deliveryId: input.deliveryId,
         owner: input.owner,
         repo: input.repo,
-        headSha: input.headSha,
+        headSha: input.headShas.join(","),
         expectedTotalCount,
         observedTotalCount: pullRequestPage.totalCount,
       });
+      throw new GitHubError("GITHUB_API_FAILED", "GitHub open pull request count changed during pagination");
     }
 
     totalPullRequests += pullRequestPage.pullRequests.length;
@@ -274,7 +187,7 @@ const listAllOpenPullRequestsForHeadSha = async (input: {
         throw new GitHubError("GITHUB_API_FAILED", "Duplicate pull request in GitHub pagination response");
       }
       seenPullRequestNumbers.add(pullRequest.number);
-      if (pullRequest.headSha === input.headSha) associatedPullRequests.push(pullRequest);
+      if (headShas.has(pullRequest.headSha)) associatedPullRequests.push(pullRequest);
     }
 
     if (!pullRequestPage.hasNextPage) {
@@ -284,10 +197,11 @@ const listAllOpenPullRequestsForHeadSha = async (input: {
           deliveryId: input.deliveryId,
           owner: input.owner,
           repo: input.repo,
-          headSha: input.headSha,
+          headSha: input.headShas.join(","),
           expectedTotalCount,
           observedTotalCount: totalPullRequests,
         });
+        throw new GitHubError("GITHUB_API_FAILED", "GitHub open pull request count did not match pagination");
       }
       return associatedPullRequests.sort((left, right) => left.number - right.number);
     }
@@ -300,41 +214,62 @@ const listAllOpenPullRequestsForHeadSha = async (input: {
   }
 };
 
-export const getCurrentPullRequestTitleState = async (input: {
+export const getCurrentPolicyState = async (input: {
   owner: string;
   repo: string;
   pullRequestNumber: number;
+  headSha: string;
   installationToken: string;
   fetchImpl: typeof fetch;
   signal: AbortSignal;
-}): Promise<PullRequestTitleState> => {
-  const owner = encodeURIComponent(input.owner);
-  const repo = encodeURIComponent(input.repo);
+}): Promise<{
+  current: PullRequestTitleState;
+  associatedPullRequests: AssociatedPullRequestTitle[] | undefined;
+}> => {
   const response = await githubRequest({
-    url: `${GITHUB_API_BASE_URL}/repos/${owner}/${repo}/pulls/${String(input.pullRequestNumber)}`,
-    method: "GET",
+    url: `${GITHUB_API_BASE_URL}/graphql`,
+    method: "POST",
     token: input.installationToken,
+    body: {
+      query: CURRENT_POLICY_QUERY,
+      variables: {
+        owner: input.owner,
+        repo: input.repo,
+        number: input.pullRequestNumber,
+        sha: input.headSha,
+        oid: input.headSha,
+      },
+    },
     expectedStatuses: [200],
     errorCode: "GITHUB_API_FAILED",
     fetchImpl: input.fetchImpl,
     signal: input.signal,
   });
-  const pullRequest = parsePullRequest(await readGitHubJson(response, "GITHUB_API_FAILED", input.signal));
-  if (!pullRequest) throw invalidShapeError(response, "GITHUB_API_FAILED", "pull request");
-  return { title: pullRequest.title, headSha: pullRequest.headSha, state: pullRequest.state, draft: pullRequest.draft };
-};
-
-export const listOpenPullRequestsForHeadSha = async (input: {
-  owner: string;
-  repo: string;
-  headSha: string;
-  installationToken: string;
-  fetchImpl: typeof fetch;
-  signal: AbortSignal;
-  logger: Logger;
-  deliveryId: string;
-}): Promise<AssociatedPullRequestTitle[]> => {
-  const associated = await listCommitAssociatedPullRequests(input);
-  // GitHub の仕様では default branch 上の commit に対して open PR が返らないため、その場合だけ全 open PR を走査する
-  return associated.length > 0 ? associated : listAllOpenPullRequestsForHeadSha(input);
+  const body: unknown = await readGitHubJson(response, "GITHUB_API_FAILED", input.signal);
+  const repository =
+    isRecord(body) && isRecord(body.data) && isRecord(body.data.repository) ? body.data.repository : {};
+  const pr = isRecord(repository.pullRequest) ? repository.pullRequest : undefined;
+  if (
+    !pr ||
+    typeof pr.title !== "string" ||
+    (pr.state !== "OPEN" && pr.state !== "CLOSED" && pr.state !== "MERGED") ||
+    typeof pr.isDraft !== "boolean" ||
+    typeof pr.headRefOid !== "string" ||
+    !pr.headRefOid
+  ) {
+    throw invalidShapeError(response, "GITHUB_API_FAILED", "pull request");
+  }
+  const current: PullRequestTitleState = {
+    title: pr.title,
+    state: pr.state === "OPEN" ? "open" : "closed",
+    draft: pr.isDraft,
+    headSha: pr.headRefOid,
+  };
+  const comparison = isRecord(repository.defaultBranchRef) ? repository.defaultBranchRef.compare : undefined;
+  const object = isRecord(repository.object) ? repository.object : undefined;
+  const associatedPullRequests =
+    isRecord(body) && body.errors === undefined && isOutsideDefaultBranch(comparison, input.headSha)
+      ? parseAssociatedPullRequests(object?.associatedPullRequests, input.headSha)
+      : undefined;
+  return { current, associatedPullRequests };
 };

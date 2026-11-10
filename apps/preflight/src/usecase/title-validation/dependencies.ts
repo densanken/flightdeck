@@ -1,3 +1,6 @@
+// 1 ページ 100 件で 600 件相当。上限を超える場合は一覧を確定できなかった失敗とする
+export const MAX_OPEN_PULL_REQUEST_PAGES = 6;
+
 // commit status は context ごとに最新の 1 件だけが評価される
 // pending へ戻せるのは check run に無い性質
 export type TitleStatusState = "error" | "failure" | "pending" | "success";
@@ -35,25 +38,29 @@ export interface PullRequestCommitTitleStatus {
    * status が無ければ null
    */
   statusState: ObservedTitleStatusState | null;
-  isOpenPullRequestHead: boolean;
-  /** 関連 PR が多すぎて open head かどうかを判定しきれなかった */
-  associatedPullRequestsTruncated: boolean;
 }
 
 export interface TitleValidationGateway {
-  readonly getCurrentPullRequestTitleState: (
-    input: { owner: string; repo: string; pullRequestNumber: number },
+  readonly getCurrentPolicyState: (
+    input: { owner: string; repo: string; pullRequestNumber: number; headSha: string },
     signal: AbortSignal
-  ) => Promise<PullRequestTitleState>;
-  readonly listOpenPullRequestsForHeadSha: (
-    input: { owner: string; repo: string; headSha: string },
+  ) => Promise<{
+    current: PullRequestTitleState;
+    associatedPullRequests: AssociatedPullRequestTitle[] | undefined;
+  }>;
+  readonly listOpenPullRequestsForHeadShas: (
+    input: { owner: string; repo: string; headShas: string[] },
     signal: AbortSignal
   ) => Promise<AssociatedPullRequestTitle[]>;
   readonly getAuthenticatedAppBotUserId: (signal: AbortSignal) => Promise<number>;
   readonly listPullRequestCommitTitleStatuses: (
-    input: { owner: string; repo: string; pullRequestNumber: number },
+    input: { owner: string; repo: string; pullRequestNumber: number; maxPages: number },
     signal: AbortSignal
   ) => Promise<PullRequestCommitTitleStatus[]>;
+  readonly confirmSweepCommits: (
+    input: { owner: string; repo: string; shas: string[] },
+    signal: AbortSignal
+  ) => Promise<Map<string, AssociatedPullRequestTitle[] | undefined>>;
   readonly setTitleStatus: (
     input: {
       owner: string;
@@ -62,6 +69,7 @@ export interface TitleValidationGateway {
       state: TitleStatusState;
       description: string;
       targetUrl?: string;
+      retry?: boolean;
     },
     signal: AbortSignal
   ) => Promise<void>;
@@ -81,4 +89,12 @@ export interface TitleValidationGateway {
     input: { owner: string; repo: string; commentId: number },
     signal: AbortSignal
   ) => Promise<void>;
+}
+
+export interface TitleValidationPhases {
+  sweep: TitleValidationGateway;
+  recovery: TitleValidationGateway;
+  recoveryStatus: TitleValidationGateway;
+  budget: { remaining: (phase: "sweep" | "recovery" | "recovery_status") => number };
+  log: (result: string, count: number, sha?: string) => void;
 }

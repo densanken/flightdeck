@@ -38,6 +38,9 @@ export interface LogRecord {
   headSha?: string;
   expectedTotalCount?: number;
   observedTotalCount?: number;
+  subrequestPurpose?: string;
+  subrequestsUsed?: number;
+  subrequestLimit?: number;
 }
 
 export type Logger = BaseLogger<LogRecord>;

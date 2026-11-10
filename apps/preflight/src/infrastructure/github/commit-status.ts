@@ -1,39 +1,31 @@
+import { isOutsideDefaultBranch, parseAssociatedPullRequests } from "./associated-pull-requests.js";
 import { GITHUB_API_BASE_URL, githubRequest, invalidShapeError, readGitHubJson } from "./request.js";
 import { truncateCommitStatusDescription } from "../../domain/commit-status-description.js";
 import { GitHubError } from "../../errors.js";
 import { isRecord } from "../../util/type-guards.js";
 
 import type {
+  AssociatedPullRequestTitle,
   ObservedTitleStatusState,
   PullRequestCommitTitleStatus,
   TitleStatusState,
 } from "../../usecase/title-validation/dependencies.js";
+import type { Logger } from "../../util/logger.js";
 
 export const PR_TITLE_STATUS_CONTEXT = "PR Title";
-
-// 1 commit あたりの関連 PR をこの数まで確認する
-// 超える commit は shared head の判定ができないため触らない
-// Commit.associatedPullRequests は state で絞り込めないので、open だけを取り出す処理は client 側で行う
-const MAX_ASSOCIATED_PULL_REQUESTS = 20;
 
 const PULL_REQUEST_TITLE_STATUSES_QUERY = `
   query PullRequestTitleStatuses($owner: String!, $repo: String!, $number: Int!, $context: String!, $cursor: String) {
     repository(owner: $owner, name: $repo) {
       pullRequest(number: $number) {
         commits(first: 100, after: $cursor) {
+          totalCount
           nodes {
             commit {
               oid
               status {
                 context(name: $context) {
                   state
-                }
-              }
-              associatedPullRequests(first: ${String(MAX_ASSOCIATED_PULL_REQUESTS)}) {
-                totalCount
-                nodes {
-                  state
-                  headRefOid
                 }
               }
             }
@@ -55,6 +47,7 @@ export const setPullRequestTitleStatus = async (input: {
   state: TitleStatusState;
   description: string;
   targetUrl?: string;
+  retry?: boolean;
   installationToken: string;
   fetchImpl: typeof fetch;
   signal: AbortSignal;
@@ -94,12 +87,13 @@ export const setPullRequestTitleStatus = async (input: {
     // 入力状態が変わらないまま古い verdict の retry に上書きされるリスクが残る
     // この上書きは次に同じ head SHA を収束させる delivery（再配信や後続イベント）が来れば是正されるが、その到来自体は保証されない
     // retry を無効にすると 5xx/429/network error のたびに fail-closed の verdict そのものが届かず終わるため、このリスクを承知で retry を有効にする
-    retry: true,
+    retry: input.retry ?? true,
   });
 };
 
 interface CommitTitleStatusPage {
   commits: PullRequestCommitTitleStatus[];
+  totalCount: number;
   hasNextPage: boolean;
   endCursor: string | null;
 }
@@ -137,22 +131,7 @@ const parseCommit = (value: unknown): PullRequestCommitTitleStatus | null => {
     }
   }
 
-  const associated = commit.associatedPullRequests;
-  if (!isRecord(associated) || typeof associated.totalCount !== "number" || !Array.isArray(associated.nodes)) {
-    return null;
-  }
-  const openHeads: string[] = [];
-  for (const node of associated.nodes as unknown[]) {
-    if (!isRecord(node) || typeof node.headRefOid !== "string" || typeof node.state !== "string") return null;
-    if (node.state === "OPEN") openHeads.push(node.headRefOid);
-  }
-
-  return {
-    sha: commit.oid,
-    statusState: contextState,
-    isOpenPullRequestHead: openHeads.includes(commit.oid),
-    associatedPullRequestsTruncated: associated.totalCount > (associated.nodes as unknown[]).length,
-  };
+  return { sha: commit.oid, statusState: contextState };
 };
 
 const parseCommitTitleStatusPage = (value: unknown): CommitTitleStatusPage | null => {
@@ -163,7 +142,7 @@ const parseCommitTitleStatusPage = (value: unknown): CommitTitleStatusPage | nul
   if (!isRecord(repository) || !isRecord(repository.pullRequest)) return null;
   const commits = repository.pullRequest.commits;
   if (!isRecord(commits) || !Array.isArray(commits.nodes) || !isRecord(commits.pageInfo)) return null;
-  if (typeof commits.pageInfo.hasNextPage !== "boolean") return null;
+  if (typeof commits.pageInfo.hasNextPage !== "boolean" || typeof commits.totalCount !== "number") return null;
   const endCursor = commits.pageInfo.endCursor;
   if (endCursor !== null && typeof endCursor !== "string") return null;
 
@@ -171,12 +150,13 @@ const parseCommitTitleStatusPage = (value: unknown): CommitTitleStatusPage | nul
   if (parsed.some((commit) => commit === null)) return null;
   return {
     commits: parsed as PullRequestCommitTitleStatus[],
+    totalCount: commits.totalCount,
     hasNextPage: commits.pageInfo.hasNextPage,
     endCursor,
   };
 };
 
-/** PR の全 commit について、`PR Title` status と open PR head かどうかを返す */
+/** PR の commit について `PR Title` status を返す */
 export const listPullRequestCommitTitleStatuses = async (input: {
   owner: string;
   repo: string;
@@ -184,12 +164,42 @@ export const listPullRequestCommitTitleStatuses = async (input: {
   installationToken: string;
   fetchImpl: typeof fetch;
   signal: AbortSignal;
+  logger: Logger;
+  deliveryId: string;
+  maxPages: number;
 }): Promise<PullRequestCommitTitleStatus[]> => {
   const commits: PullRequestCommitTitleStatus[] = [];
   const seenCursors = new Set<string>();
   let cursor: string | null = null;
+  let expectedTotalCount: number | undefined;
 
+  const logTotalCountMismatch = (expected: number): void => {
+    if (expected !== commits.length) {
+      input.logger.log("warn", {
+        event: "github_webhook_consume",
+        feature: "title-validation",
+        result: "sweep_commit_total_count_mismatch",
+        deliveryId: input.deliveryId,
+        expectedTotalCount: expected,
+        observedTotalCount: commits.length,
+      });
+    }
+  };
+
+  let pageCount = 0;
   for (;;) {
+    if (pageCount >= input.maxPages) {
+      if (expectedTotalCount !== undefined) logTotalCountMismatch(expectedTotalCount);
+      input.logger.log("warn", {
+        event: "github_webhook_consume",
+        feature: "title-validation",
+        result: "sweep_commit_budget_exhausted",
+        deliveryId: input.deliveryId,
+        observedTotalCount: commits.length,
+      });
+      return commits;
+    }
+    pageCount += 1;
     const response = await githubRequest({
       url: `${GITHUB_API_BASE_URL}/graphql`,
       method: "POST",
@@ -212,13 +222,82 @@ export const listPullRequestCommitTitleStatuses = async (input: {
     const page = parseCommitTitleStatusPage(await readGitHubJson(response, "GITHUB_API_FAILED", input.signal));
     if (!page) throw invalidShapeError(response, "GITHUB_API_FAILED", "commit status");
     commits.push(...page.commits);
+    expectedTotalCount = page.totalCount;
 
-    if (!page.hasNextPage) return commits;
+    if (!page.hasNextPage) {
+      logTotalCountMismatch(page.totalCount);
+      return commits;
+    }
+    input.logger.log("info", {
+      event: "github_webhook_consume",
+      feature: "title-validation",
+      result: "sweep_commits_has_next_page",
+      deliveryId: input.deliveryId,
+      observedTotalCount: commits.length,
+    });
     const nextCursor = page.endCursor;
     if (!nextCursor || seenCursors.has(nextCursor)) {
+      input.logger.log("warn", {
+        event: "github_webhook_consume",
+        feature: "title-validation",
+        result: "sweep_commit_cursor_cycle",
+        deliveryId: input.deliveryId,
+      });
       throw new GitHubError("GITHUB_API_FAILED", "Invalid GitHub GraphQL pagination cursor");
     }
     seenCursors.add(nextCursor);
     cursor = nextCursor;
   }
+};
+
+/** 書き込んだ SHA の関連 PR と default branch をまとめて確認する */
+export const confirmSweepCommits = async (input: {
+  owner: string;
+  repo: string;
+  shas: string[];
+  installationToken: string;
+  fetchImpl: typeof fetch;
+  signal: AbortSignal;
+}): Promise<Map<string, AssociatedPullRequestTitle[] | undefined>> => {
+  if (input.shas.length === 0) return new Map();
+
+  const variables: Record<string, string> = { owner: input.owner, repo: input.repo };
+  const declarations: string[] = [];
+  const objects: string[] = [];
+  const comparisons: string[] = [];
+  input.shas.forEach((sha, i) => {
+    variables[`sha${String(i)}`] = sha;
+    variables[`oid${String(i)}`] = sha;
+    declarations.push(`$sha${String(i)}: String!, $oid${String(i)}: GitObjectID!`);
+    objects.push(
+      `o${String(i)}: object(oid: $oid${String(i)}) { ... on Commit { associatedPullRequests(first: 100) { totalCount nodes { number title state isDraft headRefOid } pageInfo { hasNextPage } } } }`
+    );
+    comparisons.push(`c${String(i)}: compare(headRef: $sha${String(i)}) { status headTarget { oid } }`);
+  });
+  const response = await githubRequest({
+    url: `${GITHUB_API_BASE_URL}/graphql`,
+    method: "POST",
+    token: input.installationToken,
+    body: {
+      query: `query ConfirmSweep($owner: String!, $repo: String!, ${declarations.join(", ")}) { repository(owner: $owner, name: $repo) { ${objects.join(" ")} defaultBranchRef { ${comparisons.join(" ")} } } }`,
+      variables,
+    },
+    expectedStatuses: [200],
+    errorCode: "GITHUB_API_FAILED",
+    fetchImpl: input.fetchImpl,
+    signal: input.signal,
+  });
+  const body: unknown = await readGitHubJson(response, "GITHUB_API_FAILED", input.signal);
+  if (!isRecord(body) || body.errors !== undefined || !isRecord(body.data) || !isRecord(body.data.repository))
+    throw invalidShapeError(response, "GITHUB_API_FAILED", "sweep confirmation");
+  const repository = body.data.repository;
+  const result = new Map<string, AssociatedPullRequestTitle[] | undefined>();
+  const branch = repository.defaultBranchRef;
+  input.shas.forEach((sha, i) => {
+    const object = repository[`o${String(i)}`];
+    const comparison = isRecord(branch) ? branch[`c${String(i)}`] : null;
+    const connection = isRecord(object) ? object.associatedPullRequests : null;
+    result.set(sha, isOutsideDefaultBranch(comparison, sha) ? parseAssociatedPullRequests(connection, sha) : undefined);
+  });
+  return result;
 };

@@ -8,7 +8,7 @@ import { createTestPrivateKey, pullRequestBody, TEST_WEBHOOK_SECRET, webhookRequ
 import type { Env } from "../env.js";
 import type { PullRequestWebhookPayload } from "../handler/github/payload.js";
 
-const jsonResponse = (body: unknown, status: number, headers?: Record<string, string>): Response =>
+const jsonResponse = (body: unknown, status = 200, headers?: Record<string, string>): Response =>
   new Response(JSON.stringify(body), {
     status,
     headers: { "Content-Type": "application/json", ...headers },
@@ -58,6 +58,7 @@ const commitTitleStatusesResponse = (headSha = "abc123") => ({
     repository: {
       pullRequest: {
         commits: {
+          totalCount: 2,
           nodes: [
             {
               commit: {
@@ -77,6 +78,20 @@ const commitTitleStatusesResponse = (headSha = "abc123") => ({
           pageInfo: { hasNextPage: false, endCursor: null },
         },
       },
+    },
+  },
+});
+
+const currentPolicyResponse = (
+  title: string,
+  state = "OPEN",
+  nodes = [{ number: 7, title, state: "OPEN", headRefOid: "abc123", isDraft: false }]
+) => ({
+  data: {
+    repository: {
+      pullRequest: { title, state, headRefOid: "abc123", isDraft: false },
+      object: { associatedPullRequests: { totalCount: nodes.length, nodes, pageInfo: { hasNextPage: false } } },
+      defaultBranchRef: { compare: { headTarget: { oid: "abc123" }, status: "AHEAD" } },
     },
   },
 });
@@ -107,6 +122,23 @@ const successfulGitHubFetch = (options: { assigneesStatus?: number } = {}) => {
       );
     }
     if (new URL(url).pathname === "/graphql") {
+      if (requestBody(init).includes("CurrentPolicy"))
+        return Promise.resolve(jsonResponse(currentPolicyResponse("feat: add login")));
+      if (requestBody(init).includes("ConfirmSweep")) {
+        return Promise.resolve(
+          jsonResponse({
+            data: {
+              repository: {
+                o0: {
+                  oid: "stale-sha",
+                  associatedPullRequests: { totalCount: 0, nodes: [], pageInfo: { hasNextPage: false } },
+                },
+                defaultBranchRef: { c0: { status: "AHEAD", headTarget: { oid: "stale-sha" } } },
+              },
+            },
+          })
+        );
+      }
       if (requestBody(init).includes("PullRequestTitleStatuses")) {
         return Promise.resolve(jsonResponse(commitTitleStatusesResponse(), 200));
       }
@@ -172,7 +204,7 @@ describe("composeApp", () => {
 
     expect(duplicate).toEqual({ status: "processed", result: "duplicate" });
     expect(createHardDeadlineSignal).toHaveBeenCalledTimes(2);
-    expect(fetchImpl).toHaveBeenCalledTimes(16);
+    expect(fetchImpl).toHaveBeenCalledTimes(14);
     // 検証を始める前に pending を投稿し、処理済みと判定した再配信では投稿しない
     expect(postedStatuses(fetchImpl).at(0)).toEqual({ sha: "abc123", state: "pending" });
     expect(postedStatuses(fetchImpl).filter((write) => write.state === "pending")).toHaveLength(1);
@@ -282,7 +314,7 @@ describe("composeApp", () => {
     expect(postedStatuses(fetchImpl).at(-1)).toEqual({ sha: "abc123", state: "error" });
   });
 
-  it("closed PR のコメント削除が失敗しても、共有 SHA の open PR を error にしない", async () => {
+  it("closed PR のコメント削除失敗後も共有 head の verdict を維持する", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockImplementation((input, init) => {
       const url = requestUrl(input);
       const path = new URL(url).pathname;
@@ -300,6 +332,32 @@ describe("composeApp", () => {
             [{ number: 8, title: "fix: keep valid PR", state: "open", head: { sha: "abc123" }, draft: false }],
             200
           )
+        );
+      }
+      if (path === "/graphql" && requestBody(init).includes("CurrentPolicy")) {
+        return Promise.resolve(
+          jsonResponse(
+            currentPolicyResponse("feat: merged PR", "CLOSED", [
+              { number: 8, title: "fix: keep valid PR", state: "OPEN", headRefOid: "abc123", isDraft: false },
+            ])
+          )
+        );
+      }
+      if (path === "/graphql" && requestBody(init).includes("OpenPullRequests")) {
+        return Promise.resolve(
+          jsonResponse({
+            data: {
+              repository: {
+                pullRequests: {
+                  totalCount: 1,
+                  nodes: [
+                    { number: 8, title: "fix: keep valid PR", state: "OPEN", headRefOid: "abc123", isDraft: false },
+                  ],
+                  pageInfo: { hasNextPage: false, endCursor: null },
+                },
+              },
+            },
+          })
         );
       }
       if (path === "/app") return Promise.resolve(jsonResponse({ slug: "preflight" }, 200));
@@ -465,6 +523,28 @@ describe("composeApp", () => {
         return Promise.resolve(jsonResponse([], 200));
       }
       if (new URL(url).pathname === "/graphql") {
+        if (requestBody(init).includes("CurrentPolicy"))
+          return Promise.resolve(
+            jsonResponse({
+              ...currentPolicyResponse("feat: add auto assignment", "OPEN", []),
+              errors: [{ message: "partial" }],
+            })
+          );
+        if (requestBody(init).includes("ConfirmSweep")) {
+          return Promise.resolve(
+            jsonResponse({
+              data: {
+                repository: {
+                  o0: {
+                    oid: "stale-sha",
+                    associatedPullRequests: { totalCount: 0, nodes: [], pageInfo: { hasNextPage: false } },
+                  },
+                  defaultBranchRef: { c0: { status: "AHEAD", headTarget: { oid: "stale-sha" } } },
+                },
+              },
+            })
+          );
+        }
         if (requestBody(init).includes("PullRequestTitleStatuses")) {
           return Promise.resolve(jsonResponse(commitTitleStatusesResponse(), 200));
         }
@@ -532,7 +612,7 @@ describe("composeApp", () => {
       attempt: 1,
     });
 
-    expect(outcome).toEqual({ status: "processed", result: "assigned" });
+    expect(outcome).toEqual({ status: "failed", errorCode: "GITHUB_API_FAILED" });
     expect(
       logger.records.some(
         ({ level, record }) =>
@@ -567,6 +647,23 @@ describe("composeApp", () => {
         );
       }
       if (new URL(url).pathname === "/graphql") {
+        if (requestBody(init).includes("CurrentPolicy"))
+          return Promise.resolve(jsonResponse(currentPolicyResponse(currentTitle)));
+        if (requestBody(init).includes("ConfirmSweep")) {
+          return Promise.resolve(
+            jsonResponse({
+              data: {
+                repository: {
+                  o0: {
+                    oid: "stale-sha",
+                    associatedPullRequests: { totalCount: 0, nodes: [], pageInfo: { hasNextPage: false } },
+                  },
+                  defaultBranchRef: { c0: { status: "AHEAD", headTarget: { oid: "stale-sha" } } },
+                },
+              },
+            })
+          );
+        }
         if (requestBody(init).includes("PullRequestTitleStatuses")) {
           return Promise.resolve(jsonResponse(commitTitleStatusesResponse(), 200));
         }

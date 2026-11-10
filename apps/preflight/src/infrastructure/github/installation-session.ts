@@ -1,7 +1,7 @@
 import { createGitHubAppJwt } from "./app-auth.js";
 import { getAuthenticatedAppBotUserId } from "./app-identity.js";
 import { createInstallationAccessToken } from "./installation-token.js";
-import { AppError, GitHubError, RequestTimeoutError } from "../../errors.js";
+import { AppError, GitHubError, RequestTimeoutError, SubrequestBudgetExceededError } from "../../errors.js";
 import { isAbortError, raceWithSignal } from "../../util/timeout.js";
 
 export interface GitHubAppCredentials {
@@ -29,6 +29,7 @@ export interface GitHubInstallationSessionOptions {
 const SHARED_OPERATION_TIMEOUT_MS = 60_000;
 
 const normalizeAuthenticationError = (error: unknown, signal: AbortSignal): never => {
+  if (error instanceof SubrequestBudgetExceededError) throw error;
   if (signal.aborted || isAbortError(error)) {
     throw new RequestTimeoutError(
       "GitHub App authentication operation timed out",

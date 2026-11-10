@@ -21,7 +21,7 @@ const MAX_EVENT_NAME_LENGTH = 64;
 const MAX_DELIVERY_ID_LENGTH = 128;
 const MAX_SIGNATURE_HEADER_LENGTH = 128;
 // Queue の既定 JSON serialization では、body 内の引用符などが再度 escape される
-const MAX_QUEUE_MESSAGE_BYTES = 128 * 1024 - 1;
+const MAX_QUEUE_MESSAGE_BYTES = 127_000;
 const textEncoder = new TextEncoder();
 
 // consumer が Queue message を parse するときと同じ形

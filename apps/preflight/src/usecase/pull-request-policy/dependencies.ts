@@ -10,6 +10,6 @@ export interface PullRequestPolicyDependencies {
   deliveryRepository: DeliveryRepository;
   createGateway(installationId: number): PullRequestPolicyGateway;
   createAssignmentUseCase(gateway: GitHubAssignmentGateway): AssignPullRequestAuthorUseCase;
-  createTitleValidationUseCase(gateway: TitleValidationGateway): ValidatePullRequestTitleUseCase;
+  createTitleValidationUseCase(installationId: number): ValidatePullRequestTitleUseCase;
   now?: () => Date;
 }

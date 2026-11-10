@@ -1,4 +1,4 @@
-import { GitHubError, RequestTimeoutError } from "../../errors.js";
+import { GitHubError, RequestTimeoutError, SubrequestBudgetExceededError } from "../../errors.js";
 import { isAbortError, raceWithSignal } from "../../util/timeout.js";
 
 export const GITHUB_API_BASE_URL = "https://api.github.com";
@@ -55,6 +55,7 @@ export const githubRequest = async (input: {
       response = await raceWithSignal(
         input.fetchImpl(input.url, {
           method: input.method,
+          redirect: "manual",
           headers: requestHeaders(input.token, input.body !== undefined),
           body: input.body === undefined ? undefined : JSON.stringify(input.body),
           signal: input.signal,
@@ -63,6 +64,7 @@ export const githubRequest = async (input: {
       );
       lastNetworkError = undefined;
     } catch (error) {
+      if (error instanceof SubrequestBudgetExceededError) throw error;
       if (input.signal.aborted || isAbortError(error)) {
         throw new RequestTimeoutError("GitHub API request timed out", timeoutCause(error, input.signal));
       }

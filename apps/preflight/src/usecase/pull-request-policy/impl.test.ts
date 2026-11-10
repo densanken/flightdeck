@@ -101,7 +101,7 @@ describe("PullRequestPolicyUseCaseImpl", () => {
     expect(fixture.repository.processed).toEqual(new Set(["delivery-1:auto-assign", "delivery-1:title-validation"]));
     expect(fixture.createGateway).toHaveBeenCalledOnce();
     expect(fixture.createAssignmentUseCase).toHaveBeenCalledWith(fixture.gateway);
-    expect(fixture.createTitleValidationUseCase).toHaveBeenCalledWith(fixture.gateway);
+    expect(fixture.createTitleValidationUseCase).toHaveBeenCalledWith(command().installationId);
     expect(fixture.assignmentExecute).toHaveBeenCalledOnce();
     expect(fixture.titleExecute).toHaveBeenCalledOnce();
   });

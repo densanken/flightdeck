@@ -71,3 +71,14 @@ export class PullRequestStateChangedError extends AppError {
     this.name = "PullRequestStateChangedError";
   }
 }
+
+export class SubrequestBudgetExceededError extends Error {
+  constructor(
+    readonly purpose: string,
+    readonly used: number,
+    readonly limit: number
+  ) {
+    super(`Subrequest budget exhausted: ${purpose}`);
+    this.name = "SubrequestBudgetExceededError";
+  }
+}

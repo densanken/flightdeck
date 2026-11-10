@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { getCurrentPullRequestTitleState, listOpenPullRequestsForHeadSha } from "./pull-requests.js";
+import { getCurrentPolicyState, listOpenPullRequestsForHeadShas } from "./pull-requests.js";
 import { RecordingLogger } from "../../test-helper/platform.js";
 
 import type { Logger } from "../../util/logger.js";
@@ -30,19 +30,11 @@ const currentInput = (fetchImpl: typeof fetch) => ({
 const listInput = (logger: Logger = new RecordingLogger()) => ({
   owner: "owner",
   repo: "repo",
-  headSha: "shared-sha",
+  headShas: ["shared-sha"],
   installationToken: "token",
   signal: new AbortController().signal,
   logger,
   deliveryId: "delivery-1",
-});
-
-const restPullRequest = (number: number, title: string, headSha = "shared-sha", state = "open", draft = false) => ({
-  number,
-  title,
-  state,
-  draft,
-  head: { sha: headSha },
 });
 
 const node = (number: number, title: string, headRefOid = "shared-sha", isDraft = false) => ({
@@ -73,64 +65,80 @@ const graphQlPage = (input: {
   },
 });
 
-describe("getCurrentPullRequestTitleState", () => {
-  it("現在の title, head SHA, state を返し、owner と repo を encode した URL へ送る", async () => {
-    const fetchImpl = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(
-        jsonResponse({ title: "feat: current title", state: "open", head: { sha: "abc123" }, draft: false })
-      );
-
-    await expect(getCurrentPullRequestTitleState(currentInput(fetchImpl))).resolves.toEqual({
-      title: "feat: current title",
-      headSha: "abc123",
-      state: "open",
-      draft: false,
-    });
-    expect(fetchImpl.mock.calls[0]?.[0]).toBe("https://api.github.com/repos/owner%20name/repo%2Fname/pulls/7");
+describe("getCurrentPolicyState", () => {
+  const response = (status: string, nodes: unknown[] = [], overrides: Record<string, unknown> = {}) => ({
+    data: {
+      repository: {
+        pullRequest: { title: "feat: current", state: "MERGED", isDraft: false, headRefOid: "shared-sha" },
+        object: { associatedPullRequests: { totalCount: nodes.length, nodes, pageInfo: { hasNextPage: false } } },
+        defaultBranchRef: { compare: { status, headTarget: { oid: "shared-sha" } } },
+      },
+    },
+    ...overrides,
   });
-
-  it("shape が不正な成功 response を GITHUB_API_FAILED で reject する", async () => {
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ title: "missing head", state: "open" }));
-    await expect(getCurrentPullRequestTitleState(currentInput(fetchImpl))).rejects.toMatchObject({
-      code: "GITHUB_API_FAILED",
+  const read = (body: unknown, headSha = "shared-sha") => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(body));
+    return getCurrentPolicyState({ ...currentInput(fetchImpl), headSha });
+  };
+  it.each(["AHEAD", "DIVERGED"])("%s と完全な空一覧なら走査しない", async (status) => {
+    await expect(read(response(status))).resolves.toEqual({
+      current: { title: "feat: current", state: "closed", draft: false, headSha: "shared-sha" },
+      associatedPullRequests: [],
     });
   });
+  it.each(["IDENTICAL", "BEHIND", "UNKNOWN"])("%s の空一覧は走査する", async (status) => {
+    await expect(read(response(status))).resolves.toMatchObject({
+      associatedPullRequests: undefined,
+    });
+  });
+  it("open かつ同じ head の PR だけを採用する", async () => {
+    await expect(
+      read(
+        response("AHEAD", [
+          node(8, "fix: shared"),
+          node(9, "other", "other"),
+          { ...node(10, "closed"), state: "CLOSED" },
+        ])
+      )
+    ).resolves.toMatchObject({
+      associatedPullRequests: [{ number: 8, title: "fix: shared", headSha: "shared-sha", draft: false }],
+    });
+  });
+  it("errors、SHA 不一致、打ち切りは一覧を破棄する", async () => {
+    const truncated = response("AHEAD");
+    truncated.data.repository.object.associatedPullRequests.pageInfo.hasNextPage = true;
+    for (const result of [
+      await read(response("AHEAD", [], { errors: [{ message: "partial" }] })),
+      await read(response("AHEAD"), "old-sha"),
+      await read(truncated),
+    ]) {
+      expect(result).toMatchObject({ associatedPullRequests: undefined });
+    }
+  });
+  it("現在 head と異なる SHA でも比較と関連一覧が確定すれば再利用する", async () => {
+    const body = response("AHEAD", [node(8, "fix: old", "old-sha")]);
+    body.data.repository.defaultBranchRef.compare.headTarget.oid = "old-sha";
+    await expect(read(body, "old-sha")).resolves.toMatchObject({
+      associatedPullRequests: [{ number: 8, title: "fix: old", headSha: "old-sha", draft: false }],
+    });
+  });
 
-  it("JSON として不正な成功 body を invalid JSON として reject する", async () => {
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response("<html>not json", { status: 200 }));
-    const error = await getCurrentPullRequestTitleState(currentInput(fetchImpl)).catch((reason: unknown) => reason);
+  it("関連 PR の番号が重複する場合は一覧を破棄する", async () => {
+    await expect(read(response("AHEAD", [node(8, "one"), node(8, "two")]))).resolves.toMatchObject({
+      associatedPullRequests: undefined,
+    });
+  });
 
-    expect(error).toMatchObject({ code: "GITHUB_API_FAILED" });
-    expect(error instanceof Error ? error.message : "").toContain("invalid JSON");
+  it("PR 本体がない応答は失敗する", async () => {
+    await expect(
+      read({ errors: [{ message: "failed" }], data: { repository: { pullRequest: null } } })
+    ).rejects.toMatchObject({ code: "GITHUB_API_FAILED" });
   });
 });
 
 describe("listOpenPullRequestsForHeadSha", () => {
-  it("commit-associated PR API を全 page 取得し、open かつ head SHA 完全一致だけを返す", async () => {
-    const fetchImpl = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        jsonResponse([restPullRequest(8, "feat: other", "other-sha"), restPullRequest(7, "feat: current")], 200, {
-          Link: '<https://api.github.com/repos/owner/repo/commits/shared-sha/pulls?per_page=100&page=2>; rel="next"',
-        })
-      )
-      .mockResolvedValueOnce(
-        jsonResponse([restPullRequest(10, "fix: shared"), restPullRequest(11, "fix: closed", "shared-sha", "closed")])
-      );
-
-    await expect(listOpenPullRequestsForHeadSha({ ...listInput(), fetchImpl })).resolves.toEqual([
-      { number: 7, title: "feat: current", headSha: "shared-sha", draft: false },
-      { number: 10, title: "fix: shared", headSha: "shared-sha", draft: false },
-    ]);
-    expect(fetchImpl.mock.calls.map(([request]) => requestUrl(request))).toEqual([
-      "https://api.github.com/repos/owner/repo/commits/shared-sha/pulls?per_page=100&page=1",
-      "https://api.github.com/repos/owner/repo/commits/shared-sha/pulls?per_page=100&page=2",
-    ]);
-  });
-
   // 1 ページ 100 件で totalCount に応じた page 数を生成する
-  // 5,000 件はちょうど 50 ページ（page 数上限）で完了する境界値
+  // 600 件はちょうど 6 ページ（page 数上限）で完了する境界値
   const openPullRequestPageFetch =
     (totalCount: number): typeof fetch =>
     (request, init) => {
@@ -154,23 +162,47 @@ describe("listOpenPullRequestsForHeadSha", () => {
       );
     };
 
-  it.each([1_000, 1_001, 5_000])(
+  it.each([100, 101, 600])(
     "default-branch仕様で associated open PR が無い場合、%i件の全 open PR fallback を page 数上限内で走査する",
     async (totalCount) => {
       const fetchImpl = vi.fn<typeof fetch>(openPullRequestPageFetch(totalCount));
 
-      await expect(listOpenPullRequestsForHeadSha({ ...listInput(), fetchImpl })).resolves.toEqual([]);
-      expect(fetchImpl).toHaveBeenCalledTimes(1 + Math.ceil(totalCount / 100));
+      await expect(listOpenPullRequestsForHeadShas({ ...listInput(), fetchImpl })).resolves.toEqual([]);
+      expect(fetchImpl).toHaveBeenCalledTimes(Math.ceil(totalCount / 100));
     }
   );
 
-  it("全 open PR fallback は 51 ページ目が必要になった時点で取得未完了として拒否する", async () => {
-    // 5,001 件は 51 ページ目が必要になり、page 数上限（50）を超える
-    const fetchImpl = vi.fn<typeof fetch>(openPullRequestPageFetch(5_001));
+  it("複数 SHA を 6 ページの一回の走査で照合する", async () => {
+    const fetchImpl = vi.fn<typeof fetch>((_request, init) => {
+      const cursor = (requestBody(init).variables as { cursor: string | null }).cursor;
+      const page = cursor === null ? 1 : Number(cursor) + 1;
+      return Promise.resolve(
+        jsonResponse(
+          graphQlPage({
+            nodes: page === 1 ? [node(1, "feat: first", "sha-1")] : page === 6 ? [node(2, "fix: second", "sha-2")] : [],
+            totalCount: 2,
+            hasNextPage: page < 6,
+            endCursor: page < 6 ? String(page) : null,
+          })
+        )
+      );
+    });
+    await expect(
+      listOpenPullRequestsForHeadShas({ ...listInput(), headShas: ["sha-1", "sha-2"], fetchImpl })
+    ).resolves.toEqual([
+      { number: 1, title: "feat: first", headSha: "sha-1", draft: false },
+      { number: 2, title: "fix: second", headSha: "sha-2", draft: false },
+    ]);
+    expect(fetchImpl).toHaveBeenCalledTimes(6);
+  });
 
-    await expect(listOpenPullRequestsForHeadSha({ ...listInput(), fetchImpl })).rejects.toThrow("page limit");
-    // REST の commit-associated 確認 1 回 + GraphQL page 上限の 50 回まで叩いてから打ち切る
-    expect(fetchImpl).toHaveBeenCalledTimes(1 + 50);
+  it("全 open PR fallback は 7 ページ目が必要になった時点で取得未完了として拒否する", async () => {
+    // 601 件は 7 ページ目が必要になり、page 数上限（6）を超える
+    const fetchImpl = vi.fn<typeof fetch>(openPullRequestPageFetch(601));
+
+    await expect(listOpenPullRequestsForHeadShas({ ...listInput(), fetchImpl })).rejects.toThrow("page limit");
+    // GraphQL page 上限の 6 回まで叩いてから打ち切る
+    expect(fetchImpl).toHaveBeenCalledTimes(6);
   });
 
   it("fallback でも shared head の全 PR を保持する", async () => {
@@ -184,24 +216,17 @@ describe("listOpenPullRequestsForHeadSha", () => {
                 totalCount: 3,
               })
             )
-          : jsonResponse([restPullRequest(99, "fix: merged", "shared-sha", "closed")])
+          : jsonResponse([])
       );
     });
 
-    await expect(listOpenPullRequestsForHeadSha({ ...listInput(), fetchImpl })).resolves.toEqual([
+    await expect(listOpenPullRequestsForHeadShas({ ...listInput(), fetchImpl })).resolves.toEqual([
       { number: 20, title: "feat: first", headSha: "shared-sha", draft: false },
       { number: 21, title: "fix: second", headSha: "shared-sha", draft: false },
     ]);
   });
 
-  it("REST page と GraphQL cursor の循環を fail-closed で拒否する", async () => {
-    const restCycle = vi.fn<typeof fetch>().mockResolvedValue(
-      jsonResponse([], 200, {
-        Link: '<https://api.github.com/repos/owner/repo/commits/shared-sha/pulls?per_page=100&page=1>; rel="next"',
-      })
-    );
-    await expect(listOpenPullRequestsForHeadSha({ ...listInput(), fetchImpl: restCycle })).rejects.toThrow("cycle");
-
+  it("GraphQL cursor の循環を fail-closed で拒否する", async () => {
     const graphCycle = vi.fn<typeof fetch>((request) =>
       Promise.resolve(
         requestUrl(request).endsWith("/graphql")
@@ -209,14 +234,13 @@ describe("listOpenPullRequestsForHeadSha", () => {
           : jsonResponse([])
       )
     );
-    await expect(listOpenPullRequestsForHeadSha({ ...listInput(), fetchImpl: graphCycle })).rejects.toThrow("cursor");
+    await expect(listOpenPullRequestsForHeadShas({ ...listInput(), fetchImpl: graphCycle })).rejects.toThrow("cursor");
   });
 
-  it("pagination 中の件数変化を構造化 Logger の警告として扱い、取得できた head SHA 一致 PR で成功にする", async () => {
+  it("pagination 中の件数変化は警告し、取得未完了として拒否する", async () => {
     const logger = new RecordingLogger();
     const countChanged = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(
         jsonResponse(
           graphQlPage({ nodes: [node(1, "feat: first")], totalCount: 2, hasNextPage: true, endCursor: "next" })
@@ -224,10 +248,9 @@ describe("listOpenPullRequestsForHeadSha", () => {
       )
       .mockResolvedValueOnce(jsonResponse(graphQlPage({ nodes: [node(2, "feat: second")], totalCount: 1 })));
 
-    await expect(listOpenPullRequestsForHeadSha({ ...listInput(logger), fetchImpl: countChanged })).resolves.toEqual([
-      { number: 1, title: "feat: first", headSha: "shared-sha", draft: false },
-      { number: 2, title: "feat: second", headSha: "shared-sha", draft: false },
-    ]);
+    await expect(listOpenPullRequestsForHeadShas({ ...listInput(logger), fetchImpl: countChanged })).rejects.toThrow(
+      "count changed"
+    );
     expect(logger.records).toContainEqual({
       level: "warn",
       record: {
@@ -246,17 +269,18 @@ describe("listOpenPullRequestsForHeadSha", () => {
   it("pagination 中の重複、shape 不正を fail-closed で拒否する", async () => {
     const duplicate = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(
         jsonResponse(
           graphQlPage({ nodes: [node(1, "feat: first")], totalCount: 2, hasNextPage: true, endCursor: "next" })
         )
       )
       .mockResolvedValueOnce(jsonResponse(graphQlPage({ nodes: [node(1, "feat: duplicate")], totalCount: 2 })));
-    await expect(listOpenPullRequestsForHeadSha({ ...listInput(), fetchImpl: duplicate })).rejects.toThrow("Duplicate");
+    await expect(listOpenPullRequestsForHeadShas({ ...listInput(), fetchImpl: duplicate })).rejects.toThrow(
+      "Duplicate"
+    );
 
     const invalidShape = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse([{ number: 1 }]));
-    await expect(listOpenPullRequestsForHeadSha({ ...listInput(), fetchImpl: invalidShape })).rejects.toMatchObject({
+    await expect(listOpenPullRequestsForHeadShas({ ...listInput(), fetchImpl: invalidShape })).rejects.toMatchObject({
       code: "GITHUB_API_FAILED",
     });
   });

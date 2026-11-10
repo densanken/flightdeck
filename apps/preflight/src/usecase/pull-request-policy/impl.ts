@@ -64,7 +64,7 @@ export class PullRequestPolicyUseCaseImpl implements PullRequestPolicyUseCase {
             return { feature, outcome: "processed", result: outcome.result };
           }
 
-          const outcome = await this.dependencies.createTitleValidationUseCase(getGateway()).execute(
+          const outcome = await this.dependencies.createTitleValidationUseCase(command.installationId).execute(
             {
               owner: command.owner,
               repo: command.repo,

@@ -1,7 +1,7 @@
-import { listPullRequestCommitTitleStatuses, setPullRequestTitleStatus } from "./commit-status.js";
+import { confirmSweepCommits, listPullRequestCommitTitleStatuses, setPullRequestTitleStatus } from "./commit-status.js";
 import { createIssueComment, deleteIssueComment, listIssueComments, updateIssueComment } from "./issue-comments.js";
 import { addPullRequestAuthorAsAssignee } from "./pull-request-assignee.js";
-import { getCurrentPullRequestTitleState, listOpenPullRequestsForHeadSha } from "./pull-requests.js";
+import { getCurrentPolicyState, listOpenPullRequestsForHeadShas } from "./pull-requests.js";
 
 import type { GitHubInstallationSession } from "./installation-session.js";
 import type { AssignPullRequestAuthorInput, GitHubAssignmentGateway } from "../../usecase/assignment/dependencies.js";
@@ -9,7 +9,6 @@ import type {
   AssociatedPullRequestTitle,
   IssueComment,
   PullRequestCommitTitleStatus,
-  PullRequestTitleState,
   TitleStatusState,
   TitleValidationGateway,
 } from "../../usecase/title-validation/dependencies.js";
@@ -34,11 +33,11 @@ export class GitHubPullRequestGatewayImpl implements GitHubAssignmentGateway, Ti
     return result.assigned;
   }
 
-  async getCurrentPullRequestTitleState(
-    input: { owner: string; repo: string; pullRequestNumber: number },
+  async getCurrentPolicyState(
+    input: { owner: string; repo: string; pullRequestNumber: number; headSha: string },
     signal: AbortSignal
-  ): Promise<PullRequestTitleState> {
-    return getCurrentPullRequestTitleState({
+  ): ReturnType<TitleValidationGateway["getCurrentPolicyState"]> {
+    return getCurrentPolicyState({
       ...input,
       installationToken: await this.session.getInstallationToken(signal),
       fetchImpl: this.fetchImpl,
@@ -46,11 +45,11 @@ export class GitHubPullRequestGatewayImpl implements GitHubAssignmentGateway, Ti
     });
   }
 
-  async listOpenPullRequestsForHeadSha(
-    input: { owner: string; repo: string; headSha: string },
+  async listOpenPullRequestsForHeadShas(
+    input: { owner: string; repo: string; headShas: string[] },
     signal: AbortSignal
   ): Promise<AssociatedPullRequestTitle[]> {
-    return listOpenPullRequestsForHeadSha({
+    return listOpenPullRequestsForHeadShas({
       ...input,
       installationToken: await this.session.getInstallationToken(signal),
       fetchImpl: this.fetchImpl,
@@ -65,10 +64,24 @@ export class GitHubPullRequestGatewayImpl implements GitHubAssignmentGateway, Ti
   }
 
   async listPullRequestCommitTitleStatuses(
-    input: { owner: string; repo: string; pullRequestNumber: number },
+    input: { owner: string; repo: string; pullRequestNumber: number; maxPages: number },
     signal: AbortSignal
   ): Promise<PullRequestCommitTitleStatus[]> {
     return listPullRequestCommitTitleStatuses({
+      ...input,
+      installationToken: await this.session.getInstallationToken(signal),
+      fetchImpl: this.fetchImpl,
+      signal,
+      logger: this.logger,
+      deliveryId: this.deliveryId,
+    });
+  }
+
+  async confirmSweepCommits(
+    input: { owner: string; repo: string; shas: string[] },
+    signal: AbortSignal
+  ): ReturnType<TitleValidationGateway["confirmSweepCommits"]> {
+    return confirmSweepCommits({
       ...input,
       installationToken: await this.session.getInstallationToken(signal),
       fetchImpl: this.fetchImpl,
@@ -84,6 +97,7 @@ export class GitHubPullRequestGatewayImpl implements GitHubAssignmentGateway, Ti
       state: TitleStatusState;
       description: string;
       targetUrl?: string;
+      retry?: boolean;
     },
     signal: AbortSignal
   ): Promise<void> {

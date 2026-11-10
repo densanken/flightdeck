@@ -367,6 +367,16 @@ describe("parseGitHubWebhookQueueMessage", () => {
     expect(new TextEncoder().encode(body)).toHaveLength(MAX_WEBHOOK_BODY_BYTES);
     expect(parseGitHubWebhookQueueMessage(message(body))).toBeNull();
   });
+
+  it("Queue の JSON message は 127,000 bytes まで受け入れる", () => {
+    const emptySize = new TextEncoder().encode(JSON.stringify(message(""))).byteLength;
+    const body = '"'.repeat(Math.floor((127_000 - emptySize) / 2));
+    const atLimit = body + "x".repeat(127_000 - emptySize - body.length * 2);
+
+    expect(new TextEncoder().encode(JSON.stringify(message(atLimit)))).toHaveLength(127_000);
+    expect(parseGitHubWebhookQueueMessage(message(atLimit))).not.toBeNull();
+    expect(parseGitHubWebhookQueueMessage(message(`${atLimit}x`))).toBeNull();
+  });
 });
 
 describe("parseQueuedWebhookPayload", () => {

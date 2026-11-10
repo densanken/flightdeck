@@ -1,5 +1,6 @@
 import { verifyGitHubWebhookSignature } from "@flightdeck/github-webhook-signature";
 
+import { budgetedCacheStorage, createSubrequestBudget } from "./subrequest-budget.js";
 import { createApp } from "../app.js";
 import { TITLE_STATUS_MESSAGES } from "../domain/title-status-message.js";
 import { getGitHubAuthConfig, getRuntimeOptions, getWebhookSecret, parseGitHubAppBotUserId } from "../env.js";
@@ -16,6 +17,7 @@ import { ValidatePullRequestTitleUseCaseImpl } from "../usecase/title-validation
 import { jsonResponse } from "../util/http-response.js";
 import { createLogger } from "../util/logger.js";
 
+import type { SubrequestPurpose } from "./subrequest-budget.js";
 import type { Env, RuntimeOptions } from "../env.js";
 import type { PullRequestWebhookPayload } from "../handler/github/payload.js";
 import type { GitHubWebhookProcessOutcome, WebhookDelivery } from "../handler/github/webhook.js";
@@ -48,9 +50,17 @@ export const composeGitHubWebhookProcessor =
       const logger = platform.logger ?? createLogger(resolvedRuntimeOptions.logLevel);
       const now = platform.now ?? (() => new Date());
       const fetchImpl = platform.fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
+      const budget = createSubrequestBudget(logger, delivery.deliveryId);
+      const budgetedFetch =
+        (purpose: SubrequestPurpose): typeof fetch =>
+        (input, init) => {
+          budget.consume(purpose);
+          return fetchImpl(input, init);
+        };
+      const normalFetch = budgetedFetch("normal");
       const deliveryRepository = new CacheDeliveryRepository(
         resolvedRuntimeOptions.deliveryCacheTtlSeconds,
-        platform.cacheStorage,
+        budgetedCacheStorage(platform.cacheStorage ?? caches, budget),
         platform.cacheOperationTimeoutMs
       );
       // pending status と検証本体で installation access token を共有する
@@ -61,7 +71,7 @@ export const composeGitHubWebhookProcessor =
         const session = new GitHubInstallationSession({
           installationId,
           getCredentials: () => getGitHubAuthConfig(env),
-          fetchImpl,
+          fetchImpl: normalFetch,
           now,
           appBotIdentityCache: platform.appBotIdentityCache ?? appBotIdentityCache,
           createSharedOperationSignal: () => hardDeadlineSignal,
@@ -72,11 +82,34 @@ export const composeGitHubWebhookProcessor =
       const policyUseCase = new PullRequestPolicyUseCaseImpl({
         deliveryRepository,
         createGateway: (installationId) =>
-          new GitHubPullRequestGatewayImpl(getSession(installationId), logger, delivery.deliveryId, fetchImpl),
+          new GitHubPullRequestGatewayImpl(getSession(installationId), logger, delivery.deliveryId, normalFetch),
         createAssignmentUseCase: (gateway) =>
           new AssignPullRequestAuthorUseCaseImpl({ githubGateway: gateway, skipBots: resolvedRuntimeOptions.skipBots }),
-        createTitleValidationUseCase: (gateway) =>
-          new ValidatePullRequestTitleUseCaseImpl(gateway, () => parseGitHubAppBotUserId(env.GITHUB_APP_BOT_USER_ID)),
+        createTitleValidationUseCase: (installationId) => {
+          const session = getSession(installationId);
+          const makeGateway = (purpose: SubrequestPurpose) =>
+            new GitHubPullRequestGatewayImpl(session, logger, delivery.deliveryId, budgetedFetch(purpose));
+          return new ValidatePullRequestTitleUseCaseImpl(
+            makeGateway("normal"),
+            () => parseGitHubAppBotUserId(env.GITHUB_APP_BOT_USER_ID),
+            {
+              sweep: makeGateway("sweep"),
+              recovery: makeGateway("recovery"),
+              recoveryStatus: makeGateway("recovery_status"),
+              budget,
+              log: (result, count, sha) => {
+                logger.log("warn", {
+                  event: "github_webhook_consume",
+                  feature: "title-validation",
+                  result,
+                  deliveryId: delivery.deliveryId,
+                  commitCount: count,
+                  headSha: sha,
+                });
+              },
+            }
+          );
+        },
         now,
       });
       return await createGitHubWebhookProcessor({
@@ -93,7 +126,7 @@ export const composeGitHubWebhookProcessor =
             state: "pending",
             ...TITLE_STATUS_MESSAGES.pending,
             installationToken: await getSession(input.installationId).getInstallationToken(signal),
-            fetchImpl,
+            fetchImpl: normalFetch,
             signal,
           });
         },

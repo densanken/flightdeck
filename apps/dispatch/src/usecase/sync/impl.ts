@@ -1,6 +1,7 @@
+import { normalizeGitHubUrl, sourceOf } from "@flightdeck/rules";
+
 import { chooseConfig, parseConfig } from "../../domain/config.js";
-import { normalizeGitHubUrl } from "../../domain/gitmodules.js";
-import { isAutoclosed, managedBranchName, sourceOf, updateTitle, withAutoclosedSuffix } from "../../domain/naming.js";
+import { isAutoclosed, managedBranchName, updateTitle, withAutoclosedSuffix } from "../../domain/naming.js";
 import { pullRequestBody, withoutCommitList } from "../../domain/pull-request-body.js";
 import { isUpToDate, planPullRequests } from "../../domain/sync-decision.js";
 import { DispatchError, isPermanent } from "../../errors.js";
@@ -15,8 +16,9 @@ import type {
   SyncDependencies,
 } from "./dependencies.js";
 import type { SyncUseCase } from "./interface.js";
-import type { ConfigFile, Target } from "../../domain/config.js";
+import type { Target } from "../../domain/config.js";
 import type { Logger } from "../../util/logger.js";
+import type { ConfigFile } from "@flightdeck/rules";
 
 // parent base の変化や CAS の競合、PR を Open に戻した後に状態を取り直す上限
 const MAX_ATTEMPTS = 4;

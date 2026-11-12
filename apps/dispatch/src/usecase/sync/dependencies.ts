@@ -1,8 +1,8 @@
-import type { ConfigFile } from "../../domain/config.js";
 import type { Submodule } from "../../domain/gitmodules.js";
 import type { IncludedCommits } from "../../domain/pull-request-body.js";
 import type { DispatchMessage } from "../../message/webhook.js";
 import type { Logger } from "../../util/logger.js";
+import type { ConfigFile } from "@flightdeck/rules";
 
 export interface RepositoryInfo {
   // GitHub が返す正規名

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeGitHubUrl } from "./gitmodules.js";
+import { normalizeGitHubUrl } from "./naming.js";
 
 describe("normalizeGitHubUrl", () => {
   it.each([

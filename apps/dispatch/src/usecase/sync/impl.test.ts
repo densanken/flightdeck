@@ -12,9 +12,9 @@ import type {
   RepositoryInfo,
   RepositoryState,
 } from "./dependencies.js";
-import type { ConfigFile } from "../../domain/config.js";
 import type { Submodule } from "../../domain/gitmodules.js";
 import type { LogRecord } from "../../util/logger.js";
+import type { ConfigFile } from "@flightdeck/rules";
 
 const BRANCH = "flightdeck-dispatch/o/src";
 const TITLE = "chore(submodule): update o/src";

@@ -1,13 +1,13 @@
+import { CONFIG_PATHS, MANAGED_BRANCH_PREFIX } from "@flightdeck/rules";
 import { z } from "zod";
 
 import { parseResponse } from "./request.js";
-import { CONFIG_PATHS } from "../../domain/config.js";
-import { isManagedBranch, MANAGED_BRANCH_PREFIX } from "../../domain/naming.js";
+import { isManagedBranch } from "../../domain/naming.js";
 import { DispatchError } from "../../errors.js";
 
-import type { ConfigFile } from "../../domain/config.js";
 import type { Submodule } from "../../domain/gitmodules.js";
 import type { OpenPullRequest, ParentState, RepositoryState } from "../../usecase/sync/dependencies.js";
+import type { ConfigFile } from "@flightdeck/rules";
 
 // 設定ファイルは本文をそのまま返す
 const BLOB = "... on Blob { text isTruncated }";

@@ -1,3 +1,4 @@
+import { splitRepository } from "@flightdeck/rules";
 import { z } from "zod";
 
 import { callGitHub, DEFAULT_RATE_LIMIT_DELAY_SECONDS, parseResponse, retryDelaySeconds } from "./request.js";
@@ -15,7 +16,6 @@ import {
   REPOSITORY_QUERY,
   SOURCE_HEAD_QUERY,
 } from "./state.js";
-import { splitRepository } from "../../domain/config.js";
 import { DispatchError } from "../../errors.js";
 
 import type { Fetcher, GitHubCall } from "./request.js";

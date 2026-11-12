@@ -26,6 +26,7 @@ const MAX_ATTEMPTS = 4;
 interface SourceSnapshot {
   fullName: string;
   defaultBranch: string;
+  isPrivate: boolean;
   // 処理時点の default branch HEAD
   // 設定と gitlink はこの SHA に揃える
   sha: string;
@@ -51,9 +52,7 @@ const findTargetFor = (targets: Target[], repository: string): Target | undefine
   targets.find((target) => target.repository.toLowerCase() === repository.toLowerCase());
 
 const snapshotOf = (state: RepositoryState): SourceSnapshot | undefined =>
-  state.sha
-    ? { fullName: state.repository.fullName, defaultBranch: state.repository.defaultBranch, sha: state.sha }
-    : undefined;
+  state.sha ? { ...state.repository, sha: state.sha } : undefined;
 
 // parent が target の前提（正規名、base branch、gitlink、.gitmodules の URL）を満たすか確かめ、同期に使う base を返す
 // 満たさなければ設定エラー
@@ -357,6 +356,8 @@ export class SyncUseCaseImpl implements SyncUseCase {
     const included = await this.includedCommits(source, parent, base.previousSha);
     const body = pullRequestBody({
       source: source.fullName,
+      sourcePrivate: source.isPrivate,
+      parentPrivate: state.repository.isPrivate,
       sourceBranch: source.defaultBranch,
       sourceSha: source.sha,
       path: target.path,
@@ -372,7 +373,7 @@ export class SyncUseCaseImpl implements SyncUseCase {
       await this.gateway.createPullRequest(parent, { head, base: base.branch, title, body });
     } else {
       // 既存の PR の本文は、作った本文と違うときだけ書き換える（前回の書き換えが失敗した後や、手で編集された後も揃う）
-      // commit の一覧を取得できず、既存の本文の一覧以外が今の状態と同じなら、一覧のある既存の本文を残す
+      // commit の一覧を取得できず、既存の本文の commit 情報以外が今の状態と同じなら、既存の本文を残す
       // 手で Open に戻された PR に残った suffix も外し、後で手動の Close を Dispatch の Close と取り違えないようにする
       const keepBody = included === "failed" && withoutCommitList(pullRequest.body) === body;
 

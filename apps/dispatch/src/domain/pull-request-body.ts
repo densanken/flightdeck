@@ -30,6 +30,8 @@ const codeSpan = (text: string): string => {
 
 export const pullRequestBody = (input: {
   source: string;
+  sourcePrivate: boolean;
+  parentPrivate: boolean;
   sourceBranch: string;
   sourceSha: string;
   path: string;
@@ -61,6 +63,10 @@ export const pullRequestBody = (input: {
   const withoutCommits = [...summary, ...note].join("\n");
   if (!input.included || input.included.total === 0) return withoutCommits;
 
+  if (input.sourcePrivate && !input.parentPrivate) {
+    return [...summary, `含まれるコミット: ${String(input.included.total)} 件`, "", ...note].join("\n");
+  }
+
   // 新しい commit から載せ、上限に達したら古い側を省く（GitHub の compare も、新しい側の commit だけを返す）
   const lines: string[] = [];
   let length = withoutCommits.length;
@@ -87,6 +93,7 @@ export const pullRequestBody = (input: {
   ].join("\n");
 };
 
-// 本文から commit の一覧（<details> の block）を除く
-// 一覧を取得できなかった同期で、既存の本文の一覧以外が今の状態と同じか比べるために使う
-export const withoutCommitList = (body: string): string => body.replace(/<details>\n[\s\S]*?\n<\/details>\n\n/, "");
+// 本文から commit の一覧または件数を除く
+// 一覧を取得できなかった同期で、既存の本文の commit 情報以外が今の状態と同じか比べるために使う
+export const withoutCommitList = (body: string): string =>
+  body.replace(/<details>\n[\s\S]*?\n<\/details>\n\n|含まれるコミット: \d+ 件\n\n/, "");

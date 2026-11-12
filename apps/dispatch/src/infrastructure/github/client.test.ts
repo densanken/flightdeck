@@ -243,7 +243,7 @@ const blob = (text: string | null, extra: Record<string, unknown> = {}) => ({
 // readRepositoryState が返す設定ファイル
 const yml = (text: string | null) => ({ path: ".github/flightdeck.yml", text });
 const yaml = (text: string | null) => ({ path: ".github/flightdeck.yaml", text });
-const repositoryFields = { id: "R_node", nameWithOwner: "o/p" };
+const repositoryFields = { id: "R_node", nameWithOwner: "o/p", isPrivate: true };
 
 describe("readRepositoryState", () => {
   const sourceData = (overrides: Record<string, unknown> = {}) => ({
@@ -263,7 +263,7 @@ describe("readRepositoryState", () => {
     const { gateway, requests } = createFetcher({ "POST /graphql": graphql(sourceData()) });
 
     await expect(gateway.readRepositoryState("o/p")).resolves.toEqual({
-      repository: { fullName: "o/p", defaultBranch: "main" },
+      repository: { fullName: "o/p", defaultBranch: "main", isPrivate: true },
       sha: "S",
       configs: [yml("targets:\n  - repository: o/x\n    path: sub\n")],
       previous: undefined,
@@ -564,7 +564,7 @@ describe("readParentState", () => {
 
     const state = await gateway.readParentState("o/p", input);
 
-    expect(state.repository).toEqual({ fullName: "o/p", defaultBranch: "main" });
+    expect(state.repository).toEqual({ fullName: "o/p", defaultBranch: "main", isPrivate: true });
     expect(state.base).toEqual({
       branch: "main",
       sha: "B",

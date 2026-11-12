@@ -5,6 +5,8 @@ import { pullRequestBody, withoutCommitList } from "./pull-request-body.js";
 describe("pullRequestBody", () => {
   const input = {
     source: "a/src",
+    sourcePrivate: false,
+    parentPrivate: false,
     sourceBranch: "main",
     sourceSha: "new",
     path: "contents",
@@ -52,6 +54,34 @@ describe("pullRequestBody", () => {
     expect(body).toContain("- [`1234567`](https://github.com/a/src/commit/1234567890) `` use `x` ``");
   });
 
+  it("非公開 source から公開 parent への本文は、commit の件名と link を載せず件数だけを載せる", () => {
+    const body = pullRequestBody({
+      ...input,
+      sourcePrivate: true,
+      parentPrivate: false,
+      included: { commits: [{ sha: "abcdef0123", subject: "secret subject" }], total: 3 },
+    });
+    expect(body).not.toContain("secret subject");
+    expect(body).not.toContain("/commit/abcdef0123");
+    expect(body).toContain("含まれるコミット: 3 件");
+  });
+
+  it.each([
+    ["source も parent も公開", false, false],
+    ["source も parent も非公開", true, true],
+    ["公開 source から非公開 parent", false, true],
+  ])("%s では、commit の一覧を載せる", (_, sourcePrivate, parentPrivate) => {
+    const body = pullRequestBody({
+      ...input,
+      sourcePrivate,
+      parentPrivate,
+      included: { commits: [{ sha: "abcdef0123", subject: "secret subject" }], total: 3 },
+    });
+    expect(body).toContain("secret subject");
+    expect(body).toContain("/commit/abcdef0123");
+    expect(body).toContain("含まれるコミット（3 件）");
+  });
+
   it("` の連続が多い件名でも、例外にせず上限を超える行を省く", () => {
     const body = pullRequestBody({
       ...input,
@@ -80,8 +110,11 @@ describe("pullRequestBody", () => {
     );
   });
 
-  it("withoutCommitList は、一覧のある本文を一覧のない本文と同じにする", () => {
+  it("withoutCommitList は、一覧または件数のある本文を、commit 情報のない本文と同じにする", () => {
     const included = { commits: [{ sha: "abcdef0123", subject: "a" }], total: 1 };
     expect(withoutCommitList(pullRequestBody({ ...input, included }))).toBe(pullRequestBody(input));
+    expect(withoutCommitList(pullRequestBody({ ...input, sourcePrivate: true, included }))).toBe(
+      pullRequestBody({ ...input, sourcePrivate: true })
+    );
   });
 });

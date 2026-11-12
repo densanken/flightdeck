@@ -29,6 +29,7 @@ export const REPOSITORY_QUERY = `query ReadRepository($owner: String!, $name: St
   repository(owner: $owner, name: $name) {
     id
     nameWithOwner
+    isPrivate
     defaultBranchRef {
       name
       target { ... on Commit { oid ${CONFIG_FILES} } }
@@ -60,6 +61,7 @@ export const PARENT_QUERY = `query ReadParent($owner: String!, $name: String!, $
   repository(owner: $owner, name: $name) {
     id
     nameWithOwner
+    isPrivate
     defaultBranchRef { name target @skip(if: $hasBase) { ...BaseCommit } }
     base: ref(qualifiedName: $baseRef) @include(if: $hasBase) { target { ...BaseCommit } }
     branch: ref(qualifiedName: $headRef) {
@@ -121,6 +123,7 @@ const sourceSchema = z.object({
   repository: z.object({
     id: z.string(),
     nameWithOwner: z.string(),
+    isPrivate: z.boolean(),
     defaultBranchRef: z.object({ name: z.string(), target: sourceCommitSchema }).nullable(),
     previous: sourceCommitSchema,
     managed: z
@@ -150,6 +153,7 @@ const parentSchema = z.object({
   repository: z.object({
     id: z.string(),
     nameWithOwner: z.string(),
+    isPrivate: z.boolean(),
     defaultBranchRef: z.object({ name: z.string(), target: baseCommitSchema.nullable().optional() }).nullable(),
     base: z.object({ target: baseCommitSchema.nullable() }).nullable().optional(),
     branch: z
@@ -252,6 +256,7 @@ export const parseRepositoryState = (data: unknown): RepositoryState => {
     repository: {
       fullName: repository.nameWithOwner,
       defaultBranch: repository.defaultBranchRef?.name ?? "",
+      isPrivate: repository.isPrivate,
     },
     sha: head?.oid,
     configs: configsOf(head),
@@ -285,6 +290,7 @@ export const parseParentState = (data: unknown, requestedBase: string | undefine
   const info = {
     fullName: repository.nameWithOwner,
     defaultBranch: repository.defaultBranchRef?.name ?? "",
+    isPrivate: repository.isPrivate,
   };
 
   const baseCommit = requestedBase === undefined ? repository.defaultBranchRef?.target : repository.base?.target;

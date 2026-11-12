@@ -9,6 +9,7 @@ export interface RepositoryInfo {
   // branch 名と title はこの名前から作る
   fullName: string;
   defaultBranch: string;
+  isPrivate: boolean;
 }
 
 export interface OpenPullRequest {

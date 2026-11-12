@@ -76,7 +76,7 @@ class FakeGitHub implements DispatchGateway {
 
   addRepo(fullName: string, defaultBranch: string): void {
     this.repos.set(fullName.toLowerCase(), {
-      info: { fullName, defaultBranch },
+      info: { fullName, defaultBranch, isPrivate: false },
       branches: new Map(),
     });
   }
@@ -820,6 +820,29 @@ describe("source の push", () => {
     expect(written).toContain("<details>");
     expect(pull.body).toBe(written);
   });
+
+  it.each([
+    ["公開 parent", false, "含まれるコミット: 1 件"],
+    ["非公開 parent", true, "secret subject"],
+  ])(
+    "非公開 source から %s では、commit の一覧を取得できなくても、既存の本文を残す",
+    async (_, parentPrivate, shown) => {
+      const { gh, push, sourceHead } = setup();
+      must(gh.repos.get("o/src")).info.isPrivate = true;
+      must(gh.repos.get("o/parent")).info.isPrivate = parentPrivate;
+      gh.commit("o/parent", "main", { gitlinks: { contents: sourceHead, other: "keep-sha" } });
+      gh.commit("o/src", "main", { message: "secret subject" });
+      await push();
+      const pull = must(gh.openPulls("o/parent")[0]);
+      const written = pull.body;
+      gh.failures.compareCommits = new DispatchError("retryable", "compare timed out");
+
+      await push();
+
+      expect(written).toContain(shown);
+      expect(pull.body).toBe(written);
+    }
+  );
 
   it("commit の一覧を取得できなくても、一覧の外が手で編集された本文は書き換える", async () => {
     const { gh, push, sourceHead } = setup();

@@ -15,7 +15,14 @@ export const classify = (
 
 export const automergeDisabled = (body: string): boolean => {
   const lines = body.split(/\r?\n/).filter((line) => line.includes("**Automerge**: "));
-  return lines.length === 1 && (lines[0]?.includes("**Automerge**: Disabled by config.") ?? false);
+  const [line] = lines;
+
+  return (
+    lines.length === 1 &&
+    line !== undefined &&
+    line.includes("**Automerge**: Disabled by config.") &&
+    !line.includes("**Automerge**: Enabled.")
+  );
 };
 
 export interface Actor {

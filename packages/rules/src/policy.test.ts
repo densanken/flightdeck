@@ -47,7 +47,12 @@ describe("ポリシー", () => {
   it("automerge 無効を示す行が 1 行だけあることを要求する", () => {
     expect(automergeDisabled("🤖 **Automerge**: Disabled by config. extra")).toBe(true);
 
-    for (const text of ["", "**Automerge**: Enabled.", "**Automerge**: Disabled by config.\n**Automerge**: Enabled."])
+    for (const text of [
+      "",
+      "**Automerge**: Enabled.",
+      "**Automerge**: Disabled by config.\n**Automerge**: Enabled.",
+      "**Automerge**: Disabled by config. **Automerge**: Enabled.",
+    ])
       expect(automergeDisabled(text)).toBe(false);
   });
 

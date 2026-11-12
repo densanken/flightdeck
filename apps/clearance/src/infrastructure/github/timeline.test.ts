@@ -3,6 +3,18 @@ import { describe, expect, it } from "vitest";
 import { timelineItem } from "./timeline.js";
 
 describe("timeline の型", () => {
+  it.each(["HeadRefDeletedEvent", "HeadRefRestoredEvent"])("%s をイベントに変換する", (type) => {
+    const createdAt = "2026-11-01T00:00:00Z";
+
+    const result = timelineItem({
+      __typename: type,
+      createdAt,
+      actor: { __typename: "User", databaseId: 1 },
+    });
+
+    expect(result).toMatchObject({ kind: "event", createdAt, actor: { type: "User", id: 1 } });
+  });
+
   it("不正な応答を既知のエラーに変換する", () => {
     expect(() => timelineItem({ __typename: "IssueComment" })).toThrow(
       expect.objectContaining({ code: "invalid_response", errorName: "ZodError" })

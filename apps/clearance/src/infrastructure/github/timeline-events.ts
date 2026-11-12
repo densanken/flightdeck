@@ -10,7 +10,9 @@ export const TIMELINE_EVENT_TYPES = [
   "ReviewRequestRemovedEvent",
   "ClosedEvent",
   "ReopenedEvent",
+  "HeadRefDeletedEvent",
   "HeadRefForcePushedEvent",
+  "HeadRefRestoredEvent",
   "BaseRefChangedEvent",
   "RenamedTitleEvent",
 ] as const;

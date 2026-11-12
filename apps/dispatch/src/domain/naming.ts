@@ -1,7 +1,7 @@
-import { REPOSITORY_PATTERN, splitRepository } from "./config.js";
+import { MANAGED_BRANCH_PREFIX, splitRepository } from "@flightdeck/rules";
+
 import { DispatchError } from "../errors.js";
 
-export const MANAGED_BRANCH_PREFIX = "flightdeck-dispatch/";
 const AUTOCLOSED_SUFFIX = " - autoclosed";
 // GitHub の PR タイトルの上限
 const MAX_TITLE_LENGTH = 256;
@@ -18,14 +18,6 @@ export const managedBranchName = (source: string): string => {
   }
 
   return `${MANAGED_BRANCH_PREFIX}${source}`;
-};
-
-// 管理 branch 名から source（owner/repo）を戻す
-// owner/repo の形でなければ undefined
-export const sourceOf = (branch: string): string | undefined => {
-  const source = branch.startsWith(MANAGED_BRANCH_PREFIX) ? branch.slice(MANAGED_BRANCH_PREFIX.length) : "";
-
-  return REPOSITORY_PATTERN.test(source) ? source : undefined;
 };
 
 // PR title と commit message は同じ文字列にする

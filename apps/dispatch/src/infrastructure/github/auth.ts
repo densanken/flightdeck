@@ -1,8 +1,8 @@
 import { createGitHubAppJwt } from "@flightdeck/github-app-jwt";
+import { splitRepository } from "@flightdeck/rules";
 import { z } from "zod";
 
 import { callGitHub, parseResponse } from "./request.js";
-import { splitRepository } from "../../domain/config.js";
 import { DispatchError } from "../../errors.js";
 
 import type { Fetcher } from "./request.js";

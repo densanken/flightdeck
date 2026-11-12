@@ -12,11 +12,11 @@
     "set-github-private-key": "tsx scripts/set-github-private-key.ts"
   },
   "dependencies": {
+    "@flightdeck/rules": "workspace:*",
     "@flightdeck/github-app-jwt": "workspace:*",
     "@flightdeck/github-webhook-signature": "workspace:*",
     "@flightdeck/logger": "workspace:*",
     "hono": "^4.13.8",
-    "yaml": "^2.8.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {

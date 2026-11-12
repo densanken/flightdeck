@@ -39,51 +39,53 @@ export default [
           basePath: import.meta.dirname,
           zones: [
             {
-              target: "./apps/{takeoff,preflight,dispatch}/src/handler/**/!(*.test).ts",
+              target: "./apps/{takeoff,preflight,dispatch,clearance}/src/handler/**/!(*.test).ts",
               from: [
-                "./apps/{takeoff,preflight,dispatch}/src/composition/**/*",
-                "./apps/{takeoff,preflight,dispatch}/src/infrastructure/**/*",
+                "./apps/{takeoff,preflight,dispatch,clearance}/src/composition/**/*",
+                "./apps/{takeoff,preflight,dispatch,clearance}/src/infrastructure/**/*",
               ],
               message: "Handlers must receive outer-layer implementations from the composition root.",
             },
             {
-              target: "./apps/{takeoff,preflight,dispatch}/src/handler/**/!(*.test).ts",
-              from: "./apps/{takeoff,preflight,dispatch}/src/usecase/**/impl.{ts,js}",
+              target: "./apps/{takeoff,preflight,dispatch,clearance}/src/handler/**/!(*.test).ts",
+              from: "./apps/{takeoff,preflight,dispatch,clearance}/src/usecase/**/impl.{ts,js}",
               message: "Handlers may depend on use case interfaces, but not use case implementations.",
             },
             {
-              target: "./apps/{takeoff,preflight,dispatch}/src/domain/**/*",
+              target: "./apps/{takeoff,preflight,dispatch,clearance}/src/domain/**/*",
               from: [
-                "./apps/{takeoff,preflight,dispatch}/src/{app,config,env,main}.ts",
-                "./apps/{takeoff,preflight,dispatch}/src/{composition,handler,infrastructure,message,repository,usecase}/**/*",
+                "./apps/{takeoff,preflight,dispatch,clearance}/src/{app,config,env,main}.ts",
+                "./apps/{takeoff,preflight,dispatch,clearance}/src/{composition,handler,infrastructure,message,repository,usecase}/**/*",
               ],
               message: "Domain modules must not depend on outer application layers.",
             },
             {
-              target: "./apps/{takeoff,preflight,dispatch}/src/{infrastructure,repository}/**/*",
+              target: "./apps/{takeoff,preflight,dispatch,clearance}/src/{infrastructure,repository}/**/*",
               from: [
-                "./apps/{takeoff,preflight,dispatch}/src/{app,main}.ts",
-                "./apps/{takeoff,preflight,dispatch}/src/{composition,handler}/**/*",
-                "./apps/{takeoff,preflight,dispatch}/src/usecase/**/impl.{ts,js}",
+                "./apps/{takeoff,preflight,dispatch,clearance}/src/{app,main}.ts",
+                "./apps/{takeoff,preflight,dispatch,clearance}/src/{composition,handler}/**/*",
+                "./apps/{takeoff,preflight,dispatch,clearance}/src/usecase/**/impl.{ts,js}",
               ],
               message: "Adapters must not depend on delivery, composition, entry points, or use case implementations.",
             },
             {
-              target: "./apps/{takeoff,preflight,dispatch}/src/handler/**/!(*.test).ts",
-              from: "./apps/{takeoff,preflight,dispatch}/src/repository/**/*",
-              except: [`${import.meta.dirname}/apps/{takeoff,preflight,dispatch}/src/repository/**/interface.{ts,js}`],
+              target: "./apps/{takeoff,preflight,dispatch,clearance}/src/handler/**/!(*.test).ts",
+              from: "./apps/{takeoff,preflight,dispatch,clearance}/src/repository/**/*",
+              except: [
+                `${import.meta.dirname}/apps/{takeoff,preflight,dispatch,clearance}/src/repository/**/interface.{ts,js}`,
+              ],
               message: "Handlers may depend on repository ports, but not repository implementations.",
             },
             {
-              target: "./apps/{takeoff,preflight,dispatch}/src/repository/**/*",
-              from: "./apps/{takeoff,preflight,dispatch}/src/usecase/**/*",
+              target: "./apps/{takeoff,preflight,dispatch,clearance}/src/repository/**/*",
+              from: "./apps/{takeoff,preflight,dispatch,clearance}/src/usecase/**/*",
               message: "Repository modules must not depend on use cases.",
             },
             {
-              target: "./apps/{takeoff,preflight,dispatch}/src/usecase/**/*",
+              target: "./apps/{takeoff,preflight,dispatch,clearance}/src/usecase/**/*",
               from: [
-                "./apps/{takeoff,preflight,dispatch}/src/{app,config,env,main}.ts",
-                "./apps/{takeoff,preflight,dispatch}/src/{composition,handler,infrastructure}/**/*",
+                "./apps/{takeoff,preflight,dispatch,clearance}/src/{app,config,env,main}.ts",
+                "./apps/{takeoff,preflight,dispatch,clearance}/src/{composition,handler,infrastructure}/**/*",
               ],
               message: "Use cases must depend on application ports and values, not outer-layer implementations.",
             },
@@ -97,18 +99,28 @@ export default [
             },
             {
               target: "./apps/preflight",
-              from: ["./apps/takeoff", "./apps/dispatch"],
+              from: ["./apps/takeoff", "./apps/dispatch", "./apps/clearance"],
               message: "Applications must not import other application implementation modules.",
             },
             {
               target: "./apps/takeoff",
-              from: ["./apps/preflight", "./apps/dispatch"],
+              from: ["./apps/preflight", "./apps/dispatch", "./apps/clearance"],
               message: "Applications must not import other application implementation modules.",
             },
             {
               target: "./apps/dispatch",
-              from: ["./apps/preflight", "./apps/takeoff"],
+              from: ["./apps/preflight", "./apps/takeoff", "./apps/clearance"],
               message: "Applications must not import other application implementation modules.",
+            },
+            {
+              target: "./apps/clearance",
+              from: ["./apps/preflight", "./apps/takeoff", "./apps/dispatch"],
+              message: "Applications must not import other application implementation modules.",
+            },
+            {
+              target: "./packages/rules",
+              from: "./apps",
+              message: "The shared autopilot policy must not depend on applications.",
             },
           ],
         },
@@ -143,7 +155,7 @@ export default [
     },
   },
   {
-    files: ["apps/{takeoff,preflight,dispatch}/src/usecase/**/*.ts"],
+    files: ["apps/{takeoff,preflight,dispatch,clearance}/src/usecase/**/*.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -163,7 +175,7 @@ export default [
     },
   },
   {
-    files: ["apps/{takeoff,preflight,dispatch}/src/util/**/*.ts"],
+    files: ["apps/{takeoff,preflight,dispatch,clearance}/src/util/**/*.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -195,6 +207,22 @@ export default [
             {
               group: ["../../../apps/**"],
               message: "The shared title policy must not depend on either application.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["packages/rules/src/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["../../../apps/**"],
+              message: "The shared autopilot policy must not depend on applications.",
             },
           ],
         },

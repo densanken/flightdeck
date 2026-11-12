@@ -1,6 +1,7 @@
+import { sourceOf } from "@flightdeck/rules";
 import { describe, expect, it } from "vitest";
 
-import { isManagedBranch, managedBranchName, sourceOf, updateTitle, withAutoclosedSuffix } from "./naming.js";
+import { isManagedBranch, managedBranchName, updateTitle, withAutoclosedSuffix } from "./naming.js";
 
 describe("naming", () => {
   it("branch 名と title を仕様どおりに組み立てる", () => {

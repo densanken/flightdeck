@@ -1,7 +1,7 @@
+import { sourceOf, splitRepository } from "@flightdeck/rules";
 import { z } from "zod";
 
-import { splitRepository } from "../../domain/config.js";
-import { isManagedBranch, sourceOf } from "../../domain/naming.js";
+import { isManagedBranch } from "../../domain/naming.js";
 
 import type { DispatchMessage } from "../../message/webhook.js";
 import type { Logger } from "../../util/logger.js";

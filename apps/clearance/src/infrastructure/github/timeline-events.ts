@@ -1,0 +1,16 @@
+export const TIMELINE_EVENT_TYPES = [
+  "LabeledEvent",
+  "UnlabeledEvent",
+  "AssignedEvent",
+  "UnassignedEvent",
+  "ReviewDismissedEvent",
+  "ReadyForReviewEvent",
+  "ConvertToDraftEvent",
+  "ReviewRequestedEvent",
+  "ReviewRequestRemovedEvent",
+  "ClosedEvent",
+  "ReopenedEvent",
+  "HeadRefForcePushedEvent",
+  "BaseRefChangedEvent",
+  "RenamedTitleEvent",
+] as const;

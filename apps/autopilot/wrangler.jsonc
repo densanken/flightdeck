@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "autopilot",
+  "main": "src/main.ts",
+  "compatibility_date": "2026-10-01",
+  // 公開 host は Cloudflare Dashboard の Custom Domains で管理する
+  "workers_dev": false,
+  "preview_urls": false,
+  // deploy 時に dashboard で管理する変数を削除しない
+  "keep_vars": true,
+  "observability": {
+    "enabled": true,
+    "traces": {
+      "enabled": true,
+    },
+  },
+  // Preview には binding と vars を引き継がない
+  "previews": {},
+}

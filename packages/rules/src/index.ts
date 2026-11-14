@@ -5,3 +5,5 @@ export { evaluateCi } from "./ci.js";
 export type { CheckRun, CommitStatus, RequiredStatusCheck } from "./ci.js";
 export { STALE_MS, automergeDisabled, classify, humanActivity, verifyGitlink, verifySourceHistory } from "./policy.js";
 export type { Actor, GitlinkEntry, PolicyKind, TimelineItem } from "./policy.js";
+
+export type { PolicyDecision, PolicyPullRequest, PolicyReview, PolicySettings } from "./pull-request.js";

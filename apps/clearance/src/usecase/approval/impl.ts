@@ -1,12 +1,12 @@
+import { errorDetails } from "@flightdeck/github-policy";
 import { STALE_MS } from "@flightdeck/rules";
 
-import { errorDetails } from "./error-details.js";
 import { evaluate } from "./evaluate.js";
 
 import type { ApprovalDependencies } from "./dependencies.js";
 import type { ApprovalContext, ApprovalUseCase, ReviewCommitInput, ReviewPullRequestsInput } from "./interface.js";
 
-// dispatch PR の Q1、設定、tree、source 比較、REST 比較、Dismiss、Dismiss が 422 のときのレビュー取得の最大 7 回を確保する
+// dispatch PR では PR の query、設定、tree、source 比較、REST 比較、Dismiss、Dismiss が 422 のときのレビュー取得の最大 7 回を確保する
 const EVALUATION_RESERVE = 7;
 const EXECUTION_TIMEOUT_MS = 25_000;
 

@@ -1,4 +1,6 @@
 export const TIMELINE_EVENT_TYPES = [
+  "AutoMergeEnabledEvent",
+  "AutoMergeDisabledEvent",
   "LabeledEvent",
   "UnlabeledEvent",
   "AssignedEvent",

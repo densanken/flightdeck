@@ -15,6 +15,20 @@ describe("timeline の型", () => {
     expect(result).toMatchObject({ kind: "event", createdAt, actor: { type: "User", id: 1 } });
   });
 
+  it.each(["AutoMergeEnabledEvent", "AutoMergeDisabledEvent"])("%s の操作時刻と actor を変換する", (type) => {
+    const createdAt = "2026-11-09T00:00:00Z";
+    expect(timelineItem({ __typename: type, createdAt, actor: { __typename: "User", databaseId: 7 } })).toEqual({
+      kind: "event",
+      createdAt,
+      actor: { type: "User", id: 7, login: undefined },
+    });
+    expect(timelineItem({ __typename: type, createdAt, actor: { __typename: "Bot", databaseId: 2 } })).toEqual({
+      kind: "event",
+      createdAt,
+      actor: { type: "Bot", id: 2, login: undefined },
+    });
+  });
+
   it("不正な応答を既知のエラーに変換する", () => {
     expect(() => timelineItem({ __typename: "IssueComment" })).toThrow(
       expect.objectContaining({ code: "invalid_response", errorName: "ZodError" })

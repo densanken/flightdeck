@@ -1,0 +1,25 @@
+{
+  "name": "autopilot",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "pnpm typecheck && wrangler deploy --dry-run --config wrangler.jsonc",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json",
+    "lint": "pnpm typecheck && eslint --fix && prettier --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "set-github-private-key": "tsx scripts/set-github-private-key.ts"
+  },
+  "dependencies": {
+    "@flightdeck/github-policy": "workspace:*",
+    "@flightdeck/github-webhook-signature": "workspace:*",
+    "@flightdeck/logger": "workspace:*",
+    "@flightdeck/rules": "workspace:*",
+    "hono": "^4.13.8",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@flightdeck/private-key-env": "workspace:*"
+  }
+}

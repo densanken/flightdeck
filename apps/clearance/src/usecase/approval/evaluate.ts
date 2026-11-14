@@ -1,117 +1,16 @@
-import {
-  automergeDisabled,
-  chooseConfig,
-  classify,
-  CONFIG_PATHS,
-  ConfigError,
-  evaluateCi,
-  humanActivity,
-  parseAutopilotConfig,
-  sourceOf,
-  verifyGitlink,
-  verifySourceHistory,
-} from "@flightdeck/rules";
+import { decide, errorDetails } from "@flightdeck/github-policy";
+import { classify } from "@flightdeck/rules";
 
-import { errorDetails } from "./error-details.js";
 import { reviewAction } from "../../domain/review.js";
-import { ApiError } from "../../errors.js";
 
-import type { ApprovalGateway, PolicySettings, PullRequest } from "./dependencies.js";
-import type { Decision, Review } from "../../domain/review.js";
+import type { ApprovalGateway, ApprovalSettings } from "./dependencies.js";
 import type { Logger } from "@flightdeck/logger";
-import type { PolicyKind } from "@flightdeck/rules";
+import type { PolicyDecision, PolicyKind, PolicyReview } from "@flightdeck/rules";
 
-const result = (kind: "skip" | "violated" | "undeterminable", reasonCode: string): Decision => ({ kind, reasonCode });
-
-const readConfig = async (github: ApprovalGateway, baseOid: string) => {
-  try {
-    return parseAutopilotConfig(chooseConfig(await github.configs(baseOid))?.text ?? "");
-  } catch (error) {
-    if (error instanceof ConfigError) return error;
-    throw error;
-  }
-};
-
-export const decide = async (
-  github: ApprovalGateway,
-  repositoryId: number,
-  pr: PullRequest,
-  settings: PolicySettings,
-  now: number
-): Promise<Decision> => {
-  const policy = classify(pr.author?.id ?? null, settings.dispatchId, settings.renovateIds);
-
-  if (pr.state !== "OPEN") return result("skip", "not_open");
-
-  if (!policy) return result("skip", "unknown_author");
-
-  const config = await readConfig(github, pr.baseOid);
-  if (config instanceof ConfigError) return result("undeterminable", config.code);
-
-  if (pr.draft) return result("violated", "draft");
-  if (pr.labels.some((label) => label.toLowerCase() === "autopilot:skip")) return result("violated", "opted_out");
-  if (pr.files.some((file) => Object.values(CONFIG_PATHS).includes(file.path))) {
-    return result("violated", "config_changed");
-  }
-  if (pr.headRepositoryId !== repositoryId) return result("violated", "fork");
-  if (pr.opinionatedReviews.some((review) => review.state === "CHANGES_REQUESTED" && review.author?.type === "User")) {
-    return result("violated", "human_changes_requested");
-  }
-
-  if (policy === "dispatch") {
-    const source = sourceOf(pr.branch);
-    const file = pr.files[0];
-
-    if (!source || pr.files.length !== 1 || file?.changeType !== "MODIFIED") return result("violated", "invalid_diff");
-    if (!pr.submodulesComplete) return result("undeterminable", "submodules_truncated");
-
-    const matches = pr.submodules.filter((item) => item.path === file.path);
-    if (matches.length > 1) return result("undeterminable", "ambiguous_submodule");
-
-    const trees = await github.trees(pr.baseOid, pr.headSha, file.path);
-    const gitlink = { source, submoduleUrl: matches[0]?.gitUrl ?? null, ...trees };
-    if (!verifyGitlink(gitlink)) return result("violated", "invalid_gitlink");
-
-    const comparisons = await github.compare(source, gitlink.head.oid, gitlink.base.oid);
-    const verified = verifySourceHistory(comparisons.source, comparisons.ancestry);
-    if (verified !== "allowed") return result(verified, "invalid_source_history");
-  } else {
-    if (!config.renovateStale) return result("violated", "renovate_disabled");
-    if (!automergeDisabled(pr.body)) return result("violated", "automerge_enabled");
-
-    const activity = humanActivity({
-      createdAt: pr.createdAt,
-      editor: pr.editor,
-      lastEditedAt: pr.lastEditedAt,
-      timeline: pr.timeline,
-      pageCount: pr.timelinePageCount,
-      hasPreviousPage: pr.timelineHasPreviousPage,
-      recentCount: pr.recentCount,
-      renovateIds: settings.renovateIds,
-      now,
-    });
-    if (activity !== "allowed") return result(activity, "human_activity");
-
-    const initial = evaluateCi(pr.checks, pr.statuses, []);
-    if (initial === "blocked") return result("violated", "ci_failed");
-    if (initial === "pending") return result("undeterminable", "ci_pending");
-
-    const rules = await github.rules(pr.baseBranch);
-    const status = evaluateCi(pr.checks, pr.statuses, rules);
-    if (status === "pending") return result("undeterminable", "ci_pending");
-    if (status === "blocked") return result("violated", "ci_failed");
-  }
-
-  // GraphQL では改名元の path が分からず、設定ファイルの改名を否定できない
-  if (
-    policy === "renovate-stale" &&
-    pr.files.some((file) => file.changeType === "RENAMED" || file.changeType === "COPIED")
-  ) {
-    return result("undeterminable", "config_rename_unknown");
-  }
-
-  return { kind: "allowed", policy, headSha: pr.headSha };
-};
+const result = (kind: "skip" | "violated" | "undeterminable", reasonCode: string): PolicyDecision => ({
+  kind,
+  reasonCode,
+});
 
 interface EvaluateOptions {
   fields: Record<string, unknown>;
@@ -124,7 +23,7 @@ interface EvaluateOptions {
 }
 
 interface EvaluationOutcome {
-  decision: Decision;
+  decision: PolicyDecision;
   action: string;
   reviewId: number | null;
   apiStatus: number | undefined;
@@ -154,7 +53,7 @@ const failed = (error: unknown, outcome: EvaluationOutcome): EvaluationOutcome =
       failure.reasonCode === "subrequest_limit" || outcome.action === "none"
         ? result("undeterminable", failure.reasonCode)
         : outcome.decision,
-    apiStatus: error instanceof ApiError ? error.status : undefined,
+    apiStatus: failure.apiStatus,
     failure,
   };
 };
@@ -170,7 +69,7 @@ const dismissed = async (github: ApprovalGateway, number: number, reviewId: numb
 const applyReview = async (
   github: ApprovalGateway,
   number: number,
-  latest: Review | undefined,
+  latest: PolicyReview | undefined,
   outcome: EvaluationOutcome
 ): Promise<EvaluationOutcome> => {
   const next = reviewAction(outcome.decision, latest);
@@ -196,8 +95,9 @@ const applyReview = async (
     } catch (error) {
       // 同時に届いた別の評価が先に Dismiss すると 422 になる
       // 権限による拒否も 422 になりうるため、レビューの状態を確かめる
-      if (error instanceof ApiError && error.status === 422 && (await dismissed(github, number, outcome.reviewId))) {
-        return { ...outcome, action: "already_dismissed", apiStatus: error.status };
+      const status = errorDetails(error).apiStatus;
+      if (status === 422 && (await dismissed(github, number, outcome.reviewId))) {
+        return { ...outcome, action: "already_dismissed", apiStatus: status };
       }
 
       return failed(error, { ...outcome, action: "dismiss_failed" });
@@ -210,7 +110,7 @@ const applyReview = async (
 const evaluateFetched = async (
   github: ApprovalGateway,
   number: number,
-  settings: PolicySettings,
+  settings: ApprovalSettings,
   now: number,
   options: EvaluateOptions,
   data: Awaited<ReturnType<ApprovalGateway["pullRequest"]>>
@@ -253,7 +153,7 @@ const evaluateFetched = async (
 const evaluatePullRequest = async (
   github: ApprovalGateway,
   number: number,
-  settings: PolicySettings,
+  settings: ApprovalSettings,
   options: EvaluateOptions
 ): Promise<EvaluationOutcome> => {
   try {
@@ -269,7 +169,7 @@ const evaluatePullRequest = async (
 export const evaluate = async (
   github: ApprovalGateway,
   number: number,
-  settings: PolicySettings,
+  settings: ApprovalSettings,
   logger: Logger,
   options: EvaluateOptions
 ) => {

@@ -1,4 +1,3 @@
-import { evaluateCi } from "@flightdeck/rules";
 import { describe, expect, it } from "vitest";
 
 import { normalizeConfigs, normalizePr } from "./normalize.js";
@@ -106,7 +105,7 @@ describe("PR connection の完全性", () => {
     expect(normalizePr(pr).submodulesComplete).toBe(false);
   });
 
-  it("head と test merge commit の CI 結果を合わせる", () => {
+  it("head と potentialMergeCommit の CI 結果を合わせる", () => {
     const data = makeResponse();
     const head = data.repository.pullRequest.commits.nodes[0];
 
@@ -129,14 +128,27 @@ describe("PR connection の完全性", () => {
               {
                 commit: {
                   ...head.commit,
-                  statusCheckRollup: { contexts: { totalCount: 1, nodes: [check("SUCCESS")] } },
+                  statusCheckRollup: {
+                    contexts: {
+                      totalCount: 2,
+                      nodes: [
+                        check("SUCCESS"),
+                        { __typename: "StatusContext", context: "head-status", state: "SUCCESS" },
+                      ],
+                    },
+                  },
                 },
               },
             ],
           },
           potentialMergeCommit: {
             oid: "merge",
-            statusCheckRollup: { contexts: { totalCount: 1, nodes: [check("FAILURE")] } },
+            statusCheckRollup: {
+              contexts: {
+                totalCount: 2,
+                nodes: [check("FAILURE"), { __typename: "StatusContext", context: "merge-status", state: "FAILURE" }],
+              },
+            },
           },
         },
       },
@@ -147,7 +159,14 @@ describe("PR connection の完全性", () => {
 
     const normalized = normalizePr(pr);
 
-    expect(evaluateCi(normalized.checks, normalized.statuses, [])).toBe("blocked");
+    expect(normalized.checks).toEqual([
+      { name: "ci", status: "completed", conclusion: "success", app: { id: 1, slug: "github-actions" } },
+      { name: "ci", status: "completed", conclusion: "failure", app: { id: 1, slug: "github-actions" } },
+    ]);
+    expect(normalized.statuses).toEqual([
+      { context: "head-status", state: "success" },
+      { context: "merge-status", state: "failure" },
+    ]);
   });
 
   it("GraphQL の取得中に変化した head を拒否する", () => {

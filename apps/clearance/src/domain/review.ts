@@ -1,19 +1,8 @@
-import type { Actor, PolicyKind } from "@flightdeck/rules";
-
-export interface Review {
-  id: number | null;
-  state: string;
-  author: Actor | null;
-  commitOid: string | null;
-}
-
-export type Decision =
-  | { kind: "allowed"; policy: PolicyKind; headSha: string }
-  | { kind: "skip" | "violated" | "undeterminable"; reasonCode: string };
+import type { PolicyDecision, PolicyReview } from "@flightdeck/rules";
 
 export const reviewAction = (
-  decision: Decision,
-  latest: Review | undefined
+  decision: PolicyDecision,
+  latest: PolicyReview | undefined
 ): "approve" | "dismiss" | "already_approved" | "missing_id" | "none" => {
   if (decision.kind === "allowed") {
     return latest?.state === "APPROVED" && latest.commitOid === decision.headSha ? "already_approved" : "approve";

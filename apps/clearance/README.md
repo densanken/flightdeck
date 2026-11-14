@@ -1,6 +1,6 @@
 # Clearance
 
-[Dispatch](../dispatch/README.md) が作成した Submodule 更新 PR と、一定期間人間の操作がない Renovate PR を自動承認（Approve）する GitHub App（Cloudflare Worker）です。
+[Dispatch](../dispatch/README.md) が作成した Submodule 更新 PR と、一定期間人間の操作がない Renovate PR を自動承認（Approve）する GitHub App です。
 
 モノレポ全体の開発環境セットアップについては [Flightdeck ルートの README](../../README.md) を参照してください。
 
@@ -11,7 +11,7 @@
 - **放置された Renovate PR の承認:**  
   Renovate による PR で、以下の条件をすべて満たす場合に Approve します。
   - 本文設定で Automerge が無効になっている
-  - PR 作成および人間の最終操作（コメントやレビューなど）から **30 日以上** 経過している
+  - PR 作成および人間の最終操作（コメント、レビュー、GitHub の auto-merge の有効化・無効化など）から **30 日以上** 経過している
   - GitHub Actions の Check Run が 1 件以上存在し、すべての CI チェックが成功している
   - ※ファイルのリネーム（`RENAMED`）やコピー（`COPIED`）が含まれる PR は、安全のため自動承認を保留します。
 - **条件不成立時のレビュー撤回（Dismiss）:**  

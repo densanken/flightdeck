@@ -218,11 +218,36 @@ importers:
         specifier: ^4.133.0
         version: 4.160.0(@cloudflare/workers-types@5.20261110.1)(@types/node@26.6.6)
 
+  apps/autopilot:
+    dependencies:
+      '@flightdeck/github-policy':
+        specifier: workspace:*
+        version: link:../../packages/github-policy
+      '@flightdeck/github-webhook-signature':
+        specifier: workspace:*
+        version: link:../../packages/github-webhook-signature
+      '@flightdeck/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
+      '@flightdeck/rules':
+        specifier: workspace:*
+        version: link:../../packages/rules
+      hono:
+        specifier: ^4.13.8
+        version: 4.13.17
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.7
+    devDependencies:
+      '@flightdeck/private-key-env':
+        specifier: workspace:*
+        version: link:../../packages/private-key-env
+
   apps/clearance:
     dependencies:
-      '@flightdeck/github-app-jwt':
+      '@flightdeck/github-policy':
         specifier: workspace:*
-        version: link:../../packages/github-app-jwt
+        version: link:../../packages/github-policy
       '@flightdeck/github-webhook-signature':
         specifier: workspace:*
         version: link:../../packages/github-webhook-signature
@@ -323,6 +348,18 @@ importers:
       jose:
         specifier: ^6.2.12
         version: 6.2.17
+
+  packages/github-policy:
+    dependencies:
+      '@flightdeck/github-app-jwt':
+        specifier: workspace:*
+        version: link:../github-app-jwt
+      '@flightdeck/rules':
+        specifier: workspace:*
+        version: link:../rules
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.7
 
   packages/github-webhook-signature: {}
 

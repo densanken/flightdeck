@@ -17,7 +17,7 @@ export interface RequiredStatusCheck {
 
 type CiDecision = "passed" | "pending" | "blocked";
 
-// head と test merge commit の結果は呼び出し側で合わせる
+// head と potentialMergeCommit の結果は呼び出し側で合わせる
 export const evaluateCi = (
   checks: CheckRun[],
   statuses: CommitStatus[],

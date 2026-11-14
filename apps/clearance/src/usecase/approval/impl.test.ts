@@ -3,12 +3,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ApprovalUseCaseImpl } from "./impl.js";
 
-import type { ApprovalDependencies, Candidate, ApprovalGateway, PullRequest } from "./dependencies.js";
+import type { ApprovalDependencies, Candidate, ApprovalGateway } from "./dependencies.js";
 import type { ReviewCommitInput, ReviewPullRequestsInput } from "./interface.js";
+import type { PolicyPullRequest } from "@flightdeck/rules";
 
 const now = Date.parse("2026-11-10T00:00:00Z");
 const settings = { dispatchId: 1, renovateIds: [2], botUserId: 3 };
-const pr: PullRequest = {
+const pr: PolicyPullRequest = {
   state: "OPEN",
   draft: false,
   body: "",
@@ -42,7 +43,7 @@ const candidate = (number: number): Candidate => ({
   reviewsComplete: true,
   reviews: [],
 });
-const renovate: PullRequest = {
+const renovate: PolicyPullRequest = {
   ...pr,
   author: { type: "Bot", id: 2 },
   body: "**Automerge**: Disabled by config.",
@@ -122,7 +123,7 @@ describe("PR の評価と探索", () => {
 
   it("最新の Ready 状態を取得して承認し、Dismiss だけを行う評価では承認しない", async () => {
     const client = gateway();
-    const dispatch: PullRequest = {
+    const dispatch: PolicyPullRequest = {
       ...pr,
       author: { type: "Bot", id: 1 },
       branch: "flightdeck-dispatch/org/source",
@@ -232,7 +233,7 @@ describe("実行上限", () => {
     expect(sink.warn).toHaveBeenCalledWith(expect.stringContaining('"reason_code":"subrequest_limit"'));
   });
 
-  it("対象の評価で予算が尽きたら探索しない", async () => {
+  it("対象の評価で subrequest の上限に達したら探索しない", async () => {
     const client = gateway();
     vi.mocked(client.subrequests).mockReturnValue(38);
     vi.mocked(client.pullRequest).mockImplementation(() => {

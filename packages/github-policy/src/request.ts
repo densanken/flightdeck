@@ -1,7 +1,7 @@
 import { createGitHubAppJwt } from "@flightdeck/github-app-jwt";
 
 import { normalizeError } from "./error.js";
-import { ApiError, BudgetExceeded, GitHubDataError } from "../../errors.js";
+import { ApiError, SubrequestLimitExceeded, GitHubPolicyError, GitHubDataError } from "./errors.js";
 
 export const MAX_SUBREQUESTS = 45;
 
@@ -13,11 +13,15 @@ export class GitHubRequest {
   constructor(
     private readonly appId: string,
     private readonly privateKey: string,
-    private readonly installation: number
+    private readonly installation: number,
+    private readonly userAgent: string,
+    private readonly deadline?: number
   ) {}
 
   private async fetch(path: string, token: string, method: string, body?: unknown): Promise<Response> {
-    if (this.count >= MAX_SUBREQUESTS) throw new BudgetExceeded();
+    if (this.count >= MAX_SUBREQUESTS) throw new SubrequestLimitExceeded();
+    if (this.deadline !== undefined && Date.now() >= this.deadline)
+      throw new GitHubPolicyError("time_limit", "TimeLimitExceeded", "execution time limit exceeded");
 
     this.count += 1;
 
@@ -30,10 +34,10 @@ export class GitHubRequest {
         accept: "application/vnd.github+json",
         "content-type": "application/json",
         "x-github-api-version": "2022-11-28",
-        "user-agent": "flightdeck-clearance",
+        "user-agent": this.userAgent,
       },
       body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(Math.max(1, Math.min(10_000, (this.deadline ?? Infinity) - Date.now()))),
     });
   }
 

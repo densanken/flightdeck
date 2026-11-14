@@ -1,13 +1,11 @@
 import { CONFIG_PATHS } from "@flightdeck/rules";
 
+import { GitHubDataError } from "./errors.js";
 import { blob } from "./schema.js";
 import { normalizeActor, timelineItem } from "./timeline.js";
-import { GitHubDataError } from "../../errors.js";
 
 import type { PullRequest as ApiPullRequest } from "./schema.js";
-import type { Review } from "../../domain/review.js";
-import type { PullRequest } from "../../usecase/approval/dependencies.js";
-import type { CheckRun, CommitStatus } from "@flightdeck/rules";
+import type { CheckRun, CommitStatus, PolicyPullRequest, PolicyReview } from "@flightdeck/rules";
 
 const complete = (value: { totalCount: number; nodes: unknown[] }) => value.totalCount === value.nodes.length;
 
@@ -25,14 +23,14 @@ export const normalizeConfigs = (files: { yml: unknown; yaml: unknown }) =>
     ] as const
   ).flatMap(([path, object]) => (object === null ? [] : [{ path, text: readBlob(object) }]));
 
-export const normalizeReview = (review: ApiPullRequest["latestReviews"]["nodes"][number]): Review => ({
+export const normalizeReview = (review: ApiPullRequest["latestReviews"]["nodes"][number]): PolicyReview => ({
   id: review.databaseId ?? null,
   state: review.state,
   author: normalizeActor(review.author),
   commitOid: review.commit?.oid ?? null,
 });
 
-export const normalizePr = (pr: ApiPullRequest): PullRequest => {
+export const normalizePr = (pr: ApiPullRequest): PolicyPullRequest => {
   if (
     !complete(pr.labels) ||
     !complete(pr.files) ||
@@ -43,7 +41,7 @@ export const normalizePr = (pr: ApiPullRequest): PullRequest => {
     throw new GitHubDataError("connection_truncated", "PR connection truncated");
   }
 
-  // Q1 の取得中に push されたら、head に依存する項目がそろわない
+  // PR の query の取得中に push されたら、head に依存する項目がそろわない
   if (pr.commits.nodes.length !== 1 || pr.commits.nodes[0]?.commit.oid !== pr.headRefOid || !pr.baseRef) {
     throw new GitHubDataError("head_incomplete", "PR head incomplete");
   }

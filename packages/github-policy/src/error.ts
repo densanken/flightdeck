@@ -1,17 +1,17 @@
 import { z } from "zod";
 
-import { ClearanceError } from "../../errors.js";
+import { GitHubPolicyError } from "./errors.js";
 
 export const normalizeError = (error: unknown): unknown => {
   if (error instanceof z.ZodError || error instanceof SyntaxError) {
-    return new ClearanceError(
+    return new GitHubPolicyError(
       "invalid_response",
       error instanceof z.ZodError ? "ZodError" : "SyntaxError",
       "invalid GitHub response"
     );
   }
   if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
-    return new ClearanceError("timeout", error.name, "GitHub request timed out");
+    return new GitHubPolicyError("timeout", error.name, "GitHub request timed out");
   }
 
   return error;

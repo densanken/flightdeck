@@ -1,3 +1,4 @@
+import { GitHubRequest, MAX_SUBREQUESTS } from "@flightdeck/github-policy";
 import { verifyGitHubWebhookSignature } from "@flightdeck/github-webhook-signature";
 import { createLogger } from "@flightdeck/logger";
 
@@ -5,7 +6,6 @@ import { createApp } from "../app.js";
 import { getApprovalSettings, getBotUserId, getWebhookSecret } from "../env.js";
 import { createWebhookHandler } from "../handler/github/webhook.js";
 import { GitHubGatewayImpl } from "../infrastructure/github/client.js";
-import { GitHubRequest, MAX_SUBREQUESTS } from "../infrastructure/github/request.js";
 import { ApprovalUseCaseImpl } from "../usecase/approval/impl.js";
 
 export const composeApp = () =>
@@ -24,7 +24,7 @@ export const composeApp = () =>
         createUseCase: (input) => {
           const settings = getApprovalSettings(env);
           const github = new GitHubGatewayImpl(
-            new GitHubRequest(settings.appId, settings.privateKey, input.installationId),
+            new GitHubRequest(settings.appId, settings.privateKey, input.installationId, "flightdeck-clearance"),
             input.repository
           );
 

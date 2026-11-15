@@ -34,9 +34,9 @@ export interface BranchHead {
   sha: string;
   parentShas: string[];
   message: string;
-  // path の gitlink
-  // gitlink でなければ undefined
-  gitlinkSha: string | undefined;
+  // HEAD commit の submodule の一覧
+  // 一覧が不完全なら空にして、現在の base から管理 branch を再生成する
+  submodules: Submodule[];
   // 変更されたファイルの数
   // GitHub が数えられなければ null
   changedFiles: number | null;
@@ -71,8 +71,6 @@ export interface ParentState {
         branch: string;
         sha: string;
         treeSha: string;
-        // path が gitlink でなければ undefined
-        gitlinkSha: string | undefined;
         // GitHub が .gitmodules を解釈した submodule の一覧
         submodules: Submodule[];
       }
@@ -99,10 +97,13 @@ export interface DispatchGateway {
     options?: { previous?: { sha: string } | { branch: string }; withManaged?: boolean }
   ): Promise<RepositoryState>;
   // baseBranch を省略すると、parent の default branch を base とする
-  readParentState(
+  readParentState(repository: string, input: { baseBranch: string | undefined; head: string }): Promise<ParentState>;
+  // previousSha と sourceSha の path にある Git オブジェクトの SHA
+  // path または commit がなければ、その SHA は undefined
+  readPathObjects(
     repository: string,
-    input: { baseBranch: string | undefined; head: string; path: string }
-  ): Promise<ParentState>;
+    input: { path: string; previousSha: string; sourceSha: string }
+  ): Promise<{ previous: string | undefined; source: string | undefined }>;
   // head が管理 branch の Open PR（同じ repository の branch を head とする PR だけ）と、repository の正規名
   readManagedPullRequests(
     repository: string,

@@ -8,6 +8,8 @@ import {
   MANAGED_PULL_REQUESTS_QUERY,
   PARENT_HEAD_QUERY,
   PARENT_QUERY,
+  PATH_OBJECTS_QUERY,
+  parsePathObjects,
   parseManagedPullRequests,
   parseParentState,
   parseRepositoryId,
@@ -114,17 +116,28 @@ export class GitHubGatewayImpl implements DispatchGateway {
 
   async readParentState(
     repository: string,
-    { baseBranch, head, path }: { baseBranch: string | undefined; head: string; path: string }
+    { baseBranch, head }: { baseBranch: string | undefined; head: string }
   ): Promise<ParentState> {
     const data = await this.query(repository, PARENT_QUERY, {
       headRef: `refs/heads/${head}`,
       headName: head,
       baseRef: `refs/heads/${baseBranch ?? ""}`,
       hasBase: baseBranch !== undefined,
-      path,
     });
 
     return parseParentState(data, baseBranch);
+  }
+
+  async readPathObjects(
+    repository: string,
+    input: { path: string; previousSha: string; sourceSha: string }
+  ): Promise<{ previous: string | undefined; source: string | undefined }> {
+    const data = await this.query(repository, PATH_OBJECTS_QUERY, {
+      previous: `${input.previousSha}:${input.path}`,
+      source: `${input.sourceSha}:${input.path}`,
+    });
+
+    return parsePathObjects(data);
   }
 
   // source と parent は、それぞれの token で並行して確かめる

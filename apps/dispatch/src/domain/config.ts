@@ -12,7 +12,7 @@ import type { ConfigFile } from "@flightdeck/rules";
 
 export interface Target {
   repository: string;
-  path: string;
+  path?: string;
   baseBranch?: string;
 }
 
@@ -35,7 +35,8 @@ const dispatchSchema = z.strictObject({
         path: z
           .string()
           .transform((path) => path.replace(/^\/|\/$/g, ""))
-          .refine(isSafePath),
+          .refine(isSafePath)
+          .optional(),
         "base-branch": z.string().refine(isSafePath).optional(),
       })
     )

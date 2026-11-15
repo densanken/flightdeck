@@ -1,6 +1,7 @@
-import { normalizeGitHubUrl, sourceOf } from "@flightdeck/rules";
+import { sourceOf } from "@flightdeck/rules";
 
 import { chooseConfig, parseConfig } from "../../domain/config.js";
+import { findSubmodule } from "../../domain/gitmodules.js";
 import { isAutoclosed, managedBranchName, updateTitle, withAutoclosedSuffix } from "../../domain/naming.js";
 import { pullRequestBody, withoutCommitList } from "../../domain/pull-request-body.js";
 import { isUpToDate, planPullRequests } from "../../domain/sync-decision.js";
@@ -70,16 +71,10 @@ const baseOf = (state: ParentState, target: Target, source: SourceSnapshot) => {
     );
   }
 
-  const previousSha = base.gitlinkSha;
-  if (!previousSha) throw new DispatchError("config", `path is not a gitlink: ${parent}:${target.path}`);
+  const submodule = findSubmodule(base.submodules, source.fullName, parent);
+  if (!submodule.commitSha) throw new DispatchError("config", `path is not a gitlink: ${parent}:${submodule.path}`);
 
-  const submodule = base.submodules.find((candidate) => candidate.path === target.path);
-  if (!submodule) throw new DispatchError("config", `.gitmodules has no submodule: ${parent}:${target.path}`);
-  if (normalizeGitHubUrl(submodule.url) !== source.fullName.toLowerCase()) {
-    throw new DispatchError("config", `.gitmodules does not match ${source.fullName}: ${parent}:${target.path}`);
-  }
-
-  return { ...base, previousSha };
+  return { ...base, previousSha: submodule.commitSha, path: submodule.path };
 };
 
 // 旧設定を読めない場合は cleanup を推測せず、最新設定の適用だけを行う
@@ -292,21 +287,24 @@ export class SyncUseCaseImpl implements SyncUseCase {
     const state = await this.gateway.readParentState(target.repository, {
       baseBranch: target.baseBranch,
       head,
-      path: target.path,
     });
     const parent = state.repository.fullName;
     const base = baseOf(state, target, source);
     const isUnchanged = () => this.unchanged(source, parent, base.branch, base.sha);
 
+    // 祖先関係は見ず、source の最新 HEAD と gitlink の一致、または監視 path の内容の一致で要否を決める
+    const upToDate =
+      base.previousSha === source.sha ||
+      (target.path !== undefined && (await this.samePath(source, target.path, base.previousSha)));
+
     const plan = planPullRequests(state.pullRequests, base.branch);
     // base の変更で GitHub の同一 head/base 制約に当たらないよう、重複 PR を先に閉じる
     await this.autoclose(parent, plan.duplicates);
 
-    // 祖先関係は見ず、source の最新 HEAD と一致するかだけで要否を決める
-    if (base.previousSha === source.sha) {
+    if (upToDate) {
       if (!plan.keep) return "unchanged";
 
-      // 古い S で P == S と判断して Close しないよう、直前に確かめる
+      // 古い状態で Close しないよう、直前に確かめる
       if (!(await isUnchanged())) return "retry";
       await this.autoclose(parent, [plan.keep]);
 
@@ -329,11 +327,19 @@ export class SyncUseCaseImpl implements SyncUseCase {
     }
 
     const title = updateTitle(source.fullName);
+    const gitlinkSha = state.branch?.submodules.find((submodule) => submodule.path === base.path)?.commitSha;
     let committed = false;
-    if (!isUpToDate({ baseSha: base.sha, sourceSha: source.sha, expectedMessage: title, branchCommit: state.branch })) {
+    if (
+      !isUpToDate({
+        baseSha: base.sha,
+        sourceSha: source.sha,
+        expectedMessage: title,
+        branchCommit: state.branch && { ...state.branch, gitlinkSha },
+      })
+    ) {
       const treeSha = await this.gateway.createGitlinkTree(parent, {
         baseTreeSha: base.treeSha,
-        path: target.path,
+        path: base.path,
         gitlinkSha: source.sha,
       });
 
@@ -360,7 +366,7 @@ export class SyncUseCaseImpl implements SyncUseCase {
       parentPrivate: state.repository.isPrivate,
       sourceBranch: source.defaultBranch,
       sourceSha: source.sha,
-      path: target.path,
+      path: base.path,
       baseBranch: base.branch,
       previousSha: base.previousSha,
       configPath,
@@ -393,6 +399,14 @@ export class SyncUseCaseImpl implements SyncUseCase {
     if ((await this.gateway.getBranchHead(parent, base.branch)) !== base.sha) return "retry";
 
     return outcome;
+  }
+
+  private async samePath(source: SourceSnapshot, path: string, previousSha: string): Promise<boolean> {
+    const objects = await this.gateway.readPathObjects(source.fullName, { path, previousSha, sourceSha: source.sha });
+    if (objects.source === undefined)
+      throw new DispatchError("config", `source path not found: ${source.fullName}:${path}`);
+
+    return objects.previous === objects.source;
   }
 
   // 書き込みの直前に、source の default branch（名前と HEAD）と parent の base の HEAD が、読んだときのままか確かめる

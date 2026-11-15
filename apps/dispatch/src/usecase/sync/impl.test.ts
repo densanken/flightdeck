@@ -33,7 +33,7 @@ interface FakeCommit {
   config: string | null | undefined;
   // flightdeck.yaml の本文
   yamlConfig: string | null | undefined;
-  gitmodules: Submodule[] | undefined;
+  gitmodules: { path: string; url: string }[] | undefined;
 }
 
 interface FakeRepo {
@@ -71,6 +71,8 @@ class FakeGitHub implements DispatchGateway {
   afterParentState: (() => void) | undefined;
   afterRepositoryState: (() => void) | undefined;
   previousRequests: ({ sha: string } | { branch: string } | undefined)[] = [];
+  pathObjects: { previous: string | undefined; source: string | undefined } | undefined;
+  pathObjectRequests: { repository: string; path: string; previousSha: string; sourceSha: string }[] = [];
   managedOverflow = false;
   private counter = 0;
 
@@ -88,7 +90,7 @@ class FakeGitHub implements DispatchGateway {
       gitlinks?: Record<string, string>;
       config?: unknown;
       yamlConfig?: unknown;
-      gitmodules?: Submodule[];
+      gitmodules?: FakeCommit["gitmodules"];
       parents?: string[];
       message?: string;
     } = {}
@@ -156,6 +158,13 @@ class FakeGitHub implements DispatchGateway {
 
   openPulls(repository: string): FakePull[] {
     return this.pulls.filter((pull) => pull.repository === repository && pull.state === "open");
+  }
+
+  private submodules(commit: FakeCommit): Submodule[] {
+    return (commit.gitmodules ?? []).map((submodule) => ({
+      ...submodule,
+      commitSha: this.trees.get(commit.tree)?.[submodule.path],
+    }));
   }
 
   // 最初の親との tree の差を、変更されたファイルの数として数える（gitlink だけを持つ fake の tree で足りる）
@@ -242,10 +251,7 @@ class FakeGitHub implements DispatchGateway {
     return Promise.resolve({ repository: repo.info, sha, configs: filesAt(sha), previous, managed });
   }
 
-  readParentState(
-    repository: string,
-    input: { baseBranch: string | undefined; head: string; path: string }
-  ): Promise<ParentState> {
+  readParentState(repository: string, input: { baseBranch: string | undefined; head: string }): Promise<ParentState> {
     this.enter("readParentState");
     const repo = this.repo(repository);
     const baseBranch = input.baseBranch ?? repo.info.defaultBranch;
@@ -261,8 +267,7 @@ class FakeGitHub implements DispatchGateway {
               branch: baseBranch,
               sha: baseSha,
               treeSha: baseCommit.tree,
-              gitlinkSha: this.trees.get(baseCommit.tree)?.[input.path],
-              submodules: baseCommit.gitmodules ?? [],
+              submodules: this.submodules(baseCommit),
             }
           : undefined,
       branch:
@@ -271,7 +276,7 @@ class FakeGitHub implements DispatchGateway {
               sha: headSha,
               parentShas: headCommit.parents,
               message: headCommit.message,
-              gitlinkSha: this.trees.get(headCommit.tree)?.[input.path],
+              submodules: this.submodules(headCommit),
               changedFiles: this.changedFiles(headCommit),
             }
           : undefined,
@@ -280,6 +285,16 @@ class FakeGitHub implements DispatchGateway {
     };
     this.afterParentState?.();
     return Promise.resolve(state);
+  }
+
+  readPathObjects(
+    repository: string,
+    input: { path: string; previousSha: string; sourceSha: string }
+  ): Promise<{ previous: string | undefined; source: string | undefined }> {
+    this.enter("readPathObjects");
+    this.pathObjectRequests.push({ repository, ...input });
+
+    return Promise.resolve(must(this.pathObjects));
   }
 
   readManagedPullRequests(
@@ -382,7 +397,7 @@ class FakeGitHub implements DispatchGateway {
       message: input.message,
       config: undefined,
       yamlConfig: undefined,
-      gitmodules: undefined,
+      gitmodules: this.commits.get(input.parentSha)?.gitmodules,
     });
     return Promise.resolve(sha);
   }
@@ -407,13 +422,13 @@ class FakeGitHub implements DispatchGateway {
   }
 }
 
-const gitmodules = (path: string, source = "o/src"): Submodule[] => [{ path, url: `https://github.com/${source}.git` }];
+const gitmodules = (path: string, source = "o/src") => [{ path, url: `https://github.com/${source}.git` }];
 
 // Queue の処理を再現する
 // 最初の message を処理し、積まれた子 message を順に処理する
 // 恒久的な失敗は consume と同じく記録して続行し、再実行で直る失敗は最後に最初の 1 件を投げる
 // 恒久的な失敗か再実行で直る失敗かの分け方は、handler の consume と同じ isPermanent を使う
-const setup = (config: unknown = { targets: [{ repository: "o/parent", path: "contents" }] }) => {
+const setup = (config: unknown = { targets: [{ repository: "o/parent" }] }) => {
   const gh = new FakeGitHub();
   gh.addRepo("o/src", "main");
   gh.addRepo("o/parent", "main");
@@ -465,21 +480,15 @@ const setup = (config: unknown = { targets: [{ repository: "o/parent", path: "co
 describe("子 message の積み込み", () => {
   it("source の push は読み取りだけを行い、target ごとと削除された target ごとの子 message を積む", async () => {
     const { gh, enqueued, useCase, sourceHead } = setup({
-      targets: [
-        { repository: "o/parent", path: "contents" },
-        { repository: "o/second", path: "lib" },
-      ],
+      targets: [{ repository: "o/parent" }, { repository: "o/second" }],
     });
-    gh.commit("o/src", "main", { config: { targets: [{ repository: "o/parent", path: "contents" }] } });
+    gh.commit("o/src", "main", { config: { targets: [{ repository: "o/parent" }] } });
     const previous = gh.commit("o/src", "main", {
       config: {
-        targets: [
-          { repository: "o/parent", path: "contents" },
-          { repository: "o/second", path: "lib" },
-        ],
+        targets: [{ repository: "o/parent" }, { repository: "o/second" }],
       },
     });
-    gh.commit("o/src", "main", { config: { targets: [{ repository: "o/parent", path: "contents" }] } });
+    gh.commit("o/src", "main", { config: { targets: [{ repository: "o/parent" }] } });
 
     await useCase.handlePush({ repository: "o/src", branch: "main", before: previous });
 
@@ -545,7 +554,7 @@ describe("子 message の積み込み", () => {
 });
 
 describe("共有の設定ファイル（flightdeck.yml と flightdeck.yaml）", () => {
-  const withParent = { targets: [{ repository: "o/parent", path: "contents" }] };
+  const withParent = { targets: [{ repository: "o/parent" }] };
 
   it(".yaml だけでも、設定として読んで同期する", async () => {
     const { gh, push } = setup();
@@ -591,7 +600,7 @@ describe("共有の設定ファイル（flightdeck.yml と flightdeck.yaml）", 
 
   it("close-target を積んでから処理するまでの間に、最新の設定が読めなくなる、または両方になったら、何も Close しない", async () => {
     const { gh, useCase, sourceHead } = setup();
-    const withParent = { targets: [{ repository: "o/parent", path: "contents" }] };
+    const withParent = { targets: [{ repository: "o/parent" }] };
     const number = gh.addPull("o/parent");
     expect(sourceHead).toBeTruthy();
     const closeTarget = () => useCase.closeTarget({ source: "o/src", target: "o/parent" });
@@ -655,7 +664,7 @@ describe("共有の設定ファイル（flightdeck.yml と flightdeck.yaml）", 
   it("他の app の section があっても、dispatch の section だけで同期する", async () => {
     const { gh, push } = setup();
     const head = gh.commit("o/src", "main", {
-      config: "preflight:\n  anything: 1\ndispatch:\n  targets:\n    - repository: o/parent\n      path: contents\n",
+      config: "preflight:\n  anything: 1\ndispatch:\n  targets:\n    - repository: o/parent\n",
     });
 
     await push();
@@ -719,11 +728,7 @@ describe("source の push", () => {
 
   it("1 つの source から複数の parent を独立して同期し、一方の設定エラーが他方に影響しない", async () => {
     const { gh, push, sourceHead } = setup({
-      targets: [
-        { repository: "o/broken", path: "contents" },
-        { repository: "o/parent", path: "contents" },
-        { repository: "o/second", path: "lib" },
-      ],
+      targets: [{ repository: "o/broken" }, { repository: "o/parent" }, { repository: "o/second" }],
     });
     gh.addRepo("o/broken", "main");
     gh.commit("o/broken", "main", { gitlinks: {}, gitmodules: gitmodules("contents") });
@@ -985,7 +990,7 @@ describe("順序の逆転と branch の再利用", () => {
 
 describe("repository の rename と管理 branch の曖昧さ", () => {
   const renamedSetup = () => {
-    const world = setup({ targets: [{ repository: "o/old-name", path: "contents" }] });
+    const world = setup({ targets: [{ repository: "o/old-name" }] });
     // rename 前の名前でも同じ repository を指す
     world.gh.repos.set("o/old-name", must(world.gh.repos.get("o/parent")));
     return world;
@@ -1014,7 +1019,7 @@ describe("repository の rename と管理 branch の曖昧さ", () => {
   });
 
   it("parent の push では、source の設定にない parent の PR を Close しない（Close は source の push の差分だけ）", async () => {
-    const { gh, push, logs } = setup({ targets: [{ repository: "o/ghost", path: "x" }] });
+    const { gh, push, logs } = setup({ targets: [{ repository: "o/ghost" }] });
     const number = gh.addPull("o/parent");
 
     await push("o/parent", "main");
@@ -1026,7 +1031,7 @@ describe("repository の rename と管理 branch の曖昧さ", () => {
   it("旧設定と新設定が別名で同じ repository を指していれば、削除された target として扱わない", async () => {
     const { gh, push, sourceHead } = renamedSetup();
     await push();
-    gh.commit("o/src", "main", { config: { targets: [{ repository: "o/parent", path: "contents" }] } });
+    gh.commit("o/src", "main", { config: { targets: [{ repository: "o/parent" }] } });
 
     await push("o/src", "main", sourceHead);
 
@@ -1253,7 +1258,7 @@ describe("Open PR の整理", () => {
   it("旧設定が不正で読めなくても、cleanup を諦めて最新設定を適用する", async () => {
     const { gh, push, logs } = setup();
     const invalidOld = gh.commit("o/src", "main", { config: { targets: [], extra: 1 } });
-    gh.commit("o/src", "main", { config: { targets: [{ repository: "o/parent", path: "contents" }] } });
+    gh.commit("o/src", "main", { config: { targets: [{ repository: "o/parent" }] } });
 
     await push("o/src", "main", invalidOld);
 
@@ -1263,7 +1268,7 @@ describe("Open PR の整理", () => {
 
   it("最新の設定に target が残っていれば、古い設定を理由に Close しない", async () => {
     const { gh, push, sourceHead } = setup();
-    gh.commit("o/src", "main", { config: { targets: [{ repository: "O/Parent", path: "contents" }] } });
+    gh.commit("o/src", "main", { config: { targets: [{ repository: "O/Parent" }] } });
 
     await push("o/src", "main", sourceHead);
 
@@ -1360,11 +1365,11 @@ describe("parent の push", () => {
   });
 
   it("source と parent の両方の役割を持つ repo でも、必要な処理を 1 回ずつ実行する", async () => {
-    const { gh, push } = setup({ targets: [{ repository: "o/parent", path: "contents" }] });
+    const { gh, push } = setup({ targets: [{ repository: "o/parent" }] });
     // o/src 自身が別 repo の parent でもある構成
     gh.addRepo("o/leaf", "main");
     const leafHead = gh.commit("o/leaf", "main", {
-      config: { targets: [{ repository: "o/src", path: "vendor/leaf" }] },
+      config: { targets: [{ repository: "o/src" }] },
     });
     gh.commit("o/src", "main", {
       gitlinks: { "vendor/leaf": "old-leaf" },
@@ -1410,7 +1415,7 @@ describe("default branch の変更", () => {
 
   it("base-branch を指定した target は新しい default branch へ移行しない", async () => {
     const { gh, changeDefault, push } = parentWithDevelop({
-      targets: [{ repository: "o/parent", path: "contents", "base-branch": "main" }],
+      targets: [{ repository: "o/parent", "base-branch": "main" }],
     });
     await push();
     must(gh.repos.get("o/parent")).info.defaultBranch = "develop";
@@ -1432,7 +1437,7 @@ describe("default branch の変更", () => {
     const { gh, changeDefault } = setup();
     const trunk = gh.commit("o/src", "trunk", {
       parents: [],
-      config: { targets: [{ repository: "o/parent", path: "contents" }] },
+      config: { targets: [{ repository: "o/parent" }] },
     });
     must(gh.repos.get("o/src")).info.defaultBranch = "trunk";
 
@@ -1445,7 +1450,7 @@ describe("default branch の変更", () => {
 describe("検証と失敗の扱い", () => {
   it("明示した base-branch が存在しなければ設定エラーとし、default branch へ fallback しない", async () => {
     const { gh, push, logs } = setup({
-      targets: [{ repository: "o/parent", path: "contents", "base-branch": "missing" }],
+      targets: [{ repository: "o/parent", "base-branch": "missing" }],
     });
 
     await push();
@@ -1455,8 +1460,9 @@ describe("検証と失敗の扱い", () => {
     expect(logs).toContainEqual(expect.objectContaining({ event: "sync_failed", kind: "config" }));
   });
 
-  it("path が gitlink でなければ更新しない", async () => {
-    const { gh, push, logs } = setup({ targets: [{ repository: "o/parent", path: "other/dir" }] });
+  it("一致する submodule が gitlink でなければ更新しない", async () => {
+    const { gh, push, logs } = setup();
+    gh.commit("o/parent", "main", { gitlinks: {} });
 
     await push();
 
@@ -1515,10 +1521,7 @@ describe("検証と失敗の扱い", () => {
 
   it("target ごとの message は独立していて、一方が待ち時間つきで失敗しても、他方は同期される", async () => {
     const { gh, push, sourceHead } = setup({
-      targets: [
-        { repository: "o/parent", path: "contents" },
-        { repository: "o/second", path: "lib" },
-      ],
+      targets: [{ repository: "o/parent" }, { repository: "o/second" }],
     });
     gh.addRepo("o/second", "main");
     gh.commit("o/second", "main", { gitlinks: { lib: "old" }, gitmodules: gitmodules("lib") });
@@ -1555,7 +1558,7 @@ describe("検証と失敗の扱い", () => {
   it("設定の別の target を解決できなくても、削除された target の PR は Close する", async () => {
     const { gh, push, logs, sourceHead } = setup();
     const number = gh.addPull("o/parent");
-    gh.commit("o/src", "main", { config: { targets: [{ repository: "o/ghost", path: "x" }] } });
+    gh.commit("o/src", "main", { config: { targets: [{ repository: "o/ghost" }] } });
 
     await push("o/src", "main", sourceHead);
 
@@ -1564,9 +1567,9 @@ describe("検証と失敗の扱い", () => {
   });
 
   it("source の名前が git の ref として使えない形なら、書き込みの前に設定エラーにする", async () => {
-    const { gh, push, logs } = setup({ targets: [{ repository: "o/parent", path: "contents" }] });
+    const { gh, push, logs } = setup({ targets: [{ repository: "o/parent" }] });
     gh.addRepo("o/.github", "main");
-    gh.commit("o/.github", "main", { config: { targets: [{ repository: "o/parent", path: "contents" }] } });
+    gh.commit("o/.github", "main", { config: { targets: [{ repository: "o/parent" }] } });
     gh.commit("o/parent", "main", { gitmodules: gitmodules("contents", "o/.github") });
 
     await push("o/.github", "main");
@@ -1620,7 +1623,7 @@ describe("Close と更新の直前確認", () => {
     const { gh, push, logs, sourceHead } = setup({ targets: [] });
     const number = gh.addPull("o/parent");
     // 最初の読み取りでは target が消えており、その直後に設定へ戻される
-    const withParent = { targets: [{ repository: "o/parent", path: "contents" }] };
+    const withParent = { targets: [{ repository: "o/parent" }] };
     const before = gh.commit("o/src", "main", { config: withParent });
     gh.commit("o/src", "main", { config: { targets: [] } });
     gh.afterRepositoryState = () => {
@@ -1657,7 +1660,7 @@ describe("Close と更新の直前確認", () => {
       gh.afterParentState = undefined;
       trunk = gh.commit("o/src", "trunk", {
         parents: [],
-        config: { targets: [{ repository: "o/parent", path: "contents" }] },
+        config: { targets: [{ repository: "o/parent" }] },
       });
       must(gh.repos.get("o/src")).info.defaultBranch = "trunk";
     };
@@ -1719,10 +1722,7 @@ describe("取り直しと設定の検査", () => {
     gh.repos.set("o/old-name", must(gh.repos.get("o/parent")));
     gh.commit("o/src", "main", {
       config: {
-        targets: [
-          { repository: "o/old-name", path: "contents" },
-          { repository: "o/parent", path: "contents" },
-        ],
+        targets: [{ repository: "o/old-name" }, { repository: "o/parent" }],
       },
     });
     gh.commit("o/parent", "main");
@@ -1781,10 +1781,7 @@ describe("取り直しと設定の検査", () => {
 
   it("別名で同じ repository を指す target が 2 つあっても、別名は設定エラーになり、同じ parent を 2 回更新しない", async () => {
     const { gh, push, logs } = setup({
-      targets: [
-        { repository: "o/old-name", path: "contents" },
-        { repository: "o/parent", path: "contents" },
-      ],
+      targets: [{ repository: "o/old-name" }, { repository: "o/parent" }],
     });
     gh.repos.set("o/old-name", must(gh.repos.get("o/parent")));
 
@@ -1798,11 +1795,77 @@ describe("取り直しと設定の検査", () => {
   it("前回の commit に設定ファイルがなかっただけなら、cleanup_skipped を記録しない", async () => {
     const { gh, push, logs } = setup();
     const noConfig = gh.commit("o/src", "main", { config: undefined });
-    gh.commit("o/src", "main", { config: { targets: [{ repository: "o/parent", path: "contents" }] } });
+    gh.commit("o/src", "main", { config: { targets: [{ repository: "o/parent" }] } });
 
     await push("o/src", "main", noConfig);
 
     expect(logs.filter((log) => log.event === "cleanup_skipped")).toEqual([]);
     expect(gh.openPulls("o/parent")).toHaveLength(1);
+  });
+});
+
+describe("監視 path の判定", () => {
+  it("内容が同じなら PR を作らず、既存の PR を閉じる", async () => {
+    const { gh, push } = setup({ targets: [{ repository: "o/parent", path: "watched" }] });
+    gh.pathObjects = { previous: "same", source: "same" };
+
+    await push();
+
+    expect(gh.openPulls("o/parent")).toHaveLength(0);
+
+    gh.addPull("o/parent");
+
+    await push();
+
+    expect(gh.pulls[0]).toMatchObject({ state: "closed", title: `${TITLE} - autoclosed` });
+  });
+
+  it.each([
+    ["内容が異なる", { previous: "old", source: "new" }],
+    ["以前の path がない", { previous: undefined, source: "new" }],
+  ])("%s場合は最新の SHA に更新する", async (_name, objects) => {
+    const { gh, push } = setup({ targets: [{ repository: "o/parent", path: "watched" }] });
+    const latest = gh.commit("o/src", "main");
+    gh.pathObjects = objects;
+
+    await push();
+
+    expect(gh.pathObjectRequests).toEqual([
+      { repository: "o/src", path: "watched", previousSha: "old-sha", sourceSha: latest },
+    ]);
+    expect(gh.gitlinks("o/parent", BRANCH)?.contents).toBe(latest);
+  });
+
+  it("最新の path がなければ設定エラーにする", async () => {
+    const { gh, push, logs } = setup({ targets: [{ repository: "o/parent", path: "watched" }] });
+    gh.pathObjects = { previous: "old", source: undefined };
+    gh.addPull("o/parent");
+    gh.addPull("o/parent");
+
+    await push();
+
+    expect(gh.refUpdates).toEqual([]);
+    expect(gh.openPulls("o/parent")).toHaveLength(2);
+    expect(logs).toContainEqual(expect.objectContaining({ kind: "config" }));
+  });
+
+  it("path を指定していても gitlink が最新なら問い合わせない", async () => {
+    const { gh, push, sourceHead } = setup({ targets: [{ repository: "o/parent", path: "watched" }] });
+    gh.commit("o/parent", "main", { gitlinks: { contents: sourceHead } });
+
+    await push();
+
+    expect(gh.calls).not.toContain("readPathObjects");
+    expect(gh.refUpdates).toEqual([]);
+    expect(gh.pulls).toEqual([]);
+  });
+
+  it("path を省略すると問い合わせずに更新する", async () => {
+    const { gh, push, sourceHead } = setup({ targets: [{ repository: "o/parent" }] });
+
+    await push();
+
+    expect(gh.calls).not.toContain("readPathObjects");
+    expect(gh.gitlinks("o/parent", BRANCH)?.contents).toBe(sourceHead);
   });
 });

@@ -16,7 +16,7 @@ const BLOB = "... on Blob { text isTruncated }";
 const CONFIG_FILES = `
   yml: file(path: "${CONFIG_PATHS.yml}") { object { ${BLOB} } }
   yaml: file(path: "${CONFIG_PATHS.yaml}") { object { ${BLOB} } }`;
-const SUBMODULES = "submodules(first: 100) { nodes { path gitUrl } pageInfo { hasNextPage } }";
+const SUBMODULES = "submodules(first: 100) { nodes { path gitUrl subprojectCommitOid } pageInfo { hasNextPage } }";
 // head がその ref である Open PR を返す
 // 別の repository の PR（fork の管理 branch から upstream へ出された PR など）も含まれるため、PR 自身の repository の id で絞る
 const PULL_REQUEST_NODE = "number title baseRefName repository { id }";
@@ -57,7 +57,7 @@ export const PARENT_HEAD_QUERY = `query CheckParent($owner: String!, $name: Stri
 // GitHub は Close の日時で並べ替えられないため、最後に Close された PR は読んだ中から選ぶ
 // branch が消えていても見つかるよう、ref ではなく head の branch 名で探す
 // fork の同名 branch から開かれた PR も含まれるため、head の repository の id で絞る
-export const PARENT_QUERY = `query ReadParent($owner: String!, $name: String!, $headRef: String!, $headName: String!, $baseRef: String!, $hasBase: Boolean!, $path: String!) {
+export const PARENT_QUERY = `query ReadParent($owner: String!, $name: String!, $headRef: String!, $headName: String!, $baseRef: String!, $hasBase: Boolean!) {
   repository(owner: $owner, name: $name) {
     id
     nameWithOwner
@@ -71,7 +71,7 @@ export const PARENT_QUERY = `query ReadParent($owner: String!, $name: String!, $
           oid
           message
           changedFilesIfAvailable
-          link: file(path: $path) { type oid }
+          ${SUBMODULES}
           parents(first: 2) { nodes { oid } }
         }
       }
@@ -84,7 +84,6 @@ export const PARENT_QUERY = `query ReadParent($owner: String!, $name: String!, $
 fragment BaseCommit on Commit {
   oid
   tree { oid }
-  link: file(path: $path) { type oid }
   ${SUBMODULES}
 }`;
 
@@ -97,6 +96,13 @@ export const MANAGED_PULL_REQUESTS_QUERY = `query ReadManagedPullRequests($owner
     id
     nameWithOwner
     ref(qualifiedName: $ref) { ${OPEN_PULL_REQUESTS} }
+  }
+}`;
+
+export const PATH_OBJECTS_QUERY = `query ReadPathObjects($owner: String!, $name: String!, $previous: String!, $source: String!) {
+  repository(owner: $owner, name: $name) {
+    previous: object(expression: $previous) { oid }
+    source: object(expression: $source) { oid }
   }
 }`;
 
@@ -140,13 +146,12 @@ const sourceSchema = z.object({
   }),
 });
 const submodulesSchema = z.object({
-  nodes: z.array(z.object({ path: z.string(), gitUrl: z.string() })),
+  nodes: z.array(z.object({ path: z.string(), gitUrl: z.string(), subprojectCommitOid: z.string().nullable() })),
   pageInfo: z.object({ hasNextPage: z.boolean() }),
 });
 const baseCommitSchema = z.object({
   oid: z.string(),
   tree: z.object({ oid: z.string() }),
-  link: z.object({ type: z.string(), oid: z.string() }).nullable().optional(),
   submodules: submodulesSchema,
 });
 const parentSchema = z.object({
@@ -164,7 +169,7 @@ const parentSchema = z.object({
             oid: z.string(),
             message: z.string(),
             changedFilesIfAvailable: z.number().nullable(),
-            link: z.object({ type: z.string(), oid: z.string() }).nullable().optional(),
+            submodules: submodulesSchema,
             parents: z.object({ nodes: z.array(z.object({ oid: z.string() })) }),
           })
           .nullable(),
@@ -191,13 +196,23 @@ const managedSchema = z.object({
     ref: z.object({ associatedPullRequests: openPullRequestsSchema }).nullable(),
   }),
 });
+const pathObjectsSchema = z.object({
+  repository: z.object({
+    previous: z.object({ oid: z.string() }).nullable(),
+    source: z.object({ oid: z.string() }).nullable(),
+  }),
+});
 
 // GitHub が .gitmodules を解釈した結果
 // 一覧が 1 ページに収まらなければ、一部だけで判断しない
 const toSubmodules = (value: z.output<typeof submodulesSchema>, what: string): Submodule[] => {
   if (value.pageInfo.hasNextPage) throw new DispatchError("undeterminable", `too many submodules: ${what}`);
 
-  return value.nodes.map((node) => ({ path: node.path, url: node.gitUrl }));
+  return value.nodes.map((node) => ({
+    path: node.path,
+    url: node.gitUrl,
+    commitSha: node.subprojectCommitOid ?? undefined,
+  }));
 };
 
 // 問い合わせた repository 自身の PR だけを残す（別の repository の PR は番号が同じでも別の PR）
@@ -316,8 +331,6 @@ export const parseParentState = (data: unknown, requestedBase: string | undefine
             branch: baseBranch,
             sha: baseCommit.oid,
             treeSha: baseCommit.tree.oid,
-            // gitlink は tree entry の type が commit になる
-            gitlinkSha: baseCommit.link?.type === "commit" ? baseCommit.link.oid : undefined,
             submodules: toSubmodules(baseCommit.submodules, info.fullName),
           }
         : undefined,
@@ -326,7 +339,8 @@ export const parseParentState = (data: unknown, requestedBase: string | undefine
           sha: target.oid,
           parentShas: target.parents.nodes.map((parent) => parent.oid),
           message: target.message,
-          gitlinkSha: target.link?.type === "commit" ? target.link.oid : undefined,
+          // 管理 branch の一覧が不完全なら一致とみなさず、base から再生成して手動変更を修復する
+          submodules: target.submodules.pageInfo.hasNextPage ? [] : toSubmodules(target.submodules, info.fullName),
           changedFiles: target.changedFilesIfAvailable,
         }
       : undefined,
@@ -357,4 +371,10 @@ export const parseManagedPullRequests = (
     fullName: nameWithOwner,
     pullRequests: ref ? toPullRequests(ref.associatedPullRequests, id, repository) : [],
   };
+};
+
+export const parsePathObjects = (data: unknown): { previous: string | undefined; source: string | undefined } => {
+  const { repository } = parseResponse(pathObjectsSchema, data, "path objects");
+
+  return { previous: repository.previous?.oid, source: repository.source?.oid };
 };

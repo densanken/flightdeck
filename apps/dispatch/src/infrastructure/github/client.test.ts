@@ -527,8 +527,10 @@ describe("readParentState", () => {
   const baseCommit = (overrides: Record<string, unknown> = {}) => ({
     oid: "B",
     tree: { oid: "T" },
-    link: { type: "commit", oid: "P" },
-    submodules: { nodes: [{ path: "sub", gitUrl: "git@github.com:o/a.git" }], pageInfo: { hasNextPage: false } },
+    submodules: {
+      nodes: [{ path: "sub", gitUrl: "git@github.com:o/a.git", subprojectCommitOid: "P" }],
+      pageInfo: { hasNextPage: false },
+    },
     ...overrides,
   });
   const parentData = (overrides: Record<string, unknown> = {}) => ({
@@ -549,7 +551,10 @@ describe("readParentState", () => {
           oid: "H",
           message: "m",
           changedFilesIfAvailable: 1,
-          link: { type: "commit", oid: "S" },
+          submodules: {
+            nodes: [{ path: "sub", gitUrl: "git@github.com:o/a.git", subprojectCommitOid: "S" }],
+            pageInfo: { hasNextPage: false },
+          },
           parents: { nodes: [{ oid: "B" }] },
         },
       },
@@ -557,7 +562,7 @@ describe("readParentState", () => {
       ...overrides,
     },
   });
-  const input = { baseBranch: undefined, head: "h", path: "sub" };
+  const input = { baseBranch: undefined, head: "h" };
 
   it("base を省略すると default branch を base とし、1 回の問い合わせで必要な状態を返す", async () => {
     const { gateway, requests } = createFetcher({ "POST /graphql": graphql(parentData()) });
@@ -569,14 +574,13 @@ describe("readParentState", () => {
       branch: "main",
       sha: "B",
       treeSha: "T",
-      gitlinkSha: "P",
-      submodules: [{ path: "sub", url: "git@github.com:o/a.git" }],
+      submodules: [{ path: "sub", url: "git@github.com:o/a.git", commitSha: "P" }],
     });
     expect(state.branch).toEqual({
       sha: "H",
       parentShas: ["B"],
       message: "m",
-      gitlinkSha: "S",
+      submodules: [{ path: "sub", url: "git@github.com:o/a.git", commitSha: "S" }],
       changedFiles: 1,
     });
     // head が同じ repository の branch である PR だけが返る（fork の PR は GitHub が含めない）
@@ -584,7 +588,7 @@ describe("readParentState", () => {
     expect(requests).toHaveLength(1);
     expect(state.lastClosedPullRequest).toBeUndefined();
     expect(requests[0]?.body).toMatchObject({
-      variables: { headRef: "refs/heads/h", headName: "h", hasBase: false, path: "sub" },
+      variables: { headRef: "refs/heads/h", headName: "h", hasBase: false },
     });
   });
 
@@ -642,24 +646,15 @@ describe("readParentState", () => {
     expect(explicit.branch).toBeUndefined();
   });
 
-  it("path が parent にないことを表す NOT_FOUND（link の alias）は、gitlink でないものとして扱う", async () => {
-    const data = parentData({ defaultBranchRef: { name: "main", target: baseCommit({ link: null }) } });
-    const errors = [
-      { type: "NOT_FOUND", message: "x", path: ["repository", "defaultBranchRef", "target", "link"] },
-      { type: "NOT_FOUND", message: "x", path: ["repository", "branch", "target", "link"] },
-    ];
-    const { gateway } = createFetcher({ "POST /graphql": graphql(data, errors) });
+  it("gitlink でない submodule の SHA は undefined にする", async () => {
+    const submodules = {
+      nodes: [{ path: "sub", gitUrl: "git@github.com:o/a.git", subprojectCommitOid: null }],
+      pageInfo: { hasNextPage: false },
+    };
+    const data = parentData({ defaultBranchRef: { name: "main", target: baseCommit({ submodules }) } });
+    const { gateway } = createFetcher({ "POST /graphql": graphql(data) });
 
-    expect((await gateway.readParentState("o/p", input)).base?.gitlinkSha).toBeUndefined();
-  });
-
-  it("path が gitlink でなければ gitlinkSha を undefined にする", async () => {
-    for (const link of [{ type: "blob", oid: "F" }, { type: "tree", oid: "D" }, null]) {
-      const data = parentData({ defaultBranchRef: { name: "main", target: baseCommit({ link }) } });
-      const { gateway } = createFetcher({ "POST /graphql": graphql(data) });
-
-      expect((await gateway.readParentState("o/p", input)).base?.gitlinkSha).toBeUndefined();
-    }
+    expect((await gateway.readParentState("o/p", input)).base?.submodules[0]?.commitSha).toBeUndefined();
   });
 
   it("submodule の一覧が 1 ページに収まらなければ undeterminable にする", async () => {
@@ -672,6 +667,14 @@ describe("readParentState", () => {
     const { gateway } = createFetcher({ "POST /graphql": graphql(data) });
 
     await expect(gateway.readParentState("o/p", input)).rejects.toMatchObject({ kind: "undeterminable" });
+  });
+
+  it("管理 branch の submodule が 1 ページに収まらなければ一致しない状態として返す", async () => {
+    const data = parentData();
+    data.repository.branch.target.submodules.pageInfo.hasNextPage = true;
+    const { gateway } = createFetcher({ "POST /graphql": graphql(data) });
+
+    expect((await gateway.readParentState("o/p", input)).branch?.submodules).toEqual([]);
   });
 
   it("base-branch を明示したときは、default branch の base を問い合わせない", async () => {
@@ -836,5 +839,19 @@ describe("API エラーの分類", () => {
 
   it("エラー本文を message に含めない", async () => {
     await expect(getRepository(() => new Response("secret-body", { status: 422 }))).rejects.not.toThrow(/secret-body/);
+  });
+});
+
+describe("readPathObjects", () => {
+  it("2 つの式を一度に問い合わせ、存在しないオブジェクトを undefined にする", async () => {
+    const { gateway, requests } = createFetcher({
+      "POST /graphql": graphql({ repository: { previous: null, source: { oid: "tree" } } }),
+    });
+
+    await expect(
+      gateway.readPathObjects("o/src", { path: "contents/a", previousSha: "P", sourceSha: "S" })
+    ).resolves.toEqual({ previous: undefined, source: "tree" });
+
+    expect(requests[0]?.body).toMatchObject({ variables: { previous: "P:contents/a", source: "S:contents/a" } });
   });
 });

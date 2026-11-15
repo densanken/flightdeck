@@ -12,6 +12,12 @@ const target = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe("parseConfig", () => {
+  it("path の省略を受け付ける", () => {
+    expect(parseConfig({ targets: [{ repository: "o/parent" }] })).toEqual([
+      { repository: "o/parent", path: undefined, baseBranch: undefined },
+    ]);
+  });
+
   it("base-branch を省略すると baseBranch は undefined になる", () => {
     expect(parseConfig({ targets: [target()] })).toEqual([
       { repository: "o/parent", path: "contents", baseBranch: undefined },

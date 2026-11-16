@@ -11,7 +11,7 @@ const contexts = `statusCheckRollup { contexts(first:100) { totalCount nodes { _
 } } }`;
 export const PR_QUERY = `query($owner:String!, $name:String!, $number:Int!, $cutoff:DateTime!) {
  repository(owner:$owner,name:$name) { databaseId pullRequest(number:$number) {
-  state isDraft body createdAt headRefName headRefOid baseRefName
+  state isDraft title body createdAt headRefName headRefOid
   author { ${actor} } editor { ${actor} } lastEditedAt
   headRepository { databaseId }
   labels(first:100) { totalCount nodes { name } }

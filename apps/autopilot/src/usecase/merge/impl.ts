@@ -1,5 +1,6 @@
-import { ciStatus, decide, errorDetails } from "@flightdeck/github-policy";
-import { classify } from "@flightdeck/rules";
+import { decide, errorDetails } from "@flightdeck/github-policy";
+import { validatePullRequestTitle } from "@flightdeck/pr-title";
+import { classify, evaluateCi } from "@flightdeck/rules";
 
 import { EXECUTION_TIMEOUT_MS } from "./dependencies.js";
 
@@ -8,8 +9,8 @@ import type { MergeInput, MergeUseCase } from "./interface.js";
 import type { MergeDecision } from "../../domain/merge.js";
 import type { PolicyKind, PolicyPullRequest } from "@flightdeck/rules";
 
-// PR の query、設定、tree、source 比較、REST 比較、Rules API、Merge の最大 7 回を確保する
-const EVALUATION_RESERVE = 7;
+// PR の query、設定、tree、source 比較、REST 比較、Merge の最大 6 回を確保する
+const EVALUATION_RESERVE = 6;
 
 const ciDecision = (ci: "pending" | "blocked"): MergeDecision => ({
   action: ci === "pending" ? "wait" : "block",
@@ -91,8 +92,10 @@ export class MergeUseCaseImpl implements MergeUseCase {
       return { action: "block", reasonCode: "invalid_review" };
     }
 
+    if (!validatePullRequestTitle(pr.title).valid) return { action: "block", reasonCode: "invalid_title" };
+
     if (policy.policy === "dispatch") {
-      const ci = await ciStatus(github, pr);
+      const ci = evaluateCi(pr.checks, pr.statuses);
       if (ci !== "passed") return ciDecision(ci);
     }
 

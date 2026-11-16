@@ -15,6 +15,7 @@
     "@flightdeck/github-policy": "workspace:*",
     "@flightdeck/github-webhook-signature": "workspace:*",
     "@flightdeck/logger": "workspace:*",
+    "@flightdeck/pr-title": "workspace:*",
     "@flightdeck/rules": "workspace:*",
     "hono": "^4.13.8",
     "zod": "^4.6.5"

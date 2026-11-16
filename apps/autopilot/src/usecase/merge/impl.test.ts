@@ -1,4 +1,4 @@
-import { ciStatus, decide, errorDetails } from "@flightdeck/github-policy";
+import { decide, errorDetails } from "@flightdeck/github-policy";
 import { createLogger } from "@flightdeck/logger";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -8,11 +8,9 @@ import type { MergeGateway } from "./dependencies.js";
 import type { MergeInput } from "./interface.js";
 import type { PolicyPullRequest } from "@flightdeck/rules";
 
-vi.mock("@flightdeck/github-policy", () => ({ ciStatus: vi.fn(), decide: vi.fn(), errorDetails: vi.fn() }));
+vi.mock("@flightdeck/github-policy", () => ({ decide: vi.fn(), errorDetails: vi.fn() }));
 
 beforeEach(() => {
-  vi.mocked(ciStatus).mockReset();
-  vi.mocked(ciStatus).mockResolvedValue("passed");
   vi.mocked(decide).mockReset();
   vi.mocked(errorDetails).mockReset();
   vi.mocked(errorDetails).mockReturnValue({
@@ -27,12 +25,12 @@ beforeEach(() => {
 const pr: PolicyPullRequest = {
   state: "OPEN",
   draft: false,
+  title: "chore: update source",
   body: "",
   createdAt: "2026-01-01T00:00:00Z",
   branch: "flightdeck-dispatch/org/source",
   headSha: "new",
   mergeSha: null,
-  baseBranch: "main",
   baseOid: "base",
   author: { type: "Bot", id: 1 },
   editor: null,
@@ -61,7 +59,6 @@ const input: MergeInput = {
 };
 const setup = (value: PolicyPullRequest) => {
   const merge = vi.fn().mockResolvedValue({ merged: true, status: 200 });
-  const rules = vi.fn().mockResolvedValue([]);
   const github: MergeGateway = {
     authenticate: vi.fn().mockResolvedValue(undefined),
     associated: vi.fn().mockResolvedValue([]),
@@ -69,7 +66,6 @@ const setup = (value: PolicyPullRequest) => {
     configs: vi.fn().mockResolvedValue([]),
     trees: vi.fn().mockResolvedValue({ base: { type: "commit", oid: "old" }, head: { type: "commit", oid: "new" } }),
     compare: vi.fn().mockResolvedValue({ source: "BEHIND", ancestry: "behind" }),
-    rules,
     merge,
     subrequests: () => 0,
   };
@@ -81,7 +77,7 @@ const setup = (value: PolicyPullRequest) => {
     maxSubrequests: 45,
     settings: { dispatchId: 1, renovateIds: [2], botUserId: 3 },
   });
-  return { github, merge, rules, sink, usecase };
+  return { github, merge, sink, usecase };
 };
 
 describe("マージの判定", () => {
@@ -95,25 +91,41 @@ describe("マージの判定", () => {
       { dispatchId: 1, renovateIds: [2], botUserId: 3 },
       Date.parse("2026-11-01")
     );
-    expect(ciStatus).toHaveBeenCalledWith(github, pr);
     expect(merge).toHaveBeenCalledWith(4, "new");
   });
 
-  it("Renovate の許可後は CI を再取得せずにマージする", async () => {
-    vi.mocked(decide).mockResolvedValue({ kind: "allowed", policy: "renovate-stale", headSha: "new" });
-    const { merge, rules, usecase } = setup({ ...pr, author: { type: "Bot", id: 2 } });
+  it("成功した commit status があっても、CI が成功していればマージする", async () => {
+    const { merge, usecase } = setup({ ...pr, statuses: [{ context: "PR Title", state: "success" }] });
     await usecase.execute(input);
     expect(merge).toHaveBeenCalledWith(4, "new");
-    expect(rules).not.toHaveBeenCalled();
-    expect(ciStatus).not.toHaveBeenCalled();
+  });
+
+  it("Renovate の許可後は CI を再判定せずにマージする", async () => {
+    vi.mocked(decide).mockResolvedValue({ kind: "allowed", policy: "renovate-stale", headSha: "new" });
+    const { merge, usecase } = setup({ ...pr, author: { type: "Bot", id: 2 }, checks: [] });
+    await usecase.execute(input);
+    expect(merge).toHaveBeenCalledWith(4, "new");
   });
 
   it.each([
-    ["未完了", "pending", "wait", "ci_pending"],
-    ["失敗", "blocked", "block", "ci_failed"],
-  ] as const)("CI が%sなら判定結果を記録して停止する", async (_name, ci, action, reasonCode) => {
-    vi.mocked(ciStatus).mockResolvedValue(ci);
-    const { merge, sink, usecase } = setup(pr);
+    [
+      "未完了",
+      { checks: [{ name: "test", status: "in_progress", conclusion: null, app: { id: 10, slug: "github-actions" } }] },
+      "wait",
+      "ci_pending",
+    ],
+    ["status の未完了", { statuses: [{ context: "PR Title", state: "pending" }] }, "wait", "ci_pending"],
+    [
+      "失敗",
+      {
+        checks: [{ name: "test", status: "completed", conclusion: "failure", app: { id: 10, slug: "github-actions" } }],
+      },
+      "block",
+      "ci_failed",
+    ],
+    ["status の失敗", { statuses: [{ context: "PR Title", state: "failure" }] }, "block", "ci_failed"],
+  ])("CI が%sなら判定結果を記録して停止する", async (_name, change, action, reasonCode) => {
+    const { merge, sink, usecase } = setup({ ...pr, ...change });
     await usecase.execute(input);
     expect(merge).not.toHaveBeenCalled();
     expect(sink.info).toHaveBeenCalledWith(expect.stringContaining(`"decision":"${action}"`));
@@ -136,6 +148,14 @@ describe("マージの判定", () => {
     expect(sink.info).toHaveBeenCalledWith(expect.stringContaining('"policy":"dispatch"'));
   });
 
+  it("PR 番号のない CI イベントは SHA から PR を特定してマージする", async () => {
+    const { github, merge, usecase } = setup(pr);
+    const associated = vi.spyOn(github, "associated").mockResolvedValue([4]);
+    await usecase.execute({ ...input, kind: "commit", sha: "new" });
+    expect(associated).toHaveBeenCalledWith("new", 1);
+    expect(merge).toHaveBeenCalledWith(4, "new");
+  });
+
   it("Merge API が拒否した場合は別の方式を試さない", async () => {
     const { merge, sink, usecase } = setup(pr);
     merge.mockResolvedValue({ merged: false, status: 405 });
@@ -144,6 +164,14 @@ describe("マージの判定", () => {
     expect(merge).toHaveBeenCalledWith(4, "new");
     expect(sink.info).toHaveBeenCalledWith(expect.stringContaining('"decision":"merge_rejected"'));
     expect(sink.info).toHaveBeenCalledWith(expect.stringContaining('"api_status":405'));
+  });
+
+  it("Conventional Commits に合わないタイトルはマージしない", async () => {
+    const { merge, sink, usecase } = setup({ ...pr, title: "update source" });
+    await usecase.execute(input);
+    expect(merge).not.toHaveBeenCalled();
+    expect(sink.info).toHaveBeenCalledWith(expect.stringContaining('"decision":"block"'));
+    expect(sink.info).toHaveBeenCalledWith(expect.stringContaining('"reason_code":"invalid_title"'));
   });
 
   it("マージ済みの PR を再びマージしない", async () => {
@@ -182,8 +210,8 @@ describe("マージの判定", () => {
 
 describe("評価の回数上限とログ", () => {
   it.each([
-    [38, true],
-    [39, false],
+    [39, true],
+    [40, false],
   ])("消費済み %i 回では評価開始を %s とする", async (count, allowed) => {
     const { github, merge, usecase } = setup(pr);
     vi.spyOn(github, "subrequests").mockReturnValue(count);
@@ -193,7 +221,7 @@ describe("評価の回数上限とログ", () => {
 
   it("最初の評価後に subrequest の残りが不足したら後続 PR を評価しない", async () => {
     const { github, merge, sink, usecase } = setup(pr);
-    vi.spyOn(github, "subrequests").mockReturnValueOnce(38).mockReturnValue(39);
+    vi.spyOn(github, "subrequests").mockReturnValueOnce(39).mockReturnValue(40);
     await usecase.execute({ ...input, kind: "commit", sha: "new", numbers: [4, 5] });
     expect(merge).toHaveBeenCalledTimes(1);
     expect(sink.warn).toHaveBeenCalledWith(expect.stringContaining('"reason_code":"subrequest_limit"'));

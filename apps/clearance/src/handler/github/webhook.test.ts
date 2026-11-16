@@ -167,19 +167,26 @@ describe("Webhook の受信", () => {
     expect(waitUntil).toHaveBeenCalledWith(expect.any(Promise));
   });
 
-  it("PR がない check suite は処理を起動せず 200 を返す", async () => {
-    const { send, reviewPullRequests, waitUntil } = setup();
+  it("PR がない check suite は numbers なしの commit 入力で処理する", async () => {
+    const { send, reviewCommit, reviewPullRequests, waitUntil } = setup();
+    const sha = "a".repeat(40);
 
     const response = await send("check_suite", {
       ...base,
       action: "completed",
-      check_suite: { head_sha: "a".repeat(40), pull_requests: [] },
+      check_suite: { head_sha: sha, pull_requests: [] },
     });
 
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, ignored: true });
+    expect(response.status).toBe(202);
+    expect(reviewCommit).toHaveBeenCalledWith({
+      deliveryId: "delivery-1",
+      installationId: 1,
+      repositoryId: 2,
+      repository: "org/repo",
+      sha,
+    });
     expect(reviewPullRequests).not.toHaveBeenCalled();
-    expect(waitUntil).not.toHaveBeenCalled();
+    expect(waitUntil).toHaveBeenCalledWith(expect.any(Promise));
   });
 
   it("usecase を組み立てられない設定の不備を configuration_error として記録する", async () => {

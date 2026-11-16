@@ -7,7 +7,7 @@ Clearance が承認した Pull Request を再評価し、条件を満たす場�
 ## 主な機能
 
 - **対象 PR の評価:** Dispatch による Submodule 更新 PR、および 30 日以上人間の操作がない Renovate PR を評価します。
-- **承認と CI の最終確認:** 現在の HEAD コミットに対する Clearance の Approve と、すべての必須 CI の成功を確認します。
+- **承認と CI の最終確認:** 現在の HEAD コミットに対する Clearance の Approve、Conventional Commits に沿った PR タイトル、発火したすべての CI の成功を確認します。
 - **安全な自動マージ:** 評価時点の HEAD SHA を指定して Squash Merge を実行します（評価後の割り込みコミットによる誤マージを防止）。
 
 ## トリガーイベント一覧
@@ -42,7 +42,7 @@ autopilot:
 
 | 種別           | 項目            | 権限         | 用途                                               |
 | -------------- | --------------- | ------------ | -------------------------------------------------- |
-| **Repository** | Metadata        | Read-only    | リポジトリ情報および Rules API の参照              |
+| **Repository** | Metadata        | Read-only    | リポジトリ情報の参照                               |
 |                | Pull requests   | Read-only    | PR およびレビュー状態の参照                        |
 |                | Contents        | Read & write | 設定ファイル・履歴の参照、および Squash Merge 実行 |
 |                | Checks          | Read-only    | Check Run の参照                                   |

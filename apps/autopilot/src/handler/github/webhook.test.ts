@@ -69,6 +69,20 @@ describe("Webhook", () => {
     );
   });
 
+  it("PR がない check suite は numbers なしの commit 入力で処理する", async () => {
+    const { handler, execute, waitUntil } = setup();
+    const body = {
+      installation: payload.installation,
+      repository: payload.repository,
+      action: "completed",
+      check_suite: { head_sha: "a".repeat(40), pull_requests: [] },
+    };
+    expect((await handler(request("check_suite", body))).status).toBe(202);
+    await waitUntil.mock.calls[0]?.[0];
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({ kind: "commit", sha: "a".repeat(40) }));
+    expect(execute.mock.calls[0]?.[0]).not.toHaveProperty("numbers");
+  });
+
   it("status を action なしで処理する", async () => {
     const { handler, execute, waitUntil } = setup();
     expect(

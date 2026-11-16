@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { GitHubPolicyGatewayImpl } from "./client.js";
-import { ApiError } from "./errors.js";
 
 import type { GitHubRequest } from "./request.js";
 
@@ -27,11 +26,11 @@ describe("GitHub データの取得", () => {
         pullRequest: {
           state: "OPEN",
           isDraft: false,
+          title: "chore: update source",
           body: "",
           createdAt: "2026-01-01T00:00:00Z",
           headRefName: "branch",
           headRefOid: "head",
-          baseRefName: "main",
           author: null,
           editor: null,
           lastEditedAt: null,
@@ -82,8 +81,8 @@ describe("GitHub データの取得", () => {
     });
   });
 
-  it("関連 PR と rules の不完全なページを拒否する", async () => {
-    const { graphql, request, github } = client();
+  it("関連 PR の不完全なページを拒否する", async () => {
+    const { graphql, github } = client();
 
     graphql.mockResolvedValue({
       repository: {
@@ -94,25 +93,6 @@ describe("GitHub データの取得", () => {
       },
     });
     await expect(github.associated("a".repeat(40), 1)).rejects.toThrow("truncated");
-    request.mockResolvedValue({
-      data: [],
-      response: new Response("[]", { headers: { link: '<https://api.github.com/page2>; rel="next"' } }),
-    });
-    await expect(github.rules("main")).rejects.toThrow("truncated");
-  });
-
-  it("rate limit でなければ既知の plan 制限だけを無視する", async () => {
-    const { request, github } = client();
-    const message = "upgrade to github pro make this repository public enable this feature";
-
-    request.mockRejectedValueOnce(new ApiError(403, message));
-
-    expect(await github.rules("main")).toEqual([]);
-
-    request.mockRejectedValueOnce(new ApiError(403, message, true));
-    await expect(github.rules("other")).rejects.toBeInstanceOf(ApiError);
-    request.mockRejectedValueOnce(new ApiError(403, "permission denied"));
-    await expect(github.rules("third")).rejects.toBeInstanceOf(ApiError);
   });
 
   it("REST で新しい SHA から古い SHA の向きに比較する", async () => {
@@ -125,22 +105,6 @@ describe("GitHub データの取得", () => {
     expect(graphql).toHaveBeenCalledTimes(1);
     expect(request).toHaveBeenCalledTimes(1);
     expect(request).toHaveBeenCalledWith("/repos/org/source/compare/new...old");
-  });
-});
-
-describe("rules の取得", () => {
-  it("1 回の実行中は branch の rules を再利用する", async () => {
-    const { request, github } = client();
-
-    request.mockResolvedValue({ data: [], response: new Response("[]") });
-    await github.rules("main");
-    await github.rules("main");
-
-    expect(request).toHaveBeenCalledTimes(1);
-
-    await github.rules("other");
-
-    expect(request).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -210,33 +174,7 @@ describe("repository の範囲", () => {
   });
 });
 
-describe("必須チェックと tree", () => {
-  it("必須 context と integration_id を正規化する", async () => {
-    const { request, github } = client();
-
-    request.mockResolvedValue({
-      data: [
-        {
-          type: "required_status_checks",
-          parameters: {
-            required_status_checks: [
-              { context: "ci", integration_id: 42 },
-              { context: "external", integration_id: null },
-            ],
-          },
-        },
-      ],
-      response: new Response("[]"),
-    });
-
-    const checks = await github.rules("main");
-
-    expect(checks).toEqual([
-      { context: "ci", integrationId: 42 },
-      { context: "external", integrationId: null },
-    ]);
-  });
-
+describe("tree", () => {
   it("親 tree の取得失敗と entry の不在を区別する", async () => {
     const { graphql, github } = client();
 

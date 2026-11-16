@@ -25,7 +25,7 @@ export class GitHubDataError extends GitHubPolicyError {
   }
 }
 
-// status は記録し、detail は既知の plan 制限の判定にだけ使う
+// status は記録し、detail は 403 の応答本文を保持する（rate limit の判定は request.ts で行う）
 export class ApiError extends GitHubPolicyError {
   constructor(
     readonly status: number,

@@ -11,13 +11,13 @@ export interface PolicyReview {
 export interface PolicyPullRequest {
   state: string;
   draft: boolean;
+  title: string;
   body: string;
   createdAt: string;
   branch: string;
   headSha: string;
   // potentialMergeCommit の SHA
   mergeSha: string | null;
-  baseBranch: string;
   baseOid: string;
   author: Actor | null;
   editor: Actor | null;

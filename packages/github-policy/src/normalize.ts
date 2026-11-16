@@ -79,12 +79,12 @@ export const normalizePr = (pr: ApiPullRequest): PolicyPullRequest => {
   return {
     state: pr.state,
     draft: pr.isDraft,
+    title: pr.title,
     body: pr.body,
     createdAt: pr.createdAt,
     branch: pr.headRefName,
     headSha: pr.headRefOid,
     mergeSha: pr.potentialMergeCommit?.oid ?? null,
-    baseBranch: pr.baseRefName,
     baseOid: pr.baseRef.target.oid,
     author: normalizeActor(pr.author),
     editor: normalizeActor(pr.editor),

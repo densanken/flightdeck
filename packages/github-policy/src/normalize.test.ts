@@ -9,11 +9,11 @@ const makeResponse = () => ({
     pullRequest: {
       state: "OPEN",
       isDraft: false,
+      title: "chore: update source",
       body: "",
       createdAt: "2026-01-01T00:00:00Z",
       headRefName: "branch",
       headRefOid: "head",
-      baseRefName: "main",
       author: null,
       editor: null,
       lastEditedAt: null,

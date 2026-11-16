@@ -4,6 +4,7 @@ import {
   classify,
   CONFIG_PATHS,
   ConfigError,
+  evaluateCi,
   humanActivity,
   parseAutopilotConfig,
   sourceOf,
@@ -11,16 +12,7 @@ import {
   verifySourceHistory,
 } from "@flightdeck/rules";
 
-import { ciStatus } from "./ci.js";
-
-import type {
-  ConfigFile,
-  GitlinkEntry,
-  PolicyDecision,
-  PolicyPullRequest,
-  PolicySettings,
-  RequiredStatusCheck,
-} from "@flightdeck/rules";
+import type { ConfigFile, GitlinkEntry, PolicyDecision, PolicyPullRequest, PolicySettings } from "@flightdeck/rules";
 
 export interface PolicyGateway {
   configs: (baseOid: string) => Promise<ConfigFile[]>;
@@ -30,7 +22,6 @@ export interface PolicyGateway {
     path: string
   ) => Promise<{ base: GitlinkEntry | null; head: GitlinkEntry | null }>;
   compare: (source: string, newer: string, older: string) => Promise<{ source: string; ancestry: string }>;
-  rules: (branch: string) => Promise<RequiredStatusCheck[]>;
 }
 
 const result = (kind: "skip" | "violated" | "undeterminable", reasonCode: string): PolicyDecision => ({
@@ -107,7 +98,7 @@ export const decide = async (
     });
     if (activity !== "allowed") return result(activity, "human_activity");
 
-    const status = await ciStatus(github, pr);
+    const status = evaluateCi(pr.checks, pr.statuses);
     if (status === "pending") return result("undeterminable", "ci_pending");
     if (status === "blocked") return result("violated", "ci_failed");
   }

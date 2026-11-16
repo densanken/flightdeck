@@ -43,11 +43,11 @@ export const prResponse = z.object({
       .object({
         state: z.string(),
         isDraft: z.boolean(),
+        title: z.string(),
         body: z.string(),
         createdAt: z.string(),
         headRefName: z.string(),
         headRefOid: z.string(),
-        baseRefName: z.string(),
         author: actor,
         editor: actor,
         lastEditedAt: z.string().nullable(),
@@ -98,12 +98,6 @@ export const compareResponse = z.object({
 });
 
 export const ancestryResponse = z.object({ status: z.string() });
-
-export const rulesResponse = z.array(z.object({ type: z.string(), parameters: z.unknown().optional() }));
-
-export const requiredChecks = z.object({
-  required_status_checks: z.array(z.object({ context: z.string(), integration_id: z.number().nullable().optional() })),
-});
 
 const associatedItem = z.object({
   number: z.number(),

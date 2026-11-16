@@ -57,13 +57,16 @@ const parseEvent = (event: string, deliveryId: string, payload: unknown): MergeI
     if (!parsed.success) return "invalid";
 
     const data = parsed.data;
-    if (data.action !== "completed" || data.check_suite.pull_requests.length === 0) return undefined;
+    if (data.action !== "completed") return undefined;
+
+    // pull_requests が空の場合は、status と同じく sha から関連 PR を引く
+    const numbers = data.check_suite.pull_requests.map((item) => item.number);
 
     return {
       ...context(data),
       kind: "commit",
       sha: data.check_suite.head_sha,
-      numbers: data.check_suite.pull_requests.map((item) => item.number),
+      ...(numbers.length > 0 && { numbers }),
     };
   }
 

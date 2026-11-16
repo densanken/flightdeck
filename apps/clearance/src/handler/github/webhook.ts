@@ -84,14 +84,17 @@ const parseEvent = (
     if (!parsed.success) return "invalid";
 
     const value = parsed.data;
-    if (value.action !== "completed" || value.check_suite.pull_requests.length === 0) return undefined;
+    if (value.action !== "completed") return undefined;
+
+    // pull_requests が空の場合は、status と同じく sha から関連 PR を引く
+    const numbers = value.check_suite.pull_requests.map((pr) => pr.number);
 
     return {
       kind: "commit",
       input: {
         ...context(value),
         sha: value.check_suite.head_sha,
-        numbers: value.check_suite.pull_requests.map((pr) => pr.number),
+        ...(numbers.length > 0 && { numbers }),
       },
     };
   }

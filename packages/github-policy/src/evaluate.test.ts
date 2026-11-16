@@ -10,12 +10,12 @@ const now = Date.parse("2026-11-10T00:00:00Z");
 const pr: PolicyPullRequest = {
   state: "OPEN",
   draft: false,
+  title: "chore: update source",
   body: "**Automerge**: Disabled by config.",
   createdAt: "2026-09-01T00:00:00Z",
   branch: "flightdeck-dispatch/org/source",
   headSha: "new",
   mergeSha: null,
-  baseBranch: "main",
   baseOid: "base",
   author: { type: "Bot", id: 1 },
   editor: null,
@@ -38,7 +38,6 @@ const gateway = (): PolicyGateway => ({
   configs: vi.fn(() => Promise.resolve([])),
   trees: vi.fn(() => Promise.resolve({ base: { type: "commit", oid: "old" }, head: { type: "commit", oid: "new" } })),
   compare: vi.fn(() => Promise.resolve({ source: "BEHIND", ancestry: "behind" })),
-  rules: vi.fn(() => Promise.resolve([])),
 });
 
 describe("PR の承認条件", () => {
@@ -182,7 +181,6 @@ describe("設定ファイルの改名", () => {
       kind: "violated",
       reasonCode: "ci_failed",
     });
-    expect(client.rules).not.toHaveBeenCalled();
   });
 });
 
@@ -226,7 +224,6 @@ describe("取得の順序", () => {
     expect(vi.mocked(client.trees).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(client.compare).mock.invocationCallOrder[0] ?? 0
     );
-    expect(client.rules).not.toHaveBeenCalled();
   });
 });
 
@@ -306,20 +303,13 @@ describe("未取得データと履歴の判定", () => {
     });
   });
 
-  it("必須チェックの source が一致しなければ違反とする", async () => {
-    const client = gateway();
+  it("成功した commit status があっても CI が成功していれば許可する", async () => {
     const renovate = {
       ...pr,
       author: { type: "Bot", id: 2 },
       checks: [{ name: "ci", status: "completed", conclusion: "success", app: { id: 5, slug: "github-actions" } }],
+      statuses: [{ context: "PR Title", state: "success" }],
     };
-    vi.mocked(client.rules)
-      .mockResolvedValueOnce([{ context: "ci", integrationId: 5 }])
-      .mockResolvedValueOnce([{ context: "ci", integrationId: 6 }]);
-    expect((await decide(client, 1, renovate, settings, now)).kind).toBe("allowed");
-    expect(await decide(client, 1, renovate, settings, now)).toMatchObject({
-      kind: "violated",
-      reasonCode: "ci_failed",
-    });
+    expect((await decide(gateway(), 1, renovate, settings, now)).kind).toBe("allowed");
   });
 });

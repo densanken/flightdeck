@@ -1,7 +1,7 @@
 import { CONFIG_PATHS, splitRepository, STALE_MS } from "@flightdeck/rules";
 
 import { parseResponse } from "./error.js";
-import { ApiError, GitHubDataError } from "./errors.js";
+import { GitHubDataError } from "./errors.js";
 import { normalizeConfigs, normalizePr } from "./normalize.js";
 import { ASSOCIATED_QUERY, COMPARE_QUERY, CONFIG_QUERY, PR_QUERY, TREE_QUERY } from "./query.js";
 import { GitHubRequest } from "./request.js";
@@ -11,16 +11,10 @@ import {
   compareResponse,
   configResponse,
   prResponse,
-  requiredChecks,
-  rulesResponse,
   treesResponse,
 } from "./schema.js";
 
-import type { RequiredStatusCheck } from "@flightdeck/rules";
-
 export class GitHubPolicyGatewayImpl {
-  private readonly rulesCache = new Map<string, Promise<RequiredStatusCheck[]>>();
-
   constructor(
     readonly request: GitHubRequest,
     readonly repository: string
@@ -109,54 +103,6 @@ export class GitHubPolicyGatewayImpl {
       `/repos/${this.repoPath(source)}/compare/${encodeURIComponent(newer)}...${encodeURIComponent(older)}`
     );
     return { source: status, ancestry: parseResponse(ancestryResponse, result.data).status };
-  }
-
-  rules(branch: string): Promise<RequiredStatusCheck[]> {
-    const cached = this.rulesCache.get(branch);
-    if (cached) return cached;
-
-    const result = this.readRules(branch);
-    this.rulesCache.set(branch, result);
-
-    return result;
-  }
-
-  private async readRules(branch: string): Promise<RequiredStatusCheck[]> {
-    const result = await this.request
-      .request(
-        `/repos/${this.repoPath(this.repository)}/rules/branches/${encodeURIComponent(branch)}?per_page=100&page=1`
-      )
-      .catch((error: unknown) => {
-        // 対応 plan でない場合は rules が存在しないものとして扱う
-        if (
-          error instanceof ApiError &&
-          error.status === 403 &&
-          !error.rateLimited &&
-          error.detail.includes("upgrade to github pro") &&
-          error.detail.includes("make this repository public") &&
-          error.detail.includes("enable this feature")
-        ) {
-          return undefined;
-        }
-
-        throw error;
-      });
-
-    if (result === undefined) return [];
-    if (result.response.headers.get("link")?.includes('rel="next"')) {
-      throw new GitHubDataError("connection_truncated", "rules truncated");
-    }
-
-    const rules = parseResponse(rulesResponse, result.data);
-
-    return rules.flatMap((rule) => {
-      if (rule.type !== "required_status_checks") return [];
-
-      return parseResponse(requiredChecks, rule.parameters).required_status_checks.map((item) => ({
-        context: item.context,
-        integrationId: item.integration_id ?? null,
-      }));
-    });
   }
 
   async associated(sha: string, repositoryId: number) {

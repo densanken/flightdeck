@@ -1,3 +1,5 @@
+import { requiredString } from "@flightdeck/validation";
+
 import type { DispatchMessage } from "./message/webhook.js";
 
 export interface Env {
@@ -8,15 +10,10 @@ export interface Env {
   GITHUB_WEBHOOK_QUEUE: Queue<DispatchMessage>;
 }
 
-const required = <T>(value: T | undefined, key: string): T => {
-  if (value === undefined || value === "") throw new Error(`Runtime configuration is missing: ${key}`);
-
-  return value;
-};
-
-export const getWebhookSecret = (env: Env): string => required(env.GITHUB_WEBHOOK_SECRET, "GITHUB_WEBHOOK_SECRET");
+export const getWebhookSecret = (env: Env): string =>
+  requiredString(env.GITHUB_WEBHOOK_SECRET, "GITHUB_WEBHOOK_SECRET");
 
 export const getGitHubAppCredentials = (env: Env): { appId: string; privateKeyPem: string } => ({
-  appId: required(env.GITHUB_APP_ID, "GITHUB_APP_ID"),
-  privateKeyPem: required(env.GITHUB_PRIVATE_KEY, "GITHUB_PRIVATE_KEY"),
+  appId: requiredString(env.GITHUB_APP_ID, "GITHUB_APP_ID"),
+  privateKeyPem: requiredString(env.GITHUB_PRIVATE_KEY, "GITHUB_PRIVATE_KEY"),
 });

@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
+import * as v from "valibot";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 
 import { buildAppConfig, buildCacheBaseUrl, CACHE_KEY_ORIGIN } from "./config.js";
 import { cacheKeys } from "./infrastructure/cache/keys.js";
@@ -31,6 +31,14 @@ const allCacheKeys = (config: AppConfig): string[] => [
   cacheKeys.installationToken(config.cacheBaseUrl, 123),
   cacheKeys.installationRepositories(config.cacheBaseUrl),
 ];
+
+describe("buildAppConfig の数値設定", () => {
+  it("空白の値は既定値を使い、不正な値は拒否する", () => {
+    const base = bindings("https://takeoff.example.com");
+    expect(buildAppConfig({ ...base, MERGE_COOLDOWN_SECONDS: " " }).mergeCooldownSeconds).toBe(10);
+    expect(() => buildAppConfig({ ...base, MERGE_COOLDOWN_SECONDS: "12x" })).toThrow();
+  });
+});
 
 describe("buildAppConfig cache namespace", () => {
   it("Cache API key を公開 origin から切り離しつつ環境ごとに分離する", () => {
@@ -83,7 +91,7 @@ describe("buildAppConfig cache namespace", () => {
     const secondConfig = buildAppConfig(bindings("https://takeoff-cache-hit.example.com"));
     const firstKey = cacheKeys.repoIndex(firstConfig.cacheBaseUrl);
     const secondKey = cacheKeys.repoIndex(secondConfig.cacheBaseUrl);
-    const valueSchema = z.object({ value: z.literal("hit") });
+    const valueSchema = v.object({ value: v.literal("hit") });
 
     await workersCache.set(firstKey, { value: "hit" }, 60);
 

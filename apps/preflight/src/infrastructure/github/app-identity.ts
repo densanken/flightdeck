@@ -1,16 +1,20 @@
+import { githubId } from "@flightdeck/validation";
+import * as v from "valibot";
+
 import { GITHUB_API_BASE_URL, githubRequest, invalidShapeError, readGitHubJson } from "./request.js";
-import { positiveSafeInteger } from "../../util/type-guards.js";
+
+const appSchema = v.object({ slug: v.pipe(v.string(), v.maxLength(100), v.regex(/^[a-z\d](?:[a-z\d-]*[a-z\d])?$/)) });
+
+const userSchema = v.object({ id: githubId });
 
 const parseAppSlug = (value: unknown): string | null => {
-  if (typeof value !== "object" || value === null) return null;
-  const slug = (value as Record<string, unknown>).slug;
-  return typeof slug === "string" && slug.length <= 100 && /^[a-z\d](?:[a-z\d-]*[a-z\d])?$/.test(slug) ? slug : null;
+  const result = v.safeParse(appSchema, value);
+  return result.success ? result.output.slug : null;
 };
 
 const parseUserId = (value: unknown): number | null => {
-  if (typeof value !== "object" || value === null) return null;
-  const id = (value as Record<string, unknown>).id;
-  return positiveSafeInteger(id) ? id : null;
+  const result = v.safeParse(userSchema, value);
+  return result.success ? result.output.id : null;
 };
 
 export const getAuthenticatedAppBotUserId = async (input: {

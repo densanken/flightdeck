@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createGitHubWebhookRoute } from "./webhook.js";
 import { composeGitHubWebhookDependencies } from "../../composition/github.js";
 import { composeDependencyGraph } from "../../composition/shared.js";
+import { getWebhookSecret } from "../../env.js";
 import { githubAppAuth } from "../../infrastructure/github/app-auth.js";
 import { logger } from "../../util/logger.js";
 
@@ -42,6 +43,7 @@ const jsonResponse = (value: unknown, status = 200): Response =>
 
 const createApp = (overrides: Partial<GitHubWebhookRouteDependencies> = {}): Hono<Env> => {
   const route = createGitHubWebhookRoute({
+    getWebhookSecret,
     createDependencies: (env) => ({
       ...composeGitHubWebhookDependencies(env),
       autoApproveUsecase: mockAutoApproveUsecase,
@@ -228,7 +230,7 @@ describe("GitHub webhook handler", () => {
     expect(detail?.githubEvent).toBe("workflow_run");
     expect(detail?.issueCount).toBeGreaterThan(0);
     expect(mockedAutoApprove).not.toHaveBeenCalled();
-    // ZodError（payload 由来の値）はログへ乗せない
+    // 検証エラーに含まれる payload 由来の値はログへ乗せない
     expect(JSON.stringify(logSpy.mock.calls)).not.toContain(sentinel);
   });
 

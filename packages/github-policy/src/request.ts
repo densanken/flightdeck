@@ -1,9 +1,14 @@
 import { createGitHubAppJwt } from "@flightdeck/github-app-jwt";
+import * as v from "valibot";
 
 import { normalizeError } from "./error.js";
 import { ApiError, SubrequestLimitExceeded, GitHubPolicyError, GitHubDataError } from "./errors.js";
 
 export const MAX_SUBREQUESTS = 45;
+
+const tokenResponse = v.object({ token: v.string(), expires_at: v.string() });
+
+const graphqlResponse = v.object({ data: v.unknown(), errors: v.optional(v.never()) });
 
 const tokens = new Map<string, { token: string; expires: number }>();
 
@@ -62,9 +67,10 @@ export class GitHubRequest {
     const response = await this.fetch(`/app/installations/${String(this.installation)}/access_tokens`, jwt, "POST");
     if (!response.ok) throw new ApiError(response.status);
 
-    const data = await response.json<{ token?: unknown; expires_at?: unknown }>();
-    if (typeof data.token !== "string" || typeof data.expires_at !== "string") throw new ApiError(response.status);
+    const parsed = v.safeParse(tokenResponse, await response.json());
+    if (!parsed.success) throw new ApiError(response.status);
 
+    const data = parsed.output;
     const expires = Date.parse(data.expires_at);
     if (!Number.isFinite(expires)) throw new ApiError(response.status);
 
@@ -131,10 +137,9 @@ export class GitHubRequest {
     const { data } = await this.request("/graphql", "POST", { query, variables });
 
     // errors を含む応答は部分的なデータでも使わない
-    if (!data || typeof data !== "object" || "errors" in data || !("data" in data)) {
-      throw new GitHubDataError("graphql_error", "GraphQL error");
-    }
+    const parsed = v.safeParse(graphqlResponse, data);
+    if (!parsed.success) throw new GitHubDataError("graphql_error", "GraphQL error");
 
-    return data.data;
+    return parsed.output.data;
   }
 }

@@ -4,14 +4,14 @@ import { parsePullRequestWebhookPayload } from "./payload.js";
 
 const payload = (): Record<string, unknown> => ({
   action: "edited",
-  before: "previous-sha",
+  before: "50e1dc18f1f0100ceba23c0d204bd7e24a353379",
   changes: { title: { from: "feat: old title" } },
   installation: { id: 42 },
-  repository: { name: "repo", owner: { login: "owner" } },
+  repository: { full_name: "owner/repo" },
   pull_request: {
     number: 7,
     title: "feat: new title",
-    head: { sha: "abc123" },
+    head: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
     user: { login: "author", type: "User" },
     assignees: [{ login: "reviewer" }],
   },
@@ -21,18 +21,25 @@ describe("parsePullRequestWebhookPayload", () => {
   it("title, head SHA, タイトル変更の marker を含む payload を parse する", () => {
     expect(parsePullRequestWebhookPayload(payload())).toEqual({
       action: "edited",
-      before: "previous-sha",
+      before: "50e1dc18f1f0100ceba23c0d204bd7e24a353379",
       changes: { title: { from: "feat: old title" } },
       installation: { id: 42 },
-      repository: { name: "repo", owner: { login: "owner" } },
+      repository: { fullName: "owner/repo" },
       pullRequest: {
         number: 7,
         title: "feat: new title",
-        head: { sha: "abc123" },
+        head: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
         user: { login: "author", type: "User" },
         assignees: [{ login: "reviewer" }],
       },
     });
+  });
+
+  it("40 桁でない head SHA を拒否する", () => {
+    const value = payload();
+    ((value.pull_request as Record<string, unknown>).head as Record<string, unknown>).sha = "a".repeat(39);
+
+    expect(parsePullRequestWebhookPayload(value)).toBeNull();
   });
 
   it("title 以外の編集を title の変更と区別する", () => {
@@ -86,15 +93,15 @@ describe("parsePullRequestWebhookPayload", () => {
       },
     ],
     [
-      "repository の owner が無い payload",
+      "repository の full_name が無い payload",
       (value) => {
-        delete (value.repository as Record<string, unknown>).owner;
+        delete (value.repository as Record<string, unknown>).full_name;
       },
     ],
     [
-      "owner login が空文字の payload",
+      "不正な full_name の payload",
       (value) => {
-        ((value.repository as Record<string, unknown>).owner as Record<string, unknown>).login = "";
+        (value.repository as Record<string, unknown>).full_name = "owner/..";
       },
     ],
     [

@@ -1,6 +1,7 @@
+import { ConfigurationError } from "@flightdeck/validation";
+
 import { composeApp, composeGitHubWebhookProcessor } from "./composition/app.js";
 import { getRuntimeOptions } from "./env.js";
-import { ConfigurationError } from "./errors.js";
 import { parseGitHubWebhookQueueMessage, parseQueuedWebhookPayload } from "./handler/github/webhook-queue.js";
 import { createLogger } from "./util/logger.js";
 
@@ -29,7 +30,7 @@ export default {
           result: "retry",
           messageId: message.id,
           attempts: message.attempts,
-          errorCode: error.code,
+          errorCode: "INTERNAL_ERROR",
           configKey: error.configKey,
           configReason: error.reason,
         });

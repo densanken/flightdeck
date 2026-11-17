@@ -58,6 +58,19 @@ describe("application routing", () => {
     expect(logSpy).toHaveBeenCalledWith("error", expect.objectContaining({ event: "env_validation_failed" }));
   });
 
+  it("不正な数値設定は route の実行前に拒否する", async () => {
+    const response = await composeApp().request("/health", undefined, {
+      ...bindings(),
+      MERGE_COOLDOWN_SECONDS: "12x",
+    });
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      type: "invalid_environment",
+      message: "MERGE_COOLDOWN_SECONDS must be a positive integer",
+    });
+  });
+
   it("route が捕捉しなかった例外を記録して 500 を返す", async () => {
     const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {
       // この test では log の出力を意図的に抑止する

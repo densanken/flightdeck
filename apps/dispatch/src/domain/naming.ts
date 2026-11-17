@@ -1,8 +1,10 @@
-import { MANAGED_BRANCH_PREFIX, splitRepository } from "@flightdeck/rules";
+import { MANAGED_BRANCH_PREFIX } from "@flightdeck/rules";
+import { splitRepository } from "@flightdeck/validation";
 
 import { DispatchError } from "../errors.js";
 
 const AUTOCLOSED_SUFFIX = " - autoclosed";
+
 // GitHub の PR タイトルの上限
 const MAX_TITLE_LENGTH = 256;
 

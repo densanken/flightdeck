@@ -1,6 +1,9 @@
 import { ApiError, GitHubPolicyGatewayImpl } from "@flightdeck/github-policy";
+import * as v from "valibot";
 
 import type { MergeGateway } from "../../usecase/merge/dependencies.js";
+
+const mergeResponse = v.object({ merged: v.boolean() });
 
 export class GitHubGatewayImpl extends GitHubPolicyGatewayImpl implements MergeGateway {
   async merge(number: number, sha: string) {
@@ -10,12 +13,10 @@ export class GitHubGatewayImpl extends GitHubPolicyGatewayImpl implements MergeG
         sha,
         merge_method: "squash",
       });
-      const data = result.data;
-      if (!data || typeof data !== "object" || !("merged" in data) || typeof data.merged !== "boolean") {
-        throw new Error("invalid merge response");
-      }
+      const parsed = v.safeParse(mergeResponse, result.data);
+      if (!parsed.success) throw new Error("invalid merge response");
 
-      return { merged: data.merged, status: result.response.status };
+      return { merged: parsed.output.merged, status: result.response.status };
     } catch (error) {
       if (
         error instanceof ApiError &&

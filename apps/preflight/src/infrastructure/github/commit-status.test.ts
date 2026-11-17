@@ -141,12 +141,29 @@ describe("setPullRequestTitleStatus", () => {
 });
 
 describe("listPullRequestCommitTitleStatuses", () => {
+  it.each([-1, 1.5, Number.MAX_SAFE_INTEGER + 1])("不正な totalCount %s を拒否する", async (totalCount) => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        data: {
+          repository: {
+            pullRequest: { commits: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null }, totalCount } },
+          },
+        },
+      })
+    );
+
+    await expect(listPullRequestCommitTitleStatuses(sweepInput(fetchImpl))).rejects.toMatchObject({
+      code: "GITHUB_API_FAILED",
+    });
+  });
+
   it("後続の比較と書き込みの予算を残して commit 一覧を打ち切る", async () => {
-    const fetchImpl = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(
-        commitsResponse([commitNode("old", { state: "FAILURE" })], { hasNextPage: true, endCursor: "next" })
-      );
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      commitsResponse([commitNode("c00dbbc9dadfbe1e232e93a729dd4752fade0abf", { state: "FAILURE" })], {
+        hasNextPage: true,
+        endCursor: "next",
+      })
+    );
     const log = vi.fn();
     await expect(
       listPullRequestCommitTitleStatuses({ ...sweepInput(fetchImpl), logger: { log }, maxPages: 1 })
@@ -158,15 +175,15 @@ describe("listPullRequestCommitTitleStatuses", () => {
   it("GraphQL の全 status state を domain の分類へ正規化し、status が無ければ null を返す", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
       commitsResponse([
-        commitNode("stale-error", { state: "ERROR" }),
-        commitNode("stale-expected", { state: "EXPECTED" }),
-        commitNode("stale-failure", { state: "FAILURE" }),
-        commitNode("stale-pending", { state: "PENDING" }),
-        commitNode("already-success", { state: "SUCCESS" }),
-        commitNode("never-validated"),
+        commitNode("1d84022cc7b8cc68aaeb085eb85528dc5483f948", { state: "ERROR" }),
+        commitNode("d3cfb3332eb5492eb06a1b532cd57bf2c0a81859", { state: "EXPECTED" }),
+        commitNode("734317a4594c03014e24d28cfc163a289d2cd2cf", { state: "FAILURE" }),
+        commitNode("c55f72d161ec5ebd0850da632a7797b1cbb6513b", { state: "PENDING" }),
+        commitNode("55a472f7ca21279da05f5f3e5b59edde1846b5dc", { state: "SUCCESS" }),
+        commitNode("b00b811d8d141a183355556dc3967a597face9b9"),
         {
           commit: {
-            oid: "context-not-found",
+            oid: "7c0e1bb23b0726a097ad236c9f15f9aecb1098c0",
             status: { context: null },
           },
         },
@@ -175,31 +192,31 @@ describe("listPullRequestCommitTitleStatuses", () => {
 
     await expect(listPullRequestCommitTitleStatuses(sweepInput(fetchImpl))).resolves.toEqual([
       {
-        sha: "stale-error",
+        sha: "1d84022cc7b8cc68aaeb085eb85528dc5483f948",
         statusState: "not_success",
       },
       {
-        sha: "stale-expected",
+        sha: "d3cfb3332eb5492eb06a1b532cd57bf2c0a81859",
         statusState: "not_success",
       },
       {
-        sha: "stale-failure",
+        sha: "734317a4594c03014e24d28cfc163a289d2cd2cf",
         statusState: "not_success",
       },
       {
-        sha: "stale-pending",
+        sha: "c55f72d161ec5ebd0850da632a7797b1cbb6513b",
         statusState: "not_success",
       },
       {
-        sha: "already-success",
+        sha: "55a472f7ca21279da05f5f3e5b59edde1846b5dc",
         statusState: "success",
       },
       {
-        sha: "never-validated",
+        sha: "b00b811d8d141a183355556dc3967a597face9b9",
         statusState: null,
       },
       {
-        sha: "context-not-found",
+        sha: "7c0e1bb23b0726a097ad236c9f15f9aecb1098c0",
         statusState: null,
       },
     ]);
@@ -256,13 +273,18 @@ describe("listPullRequestCommitTitleStatuses", () => {
     const paged = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
-        commitsResponse([commitNode("page-1", { state: "FAILURE" })], { hasNextPage: true, endCursor: "cursor-1" })
+        commitsResponse([commitNode("5444d9fdec20dcdc256237a72e83b283066f43b2", { state: "FAILURE" })], {
+          hasNextPage: true,
+          endCursor: "cursor-1",
+        })
       )
-      .mockResolvedValueOnce(commitsResponse([commitNode("page-2", { state: "FAILURE" })]));
+      .mockResolvedValueOnce(
+        commitsResponse([commitNode("13b1cb1aa72511e046e176b8f514ee3c89757f49", { state: "FAILURE" })])
+      );
 
     await expect(listPullRequestCommitTitleStatuses(sweepInput(paged))).resolves.toMatchObject([
-      { sha: "page-1" },
-      { sha: "page-2" },
+      { sha: "5444d9fdec20dcdc256237a72e83b283066f43b2" },
+      { sha: "13b1cb1aa72511e046e176b8f514ee3c89757f49" },
     ]);
 
     const looping = vi

@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import * as v from "valibot";
 
 import { parseCommaSeparated } from "../../env.js";
 import { handleRepoAddAutocomplete } from "./autocomplete/installation-repo.js";
@@ -35,6 +36,8 @@ export interface DiscordRouteDependencies {
   verifySignature(publicKey: string, signature: string, timestamp: string, body: string): Promise<boolean>;
 }
 
+const interactionSchema = v.object({ type: v.number() });
+
 export const createDiscordRoute = (dependencies: DiscordRouteDependencies) => {
   const discord = new Hono<Env>();
 
@@ -65,8 +68,7 @@ export const createDiscordRoute = (dependencies: DiscordRouteDependencies) => {
   const isMessageComponentInteraction = (interaction: APIInteraction): interaction is APIMessageComponentInteraction =>
     interaction.type === InteractionType.MessageComponent;
 
-  const isInteraction = (value: unknown): value is APIInteraction =>
-    typeof value === "object" && value !== null && "type" in value && typeof value.type === "number";
+  const isInteraction = (value: unknown): value is APIInteraction => v.safeParse(interactionSchema, value).success;
 
   const findFocusedAutocompleteOption = (
     interaction: APIApplicationCommandAutocompleteInteraction

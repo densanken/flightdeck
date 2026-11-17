@@ -1,9 +1,9 @@
+import { ConfigurationError } from "@flightdeck/validation";
 import { describe, expect, it, vi } from "vitest";
 
 import { TitleValidationExecutionError } from "./errors.js";
 import { ValidatePullRequestTitleUseCaseImpl } from "./impl.js";
 import { PR_TITLE_COMMENT_MARKER } from "../../domain/title-comment.js";
-import { ConfigurationError } from "../../errors.js";
 
 import type {
   AssociatedPullRequestTitle,
@@ -511,7 +511,7 @@ describe("ValidatePullRequestTitleUseCaseImpl", () => {
         commitStatus("old-1"),
         commitStatus("old-2", { statusState: "not_success" }),
         commitStatus("abc123"),
-        commitStatus("never-validated", { statusState: null }),
+        commitStatus("b00b811d8d141a183355556dc3967a597face9b9", { statusState: null }),
         commitStatus("already-clean", { statusState: "success" }),
       ],
     });

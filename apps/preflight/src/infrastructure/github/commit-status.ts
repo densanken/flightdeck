@@ -1,12 +1,17 @@
-import { isOutsideDefaultBranch, parseAssociatedPullRequests } from "./associated-pull-requests.js";
+import { commitSha } from "@flightdeck/validation";
+import * as v from "valibot";
+
+import {
+  associatedObjectSchema,
+  isOutsideDefaultBranch,
+  parseAssociatedPullRequests,
+} from "./associated-pull-requests.js";
 import { GITHUB_API_BASE_URL, githubRequest, invalidShapeError, readGitHubJson } from "./request.js";
 import { truncateCommitStatusDescription } from "../../domain/commit-status-description.js";
 import { GitHubError } from "../../errors.js";
-import { isRecord } from "../../util/type-guards.js";
 
 import type {
   AssociatedPullRequestTitle,
-  ObservedTitleStatusState,
   PullRequestCommitTitleStatus,
   TitleStatusState,
 } from "../../usecase/title-validation/dependencies.js";
@@ -98,63 +103,63 @@ interface CommitTitleStatusPage {
   endCursor: string | null;
 }
 
-const parseObservedTitleStatusState = (value: unknown): ObservedTitleStatusState | undefined => {
-  switch (value) {
-    case "SUCCESS":
-      return "success";
-    case "ERROR":
-    case "EXPECTED":
-    case "FAILURE":
-    case "PENDING":
-      return "not_success";
-    default:
-      return undefined;
-  }
-};
-
-const parseCommit = (value: unknown): PullRequestCommitTitleStatus | null => {
-  if (!isRecord(value) || !isRecord(value.commit)) return null;
-  const commit = value.commit;
-  if (typeof commit.oid !== "string" || commit.oid.length === 0) return null;
-
-  if (!Object.hasOwn(commit, "status")) return null;
-  let contextState: ObservedTitleStatusState | null = null;
-  if (commit.status !== null) {
-    if (!isRecord(commit.status)) return null;
-    if (!Object.hasOwn(commit.status, "context")) return null;
-    const context = commit.status.context;
-    if (context !== null) {
-      if (!isRecord(context)) return null;
-      const parsedContextState = parseObservedTitleStatusState(context.state);
-      if (parsedContextState === undefined) return null;
-      contextState = parsedContextState;
-    }
-  }
-
-  return { sha: commit.oid, statusState: contextState };
-};
+// GraphQL は partial error でも HTTP 200 を返す
+// errors が付いた response は信用しない
+const commitStatusPageSchema = v.object({
+  errors: v.optional(v.never()),
+  data: v.object({
+    repository: v.object({
+      pullRequest: v.object({
+        commits: v.object({
+          totalCount: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+          nodes: v.array(
+            v.object({
+              commit: v.object({
+                oid: commitSha,
+                status: v.nullable(
+                  v.object({
+                    context: v.nullable(
+                      v.object({ state: v.picklist(["SUCCESS", "ERROR", "EXPECTED", "FAILURE", "PENDING"]) })
+                    ),
+                  })
+                ),
+              }),
+            })
+          ),
+          pageInfo: v.object({ hasNextPage: v.boolean(), endCursor: v.nullable(v.string()) }),
+        }),
+      }),
+    }),
+  }),
+});
 
 const parseCommitTitleStatusPage = (value: unknown): CommitTitleStatusPage | null => {
-  // GraphQL は partial error でも HTTP 200 を返す
-  // errors が付いた response は信用しない
-  if (!isRecord(value) || value.errors !== undefined || !isRecord(value.data)) return null;
-  const repository = value.data.repository;
-  if (!isRecord(repository) || !isRecord(repository.pullRequest)) return null;
-  const commits = repository.pullRequest.commits;
-  if (!isRecord(commits) || !Array.isArray(commits.nodes) || !isRecord(commits.pageInfo)) return null;
-  if (typeof commits.pageInfo.hasNextPage !== "boolean" || typeof commits.totalCount !== "number") return null;
-  const endCursor = commits.pageInfo.endCursor;
-  if (endCursor !== null && typeof endCursor !== "string") return null;
-
-  const parsed = (commits.nodes as unknown[]).map(parseCommit);
-  if (parsed.some((commit) => commit === null)) return null;
+  const parsed = v.safeParse(commitStatusPageSchema, value);
+  if (!parsed.success) return null;
+  const page = parsed.output.data.repository.pullRequest.commits;
   return {
-    commits: parsed as PullRequestCommitTitleStatus[],
-    totalCount: commits.totalCount,
-    hasNextPage: commits.pageInfo.hasNextPage,
-    endCursor,
+    totalCount: page.totalCount,
+    hasNextPage: page.pageInfo.hasNextPage,
+    endCursor: page.pageInfo.endCursor,
+    commits: page.nodes.map(({ commit }) => ({
+      sha: commit.oid,
+      statusState: commit.status?.context
+        ? commit.status.context.state === "SUCCESS"
+          ? "success"
+          : "not_success"
+        : null,
+    })),
   };
 };
+
+const recordSchema = v.record(v.string(), v.unknown());
+
+const sweepResponseSchema = v.object({
+  errors: v.optional(v.never()),
+  data: v.object({
+    repository: recordSchema,
+  }),
+});
 
 /** PR の commit について `PR Title` status を返す */
 export const listPullRequestCommitTitleStatuses = async (input: {
@@ -287,16 +292,15 @@ export const confirmSweepCommits = async (input: {
     fetchImpl: input.fetchImpl,
     signal: input.signal,
   });
-  const body: unknown = await readGitHubJson(response, "GITHUB_API_FAILED", input.signal);
-  if (!isRecord(body) || body.errors !== undefined || !isRecord(body.data) || !isRecord(body.data.repository))
-    throw invalidShapeError(response, "GITHUB_API_FAILED", "sweep confirmation");
-  const repository = body.data.repository;
+  const parsed = v.safeParse(sweepResponseSchema, await readGitHubJson(response, "GITHUB_API_FAILED", input.signal));
+  if (!parsed.success) throw invalidShapeError(response, "GITHUB_API_FAILED", "sweep confirmation");
+  const repository = parsed.output.data.repository;
   const result = new Map<string, AssociatedPullRequestTitle[] | undefined>();
-  const branch = repository.defaultBranchRef;
+  const branch = v.safeParse(recordSchema, repository.defaultBranchRef);
   input.shas.forEach((sha, i) => {
-    const object = repository[`o${String(i)}`];
-    const comparison = isRecord(branch) ? branch[`c${String(i)}`] : null;
-    const connection = isRecord(object) ? object.associatedPullRequests : null;
+    const object = v.safeParse(associatedObjectSchema, repository[`o${String(i)}`]);
+    const comparison = branch.success ? branch.output[`c${String(i)}`] : undefined;
+    const connection = object.success ? object.output.associatedPullRequests : undefined;
     result.set(sha, isOutsideDefaultBranch(comparison, sha) ? parseAssociatedPullRequests(connection, sha) : undefined);
   });
   return result;

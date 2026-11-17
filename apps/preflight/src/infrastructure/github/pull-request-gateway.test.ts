@@ -36,7 +36,7 @@ describe("GitHubPullRequestGatewayImpl", () => {
       {
         owner: "owner",
         repo: "repo",
-        sha: "abc123",
+        sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee",
         state: "error",
         description: "検証に失敗しました",
       },
@@ -46,7 +46,7 @@ describe("GitHubPullRequestGatewayImpl", () => {
     expect(createInstallationToken).toHaveBeenCalledOnce();
     expect(fetchImpl).toHaveBeenCalledOnce();
     const [url, init] = fetchImpl.mock.calls[0] ?? [];
-    expect(url).toBe("https://api.github.com/repos/owner/repo/statuses/abc123");
+    expect(url).toBe("https://api.github.com/repos/owner/repo/statuses/6367c48dd193d56ea7b0baad25b19455e529f5ee");
     expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer installation-token");
     // targetUrl を渡していないので target_url は body に載らない
     expect(JSON.parse(init?.body as string)).toEqual({

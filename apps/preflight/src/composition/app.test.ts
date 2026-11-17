@@ -53,7 +53,7 @@ const env = (): Env => ({
 
 // sweep が投げる PullRequestTitleStatuses query の response
 // 掃除対象 stale-sha を 1 件含めることで、query -> parse -> status POST を e2e で通す
-const commitTitleStatusesResponse = (headSha = "abc123") => ({
+const commitTitleStatusesResponse = (headSha = "6367c48dd193d56ea7b0baad25b19455e529f5ee") => ({
   data: {
     repository: {
       pullRequest: {
@@ -62,7 +62,7 @@ const commitTitleStatusesResponse = (headSha = "abc123") => ({
           nodes: [
             {
               commit: {
-                oid: "stale-sha",
+                oid: "3d2586fbf2d06bdbaa149d6211beb8090b2bbedb",
                 status: { context: { state: "FAILURE" } },
                 associatedPullRequests: { totalCount: 1, nodes: [{ state: "OPEN", headRefOid: headSha }] },
               },
@@ -85,13 +85,15 @@ const commitTitleStatusesResponse = (headSha = "abc123") => ({
 const currentPolicyResponse = (
   title: string,
   state = "OPEN",
-  nodes = [{ number: 7, title, state: "OPEN", headRefOid: "abc123", isDraft: false }]
+  nodes = [{ number: 7, title, state: "OPEN", headRefOid: "6367c48dd193d56ea7b0baad25b19455e529f5ee", isDraft: false }]
 ) => ({
   data: {
     repository: {
-      pullRequest: { title, state, headRefOid: "abc123", isDraft: false },
+      pullRequest: { title, state, headRefOid: "6367c48dd193d56ea7b0baad25b19455e529f5ee", isDraft: false },
       object: { associatedPullRequests: { totalCount: nodes.length, nodes, pageInfo: { hasNextPage: false } } },
-      defaultBranchRef: { compare: { headTarget: { oid: "abc123" }, status: "AHEAD" } },
+      defaultBranchRef: {
+        compare: { headTarget: { oid: "6367c48dd193d56ea7b0baad25b19455e529f5ee" }, status: "AHEAD" },
+      },
     },
   },
 });
@@ -110,13 +112,29 @@ const successfulGitHubFetch = (options: { assigneesStatus?: number } = {}) => {
     }
     if (new URL(url).pathname.endsWith("/pulls/7")) {
       return Promise.resolve(
-        jsonResponse({ title: "feat: add login", state: "open", head: { sha: "abc123" }, draft: false }, 200)
+        jsonResponse(
+          {
+            title: "feat: add login",
+            state: "open",
+            head: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
+            draft: false,
+          },
+          200
+        )
       );
     }
     if (new URL(url).pathname.endsWith("/commits/abc123/pulls")) {
       return Promise.resolve(
         jsonResponse(
-          [{ number: 7, title: "feat: add login", state: "open", head: { sha: "abc123" }, draft: false }],
+          [
+            {
+              number: 7,
+              title: "feat: add login",
+              state: "open",
+              head: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
+              draft: false,
+            },
+          ],
           200
         )
       );
@@ -130,10 +148,12 @@ const successfulGitHubFetch = (options: { assigneesStatus?: number } = {}) => {
             data: {
               repository: {
                 o0: {
-                  oid: "stale-sha",
+                  oid: "3d2586fbf2d06bdbaa149d6211beb8090b2bbedb",
                   associatedPullRequests: { totalCount: 0, nodes: [], pageInfo: { hasNextPage: false } },
                 },
-                defaultBranchRef: { c0: { status: "AHEAD", headTarget: { oid: "stale-sha" } } },
+                defaultBranchRef: {
+                  c0: { status: "AHEAD", headTarget: { oid: "3d2586fbf2d06bdbaa149d6211beb8090b2bbedb" } },
+                },
               },
             },
           })
@@ -149,7 +169,15 @@ const successfulGitHubFetch = (options: { assigneesStatus?: number } = {}) => {
               repository: {
                 pullRequests: {
                   totalCount: 1,
-                  nodes: [{ number: 7, title: "feat: add login", state: "OPEN", headRefOid: "abc123", isDraft: false }],
+                  nodes: [
+                    {
+                      number: 7,
+                      title: "feat: add login",
+                      state: "OPEN",
+                      headRefOid: "6367c48dd193d56ea7b0baad25b19455e529f5ee",
+                      isDraft: false,
+                    },
+                  ],
                   pageInfo: { hasNextPage: false, endCursor: null },
                 },
               },
@@ -206,7 +234,10 @@ describe("composeApp", () => {
     expect(createHardDeadlineSignal).toHaveBeenCalledTimes(2);
     expect(fetchImpl).toHaveBeenCalledTimes(14);
     // 検証を始める前に pending を投稿し、処理済みと判定した再配信では投稿しない
-    expect(postedStatuses(fetchImpl).at(0)).toEqual({ sha: "abc123", state: "pending" });
+    expect(postedStatuses(fetchImpl).at(0)).toEqual({
+      sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee",
+      state: "pending",
+    });
     expect(postedStatuses(fetchImpl).filter((write) => write.state === "pending")).toHaveLength(1);
     // pending と検証本体で installation access token を共有する
     expect(fetchImpl.mock.calls.filter(([input]) => requestUrl(input).endsWith("/access_tokens"))).toHaveLength(1);
@@ -240,8 +271,11 @@ describe("composeApp", () => {
     expect(firstOutcome).toEqual({ status: "processed", result: "assigned" });
     expect(redeliveredOutcome).toEqual({ status: "processed", result: "assigned" });
     for (const writes of [postedStatuses(first), postedStatuses(second)]) {
-      expect(writes.at(0)).toEqual({ sha: "abc123", state: "pending" });
-      expect(writes.filter((write) => write.sha === "abc123").at(-1)).toEqual({ sha: "abc123", state: "success" });
+      expect(writes.at(0)).toEqual({ sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee", state: "pending" });
+      expect(writes.filter((write) => write.sha === "6367c48dd193d56ea7b0baad25b19455e529f5ee").at(-1)).toEqual({
+        sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee",
+        state: "success",
+      });
       expect(writes.at(-1)?.state).not.toBe("pending");
     }
     // 別 colo では isolate ごとの identity cache も空なので、token も Bot identity も取り直す
@@ -277,13 +311,13 @@ describe("composeApp", () => {
     expect(retryOutcome.status).toBe("failed");
     expect(
       postedStatuses(firstAttempt)
-        .filter((write) => write.sha === "abc123")
+        .filter((write) => write.sha === "6367c48dd193d56ea7b0baad25b19455e529f5ee")
         .map((write) => write.state)
     ).toEqual(["pending", "success"]);
     expect(postedStatuses(secondAttempt).filter((write) => write.state === "pending")).toHaveLength(0);
     expect(
       postedStatuses(secondAttempt)
-        .filter((write) => write.sha === "abc123")
+        .filter((write) => write.sha === "6367c48dd193d56ea7b0baad25b19455e529f5ee")
         .map((write) => write.state)
     ).toEqual(["success"]);
   });
@@ -310,8 +344,14 @@ describe("composeApp", () => {
     })(webhookPayload(pullRequestBody()), { deliveryId: "delivery-failed", attempt: 1 });
 
     expect(outcome).toEqual({ status: "failed", errorCode: "GITHUB_API_FAILED" });
-    expect(postedStatuses(fetchImpl).at(0)).toEqual({ sha: "abc123", state: "pending" });
-    expect(postedStatuses(fetchImpl).at(-1)).toEqual({ sha: "abc123", state: "error" });
+    expect(postedStatuses(fetchImpl).at(0)).toEqual({
+      sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee",
+      state: "pending",
+    });
+    expect(postedStatuses(fetchImpl).at(-1)).toEqual({
+      sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee",
+      state: "error",
+    });
   });
 
   it("closed PR のコメント削除失敗後も共有 head の verdict を維持する", async () => {
@@ -323,13 +363,29 @@ describe("composeApp", () => {
       }
       if (path.endsWith("/pulls/7")) {
         return Promise.resolve(
-          jsonResponse({ title: "feat: merged PR", state: "closed", head: { sha: "abc123" }, draft: false }, 200)
+          jsonResponse(
+            {
+              title: "feat: merged PR",
+              state: "closed",
+              head: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
+              draft: false,
+            },
+            200
+          )
         );
       }
       if (path.endsWith("/commits/abc123/pulls")) {
         return Promise.resolve(
           jsonResponse(
-            [{ number: 8, title: "fix: keep valid PR", state: "open", head: { sha: "abc123" }, draft: false }],
+            [
+              {
+                number: 8,
+                title: "fix: keep valid PR",
+                state: "open",
+                head: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
+                draft: false,
+              },
+            ],
             200
           )
         );
@@ -338,7 +394,13 @@ describe("composeApp", () => {
         return Promise.resolve(
           jsonResponse(
             currentPolicyResponse("feat: merged PR", "CLOSED", [
-              { number: 8, title: "fix: keep valid PR", state: "OPEN", headRefOid: "abc123", isDraft: false },
+              {
+                number: 8,
+                title: "fix: keep valid PR",
+                state: "OPEN",
+                headRefOid: "6367c48dd193d56ea7b0baad25b19455e529f5ee",
+                isDraft: false,
+              },
             ])
           )
         );
@@ -351,7 +413,13 @@ describe("composeApp", () => {
                 pullRequests: {
                   totalCount: 1,
                   nodes: [
-                    { number: 8, title: "fix: keep valid PR", state: "OPEN", headRefOid: "abc123", isDraft: false },
+                    {
+                      number: 8,
+                      title: "fix: keep valid PR",
+                      state: "OPEN",
+                      headRefOid: "6367c48dd193d56ea7b0baad25b19455e529f5ee",
+                      isDraft: false,
+                    },
                   ],
                   pageInfo: { hasNextPage: false, endCursor: null },
                 },
@@ -394,9 +462,9 @@ describe("composeApp", () => {
 
     expect(outcome).toEqual({ status: "failed", errorCode: "GITHUB_API_FAILED" });
     expect(postedStatuses(fetchImpl)).toEqual([
-      { sha: "abc123", state: "pending" },
-      { sha: "abc123", state: "success" },
-      { sha: "abc123", state: "success" },
+      { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee", state: "pending" },
+      { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee", state: "success" },
+      { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee", state: "success" },
     ]);
   });
 
@@ -513,7 +581,12 @@ describe("composeApp", () => {
       if (new URL(url).pathname.endsWith("/pulls/7")) {
         return Promise.resolve(
           jsonResponse(
-            { title: "feat: add auto assignment", state: "open", head: { sha: "abc123" }, draft: false },
+            {
+              title: "feat: add auto assignment",
+              state: "open",
+              head: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
+              draft: false,
+            },
             200
           )
         );
@@ -536,10 +609,12 @@ describe("composeApp", () => {
               data: {
                 repository: {
                   o0: {
-                    oid: "stale-sha",
+                    oid: "3d2586fbf2d06bdbaa149d6211beb8090b2bbedb",
                     associatedPullRequests: { totalCount: 0, nodes: [], pageInfo: { hasNextPage: false } },
                   },
-                  defaultBranchRef: { c0: { status: "AHEAD", headTarget: { oid: "stale-sha" } } },
+                  defaultBranchRef: {
+                    c0: { status: "AHEAD", headTarget: { oid: "3d2586fbf2d06bdbaa149d6211beb8090b2bbedb" } },
+                  },
                 },
               },
             })
@@ -563,7 +638,7 @@ describe("composeApp", () => {
                             number: 7,
                             title: "feat: add auto assignment",
                             state: "OPEN",
-                            headRefOid: "abc123",
+                            headRefOid: "6367c48dd193d56ea7b0baad25b19455e529f5ee",
                             isDraft: false,
                           },
                         ],
@@ -638,12 +713,31 @@ describe("composeApp", () => {
       if (url.endsWith("/assignees")) return Promise.resolve(jsonResponse({ assignees: [{ login: "author" }] }, 201));
       if (new URL(url).pathname.endsWith("/pulls/7")) {
         return Promise.resolve(
-          jsonResponse({ title: currentTitle, state: "open", head: { sha: "abc123" }, draft: false }, 200)
+          jsonResponse(
+            {
+              title: currentTitle,
+              state: "open",
+              head: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
+              draft: false,
+            },
+            200
+          )
         );
       }
       if (new URL(url).pathname.endsWith("/commits/abc123/pulls")) {
         return Promise.resolve(
-          jsonResponse([{ number: 7, title: currentTitle, state: "open", head: { sha: "abc123" }, draft: false }], 200)
+          jsonResponse(
+            [
+              {
+                number: 7,
+                title: currentTitle,
+                state: "open",
+                head: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
+                draft: false,
+              },
+            ],
+            200
+          )
         );
       }
       if (new URL(url).pathname === "/graphql") {
@@ -655,10 +749,12 @@ describe("composeApp", () => {
               data: {
                 repository: {
                   o0: {
-                    oid: "stale-sha",
+                    oid: "3d2586fbf2d06bdbaa149d6211beb8090b2bbedb",
                     associatedPullRequests: { totalCount: 0, nodes: [], pageInfo: { hasNextPage: false } },
                   },
-                  defaultBranchRef: { c0: { status: "AHEAD", headTarget: { oid: "stale-sha" } } },
+                  defaultBranchRef: {
+                    c0: { status: "AHEAD", headTarget: { oid: "3d2586fbf2d06bdbaa149d6211beb8090b2bbedb" } },
+                  },
                 },
               },
             })
@@ -674,7 +770,15 @@ describe("composeApp", () => {
                 repository: {
                   pullRequests: {
                     totalCount: 1,
-                    nodes: [{ number: 7, title: currentTitle, state: "OPEN", headRefOid: "abc123", isDraft: false }],
+                    nodes: [
+                      {
+                        number: 7,
+                        title: currentTitle,
+                        state: "OPEN",
+                        headRefOid: "6367c48dd193d56ea7b0baad25b19455e529f5ee",
+                        isDraft: false,
+                      },
+                    ],
                     pageInfo: { hasNextPage: false, endCursor: null },
                   },
                 },
@@ -727,16 +831,23 @@ describe("composeApp", () => {
     const validOutcome = await processor(webhookPayload(validEdit), { deliveryId: "delivery-valid", attempt: 1 });
 
     expect(validOutcome.status).toBe("processed");
-    expect(statusWrites.filter((write) => write.sha === "abc123").map((write) => write.state)).toEqual([
-      "pending",
-      "failure",
-      "pending",
-      "success",
-    ]);
+    expect(
+      statusWrites
+        .filter((write) => write.sha === "6367c48dd193d56ea7b0baad25b19455e529f5ee")
+        .map((write) => write.state)
+    ).toEqual(["pending", "failure", "pending", "success"]);
     // sweep が query -> parse -> POST まで通っていることを確認する
-    expect(statusWrites.filter((write) => write.sha === "stale-sha")).toEqual([
-      { sha: "stale-sha", state: "success", description: "PR の最新 commit ではありません" },
-      { sha: "stale-sha", state: "success", description: "PR の最新 commit ではありません" },
+    expect(statusWrites.filter((write) => write.sha === "3d2586fbf2d06bdbaa149d6211beb8090b2bbedb")).toEqual([
+      {
+        sha: "3d2586fbf2d06bdbaa149d6211beb8090b2bbedb",
+        state: "success",
+        description: "PR の最新 commit ではありません",
+      },
+      {
+        sha: "3d2586fbf2d06bdbaa149d6211beb8090b2bbedb",
+        state: "success",
+        description: "PR の最新 commit ではありません",
+      },
     ]);
     expect(ownComment).toBeUndefined();
     expect(fetchImpl.mock.calls.filter(([input]) => requestUrl(input).endsWith("/access_tokens"))).toHaveLength(2);

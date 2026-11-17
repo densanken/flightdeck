@@ -73,7 +73,7 @@ const pullRequest = {
   draft: false,
   mergeable: true,
   head: { sha: HEAD_SHA, ref: "feature/integration", label: "org:feature/integration", repo: { id: 777001 } },
-  base: { ref: "main", sha: "base-sha", repo: { id: 777001 } },
+  base: { ref: "main", sha: "0000000000000000000000000000000000000003", repo: { id: 777001 } },
   user: { login: "author" },
   updated_at: "2026-07-11T00:00:00Z",
 };

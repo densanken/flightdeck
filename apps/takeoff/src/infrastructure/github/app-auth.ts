@@ -1,5 +1,6 @@
 import { createGitHubAppJwt as signGitHubAppJwt } from "@flightdeck/github-app-jwt";
-import { z } from "zod";
+import { githubId } from "@flightdeck/validation";
+import * as v from "valibot";
 
 import { createGitHubResponseError, GITHUB_API_VERSION, GitHubError, withGitHubTimeout } from "./client.js";
 import { gitHubInstallationSchema, gitHubInstallationTokenSchema } from "./types.js";
@@ -10,6 +11,7 @@ import { workersCache } from "../cache/workers-api.js";
 // installation token の有効期限に対する安全マージン（秒）
 // この分だけ手前で失効扱いにする
 const INSTALLATION_TOKEN_EXPIRY_BUFFER_SECONDS = 60;
+
 // memory cache に token を載せる最大時間（秒）
 // 実際の残り時間がこれより短ければそちらを優先する
 const INSTALLATION_TOKEN_MEMORY_TTL_SECONDS = 300;
@@ -57,7 +59,7 @@ export class GitHubAppAuthImpl {
       const memResult = memoryCache.get<number>(cacheKey);
       if (memResult !== null) return memResult;
 
-      const cacheResult = await workersCache.get(cacheKey, z.number().int().positive());
+      const cacheResult = await workersCache.get(cacheKey, githubId);
       if (cacheResult !== null) {
         memoryCache.set(cacheKey, cacheResult, 3600);
         return cacheResult;
@@ -79,14 +81,14 @@ export class GitHubAppAuthImpl {
       throw await createGitHubResponseError(response, `getInstallationId ${org}`, "unexpected_github_error");
     }
 
-    const parsed = gitHubInstallationSchema.safeParse(await readJson(response, "getInstallationId"));
+    const parsed = v.safeParse(gitHubInstallationSchema, await readJson(response, "getInstallationId"));
     if (!parsed.success) {
       throw new GitHubError("unexpected_github_error", "Invalid GitHub installation response", 502);
     }
 
-    memoryCache.set(cacheKey, parsed.data.id, 3600);
-    await workersCache.set(cacheKey, parsed.data.id, 86400);
-    return parsed.data.id;
+    memoryCache.set(cacheKey, parsed.output.id, 3600);
+    await workersCache.set(cacheKey, parsed.output.id, 86400);
+    return parsed.output.id;
   }
 
   async getInstallationToken(jwt: string, installationId: number, cacheBaseUrl: string): Promise<string> {
@@ -121,17 +123,17 @@ export class GitHubAppAuthImpl {
       );
     }
 
-    const parsed = gitHubInstallationTokenSchema.safeParse(await readJson(response, "getInstallationToken"));
+    const parsed = v.safeParse(gitHubInstallationTokenSchema, await readJson(response, "getInstallationToken"));
     if (!parsed.success) {
       throw new GitHubError("unexpected_github_error", "Invalid GitHub installation token response", 502);
     }
 
-    const expiresAtMs = Date.parse(parsed.data.expires_at);
+    const expiresAtMs = Date.parse(parsed.output.expires_at);
     const ttlSeconds = installationTokenTtlSeconds(expiresAtMs);
     if (ttlSeconds > 0) {
-      memoryCache.set(cacheKey, parsed.data.token, Math.min(ttlSeconds, INSTALLATION_TOKEN_MEMORY_TTL_SECONDS));
+      memoryCache.set(cacheKey, parsed.output.token, Math.min(ttlSeconds, INSTALLATION_TOKEN_MEMORY_TTL_SECONDS));
     }
-    return parsed.data.token;
+    return parsed.output.token;
   }
 
   async getAuthenticatedToken(appId: string, privateKey: string, org: string, cacheBaseUrl: string): Promise<string> {

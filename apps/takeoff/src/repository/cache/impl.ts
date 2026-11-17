@@ -3,11 +3,11 @@ import {
   cachedPullRequestListSchema,
   mergeCooldownSchema,
   syncCooldownSchema,
-} from "./interface.js";
-import { repositoryIndexSchema } from "../../domain/repository.js";
+} from "./schema.js";
 import { cacheKeys } from "../../infrastructure/cache/keys.js";
 import { memoryCache } from "../../infrastructure/cache/memory-cache.js";
 import { workersCache } from "../../infrastructure/cache/workers-api.js";
+import { repositoryIndexSchema } from "../schema.js";
 
 import type {
   MergeCooldown,
@@ -21,7 +21,7 @@ import type {
 } from "./interface.js";
 import type { CachedPullRequestList } from "../../domain/pull-request.js";
 import type { RepositoryIndex } from "../../domain/repository.js";
-import type { z } from "zod";
+import type * as v from "valibot";
 
 const REPO_INDEX_MEMORY_CACHE_TTL_SECONDS = 300;
 
@@ -49,7 +49,7 @@ interface TwoTierCacheOptions<T> {
 // 書き込みと削除は両方へ行う
 class TwoTierCache<T> {
   constructor(
-    private readonly schema: z.ZodType<T>,
+    private readonly schema: v.GenericSchema<unknown, T>,
     private readonly ttlSeconds: number,
     private readonly options: TwoTierCacheOptions<T> = {}
   ) {}

@@ -1,22 +1,23 @@
-import { z } from "zod";
+import * as v from "valibot";
 
-import { registeredRepositorySchema, repositoryIndexItemSchema } from "../../domain/repository.js";
 import { logger } from "../../util/logger.js";
+import { registeredRepositorySchema, repositoryIndexItemSchema } from "../schema.js";
 
 import type { RegisteredRepositorySnapshot, RegisteredRepositoryStore } from "./interface.js";
 import type { RegisteredRepository, RepositoryIndex, RepositoryIndexItem } from "../../domain/repository.js";
 
 const REPOSITORY_KEY_PREFIX = "repo:";
+
 const REPOSITORY_LIST_PAGE_SIZE = 1000;
+
 const KV_BULK_GET_SIZE = 100;
-const repositorySnapshotSchema = registeredRepositorySchema.extend({
-  registrationId: z.string(),
-});
-const repositoryListMetadataSchema = repositoryIndexItemSchema.extend({
-  registrationId: z.string(),
-});
+
+const repositorySnapshotSchema = v.object({ ...registeredRepositorySchema.entries, registrationId: v.string() });
+
+const repositoryListMetadataSchema = v.object({ ...repositoryIndexItemSchema.entries, registrationId: v.string() });
 
 const repositoryKey = (repoId: string): string => `${REPOSITORY_KEY_PREFIX}${repoId}`;
+
 const metadataKey = (repoId: string, registrationId: string): string => `repo-metadata:${repoId}:${registrationId}`;
 
 const toIndexItem = (repo: RepositoryIndexItem): RepositoryIndexItem => ({
@@ -30,15 +31,15 @@ const toIndexItem = (repo: RepositoryIndexItem): RepositoryIndexItem => ({
 const invalidRepositoryData = (): Error => new Error("Invalid registered repository data in KV");
 
 const parseRepository = (value: unknown, expectedRepoId: string): RegisteredRepositorySnapshot => {
-  const parsed = repositorySnapshotSchema.safeParse(value);
-  if (!parsed.success || parsed.data.repoId !== expectedRepoId) throw invalidRepositoryData();
-  return parsed.data;
+  const parsed = v.safeParse(repositorySnapshotSchema, value);
+  if (!parsed.success || parsed.output.repoId !== expectedRepoId) throw invalidRepositoryData();
+  return parsed.output;
 };
 
 const parseIndexMetadata = (value: unknown, expectedRepoId: string) => {
-  const parsed = repositoryListMetadataSchema.safeParse(value);
-  if (!parsed.success || parsed.data.repoId !== expectedRepoId) throw invalidRepositoryData();
-  return parsed.data;
+  const parsed = v.safeParse(repositoryListMetadataSchema, value);
+  if (!parsed.success || parsed.output.repoId !== expectedRepoId) throw invalidRepositoryData();
+  return parsed.output;
 };
 
 const parseMetadata = (value: unknown, repoId: string, registrationId: string): RegisteredRepositorySnapshot | null => {

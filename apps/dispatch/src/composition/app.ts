@@ -4,6 +4,7 @@ import { createApp } from "../app.js";
 import { getGitHubAppCredentials, getWebhookSecret } from "../env.js";
 import { createMessageConsumer } from "../handler/github/consume.js";
 import { createWebhookHandler } from "../handler/github/webhook.js";
+import { readConfig } from "../infrastructure/config/parse.js";
 import { GitHubInstallationTokenProvider } from "../infrastructure/github/auth.js";
 import { GitHubGatewayImpl } from "../infrastructure/github/client.js";
 import { SyncUseCaseImpl } from "../usecase/sync/impl.js";
@@ -40,6 +41,7 @@ export const composeMessageConsumer = (env: Env) => {
 
       return new SyncUseCaseImpl({
         gateway: new GitHubGatewayImpl({ fetcher, getToken }),
+        readConfig,
         // 子 message は同じ Queue へまとめて積む（1 回の sendBatch は 100 件まで、target と管理 branch の数はそれ以内）
         enqueue: async (children) => {
           if (children.length === 0) return;

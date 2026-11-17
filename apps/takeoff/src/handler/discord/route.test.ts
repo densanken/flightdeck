@@ -86,6 +86,14 @@ const unsignedInteractionRequest = (interaction: object): RequestInit => ({
 });
 
 describe("Discord interaction route", () => {
+  it.each([{}, { type: "1" }, []])("type が数値でない interaction を拒否する", async (interaction) => {
+    const signed = await createSignedRequest(interaction);
+    const response = await discord.request("/interactions", signed.request, bindings(signed.publicKey));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ type: "invalid_request", message: "Invalid interaction payload" });
+  });
+
   it("正しい署名の PING へ PONG を返す", async () => {
     const signed = await createSignedRequest({ type: 1 });
     const response = await discord.request("/interactions", signed.request, bindings(signed.publicKey));

@@ -1,6 +1,5 @@
 import { sourceOf } from "@flightdeck/rules";
 
-import { chooseConfig, parseConfig } from "../../domain/config.js";
 import { findSubmodule } from "../../domain/gitmodules.js";
 import { isAutoclosed, managedBranchName, updateTitle, withAutoclosedSuffix } from "../../domain/naming.js";
 import { pullRequestBody, withoutCommitList } from "../../domain/pull-request-body.js";
@@ -19,7 +18,6 @@ import type {
 import type { SyncUseCase } from "./interface.js";
 import type { Target } from "../../domain/config.js";
 import type { Logger } from "../../util/logger.js";
-import type { ConfigFile } from "@flightdeck/rules";
 
 // parent base の変化や CAS の競合、PR を Open に戻した後に状態を取り直す上限
 const MAX_ATTEMPTS = 4;
@@ -34,19 +32,9 @@ interface SourceSnapshot {
 }
 
 type SyncOutcome = "created" | "updated" | "unchanged" | "autoclosed";
+
 // retry は、処理中に状態が変わった（base や source の進行、CAS の競合）か、PR を Open に戻したため、状態を取り直すことを表す
 type AttemptResult = SyncOutcome | "retry";
-
-// 存在する共有の設定ファイル（flightdeck.yml と flightdeck.yaml）から、使ったファイルの path と target の一覧を作る
-// ファイルがなければ undefined、dispatch の section がなければ target は空
-// 両方あれば設定エラー
-const readConfig = (configs: ConfigFile[]): { path: string; targets: Target[] } | undefined => {
-  const file = chooseConfig(configs);
-
-  return file === undefined ? undefined : { path: file.path, targets: parseConfig(file.text) };
-};
-
-const targetsOf = (configs: ConfigFile[]): Target[] => readConfig(configs)?.targets ?? [];
 
 // 設定の repository は parent の現在の正規名で書く（rename 前の名前は同期の時点で設定エラーになる）
 const findTargetFor = (targets: Target[], repository: string): Target | undefined =>
@@ -80,11 +68,14 @@ const baseOf = (state: ParentState, target: Target, source: SourceSnapshot) => {
 // 旧設定を読めない場合は cleanup を推測せず、最新設定の適用だけを行う
 // 理由があれば skipped に返す
 // 設定ファイルが元からない repo では、旧設定は空で、理由は付かない
-const readPreviousTargets = (previous: RepositoryState["previous"]): { targets: Target[]; skipped?: string } => {
+const readPreviousTargets = (
+  readConfig: SyncDependencies["readConfig"],
+  previous: RepositoryState["previous"]
+): { targets: Target[]; skipped?: string } => {
   if (!previous) return { targets: [], skipped: "previous ref not available" };
 
   try {
-    return { targets: targetsOf(previous.configs) };
+    return { targets: readConfig(previous.configs)?.targets ?? [] };
   } catch {
     return { targets: [], skipped: "previous config is unusable" };
   }
@@ -92,11 +83,13 @@ const readPreviousTargets = (previous: RepositoryState["previous"]): { targets: 
 
 export class SyncUseCaseImpl implements SyncUseCase {
   private readonly gateway: DispatchGateway;
+  private readonly readConfig: SyncDependencies["readConfig"];
   private readonly enqueue: SyncDependencies["enqueue"];
   private readonly logger: Logger;
 
-  constructor({ gateway, enqueue, logger }: SyncDependencies) {
+  constructor({ gateway, readConfig, enqueue, logger }: SyncDependencies) {
     this.gateway = gateway;
+    this.readConfig = readConfig;
     this.enqueue = enqueue;
     this.logger = logger;
   }
@@ -142,7 +135,7 @@ export class SyncUseCaseImpl implements SyncUseCase {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
       const state = await this.gateway.readRepositoryState(sourceName);
       const source = snapshotOf(state);
-      const config = source ? readConfig(state.configs) : undefined;
+      const config = source ? this.readConfig(state.configs) : undefined;
       const target = config ? findTargetFor(config.targets, targetName) : undefined;
 
       if (!source || !config || !target) {
@@ -170,7 +163,7 @@ export class SyncUseCaseImpl implements SyncUseCase {
     if (pullRequests.length === 0) return;
 
     const latest = await this.gateway.readRepositoryState(source);
-    if (findTargetFor(targetsOf(latest.configs), fullName)) {
+    if (findTargetFor(this.readConfig(latest.configs)?.targets ?? [], fullName)) {
       this.logger.log("info", {
         event: "close_skipped",
         source,
@@ -202,7 +195,7 @@ export class SyncUseCaseImpl implements SyncUseCase {
     let targets: Target[];
 
     try {
-      targets = targetsOf(state.configs);
+      targets = this.readConfig(state.configs)?.targets ?? [];
     } catch (error) {
       if (!isPermanent(error)) throw error;
 
@@ -216,7 +209,7 @@ export class SyncUseCaseImpl implements SyncUseCase {
       return;
     }
 
-    const { targets: previousTargets, skipped } = readPreviousTargets(state.previous);
+    const { targets: previousTargets, skipped } = readPreviousTargets(this.readConfig, state.previous);
     // 設定ファイルがある repo だけ、cleanup を見送った理由を記録する（設定のない repo は source ではないので記録しない）
     if (skipped && state.configs.length > 0) {
       this.logger.log("warn", { event: "cleanup_skipped", source: source.fullName, reason: skipped });

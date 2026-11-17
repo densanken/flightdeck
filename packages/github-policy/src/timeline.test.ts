@@ -31,7 +31,7 @@ describe("timeline の型", () => {
 
   it("不正な応答を既知のエラーに変換する", () => {
     expect(() => timelineItem({ __typename: "IssueComment" })).toThrow(
-      expect.objectContaining({ code: "invalid_response", errorName: "ZodError" })
+      expect.objectContaining({ code: "invalid_response", errorName: "ValidationError" })
     );
   });
 

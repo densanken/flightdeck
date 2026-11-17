@@ -1,15 +1,6 @@
-const OWNER_PATTERN = "[A-Za-z0-9-]+";
-const NAME_PATTERN = "[A-Za-z0-9._-]+";
-// repo 名が . と .. だけの場合は除く
-export const REPOSITORY_PATTERN = new RegExp(`^${OWNER_PATTERN}/(?!\\.\\.?$)${NAME_PATTERN}$`);
+import { NAME_PATTERN, OWNER_PATTERN, REPOSITORY_PATTERN } from "@flightdeck/validation";
+
 export const MANAGED_BRANCH_PREFIX = "flightdeck-dispatch/";
-
-// owner/repo 形式の名前を分ける
-export const splitRepository = (repository: string): { owner: string; name: string } => {
-  const [owner = "", name = ""] = repository.split("/");
-
-  return { owner, name };
-};
 
 // 管理 branch 名から source の owner/repo を戻す
 // owner/repo の形でなければ undefined

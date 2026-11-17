@@ -16,11 +16,11 @@ const payload = (overrides: Record<string, unknown> = {}) => {
   const parsed = parsePullRequestWebhookPayload({
     action: "opened",
     installation: { id: 42 },
-    repository: { name: "repo", owner: { login: "owner" } },
+    repository: { full_name: "owner/repo" },
     pull_request: {
       number: 7,
       title: "feat: add login",
-      head: { sha: "abc123" },
+      head: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
       user: { login: "author", type: "User" },
       assignees: [],
     },
@@ -93,7 +93,7 @@ describe("検証済み payload の処理", () => {
         owner: "owner",
         repo: "repo",
         pullRequestNumber: 7,
-        fallbackHeadSha: "abc123",
+        fallbackHeadSha: "6367c48dd193d56ea7b0baad25b19455e529f5ee",
         author: "author",
         authorType: "User",
         assignees: [],
@@ -110,10 +110,17 @@ describe("検証済み payload の処理", () => {
   it("synchronize のときだけ previousHeadSha を渡す", async () => {
     const { processor, execute } = setup();
 
-    await processor(payload({ action: "synchronize", before: "old-sha" }), { deliveryId: "delivery-1", attempt: 1 });
+    await processor(payload({ action: "synchronize", before: "3cc2b777ba8748ddfdc9f633b0600efc3bf72f5c" }), {
+      deliveryId: "delivery-1",
+      attempt: 1,
+    });
 
     expect(execute).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "synchronize", fallbackHeadSha: "abc123", previousHeadSha: "old-sha" }),
+      expect.objectContaining({
+        action: "synchronize",
+        fallbackHeadSha: "6367c48dd193d56ea7b0baad25b19455e529f5ee",
+        previousHeadSha: "3cc2b777ba8748ddfdc9f633b0600efc3bf72f5c",
+      }),
       expect.any(AbortSignal),
       expect.any(AbortSignal)
     );
@@ -169,7 +176,7 @@ describe("検証済み payload の処理", () => {
         pull_request: {
           number: 7,
           title,
-          head: { sha: "abc123" },
+          head: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
           user: { login: "author", type: "User" },
           assignees: [],
         },
@@ -240,7 +247,7 @@ describe("検証開始時の pending status", () => {
     await processor(payload(), { deliveryId: "delivery-1", attempt: 1 });
 
     expect(setPendingTitleStatus).toHaveBeenCalledWith(
-      { installationId: 42, owner: "owner", repo: "repo", sha: "abc123" },
+      { installationId: 42, owner: "owner", repo: "repo", sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
       expect.any(AbortSignal)
     );
     expect(order).toEqual(["pending", "policy"]);

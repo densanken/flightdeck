@@ -1,3 +1,7 @@
+import { ConfigurationError, requiredString } from "@flightdeck/validation";
+
+import { buildAppConfig } from "./config.js";
+
 export interface Env {
   Bindings: {
     // secret
@@ -24,13 +28,6 @@ export interface Env {
   };
 }
 
-export const DEFAULT_PR_LIST_CACHE_TTL_SECONDS = 60;
-// repo-index の Cache API entry は colo local のため、この TTL がそのまま他拠点への反映遅延の上限になる
-export const DEFAULT_REPO_INDEX_CACHE_TTL_SECONDS = 300;
-export const DEFAULT_MERGE_COOLDOWN_SECONDS = 10;
-export const DEFAULT_SYNC_COOLDOWN_SECONDS = 30;
-export const DEFAULT_INSTALLATION_REPO_CACHE_TTL_SECONDS = 60;
-
 export class EnvValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -50,19 +47,12 @@ const requiredStringKeys = [
   "PUBLIC_BASE_URL",
 ] as const;
 
-const optionalPositiveIntegerKeys = [
-  "PR_LIST_CACHE_TTL_SECONDS",
-  "REPO_INDEX_CACHE_TTL_SECONDS",
-  "MERGE_COOLDOWN_SECONDS",
-  "SYNC_COOLDOWN_SECONDS",
-  "INSTALLATION_REPO_CACHE_TTL_SECONDS",
-] as const;
-
 export const validateEnv = (bindings: Env["Bindings"]): void => {
-  for (const key of requiredStringKeys) {
-    if (!(bindings[key] as string | undefined)?.trim()) {
-      throw new EnvValidationError(`Required environment variable is missing: ${key}`);
-    }
+  try {
+    for (const key of requiredStringKeys) requiredString(bindings[key], key);
+  } catch (error) {
+    if (!(error instanceof ConfigurationError)) throw error;
+    throw new EnvValidationError(`Required environment variable is missing: ${error.configKey}`);
   }
 
   // origin が "null" になる値を cache namespace に使わないよう、http(s) の URL だけを受け付ける
@@ -75,19 +65,18 @@ export const validateEnv = (bindings: Env["Bindings"]): void => {
     throw new EnvValidationError("MERGE_AUDIT_DISCORD_WEBHOOK_URL must be a valid https URL");
   }
 
-  for (const key of optionalPositiveIntegerKeys) {
-    const value = bindings[key];
-    if (value === undefined) continue;
-    if (!/^\d+$/.test(value) || Number.parseInt(value, 10) <= 0) {
-      throw new EnvValidationError(`${key} must be a positive integer`);
-    }
-  }
-
   if (parseCommaSeparated(bindings.ALLOWED_GUILD_IDS).length === 0) {
     throw new EnvValidationError("ALLOWED_GUILD_IDS must contain at least one guild ID");
   }
   if (parseCommaSeparated(bindings.ADMIN_ROLE_IDS).length === 0) {
     throw new EnvValidationError("ADMIN_ROLE_IDS must contain at least one role ID");
+  }
+
+  try {
+    buildAppConfig(bindings);
+  } catch (error) {
+    if (!(error instanceof ConfigurationError)) throw error;
+    throw new EnvValidationError(`${error.configKey} must be a positive integer`);
   }
 };
 
@@ -97,8 +86,5 @@ export const parseCommaSeparated = (value: string): string[] =>
     .map((s) => s.trim())
     .filter(Boolean);
 
-export const parseIntWithDefault = (value: string | undefined, defaultValue: number): number => {
-  if (!value) return defaultValue;
-  const parsed = parseInt(value, 10);
-  return Number.isNaN(parsed) ? defaultValue : parsed;
-};
+export const getWebhookSecret = (bindings: Env["Bindings"]): string =>
+  requiredString(bindings.GITHUB_WEBHOOK_SECRET, "GITHUB_WEBHOOK_SECRET");

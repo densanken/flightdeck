@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as v from "valibot";
 
 import {
   gitHubCheckRunsResponseSchema,
@@ -70,8 +70,8 @@ const readResponseText = async (response: Response): Promise<string> => {
 
 const parseGitHubErrorMessage = (body: string): string | undefined => {
   try {
-    const parsed = JSON.parse(body) as { message?: unknown };
-    return typeof parsed.message === "string" ? parsed.message : undefined;
+    const parsed = v.safeParse(v.object({ message: v.optional(v.string()) }), JSON.parse(body) as unknown);
+    return parsed.success ? parsed.output.message : undefined;
   } catch {
     return undefined;
   }
@@ -151,7 +151,7 @@ export const createGitHubResponseError = async (
 
 const parseResponse = async <T>(
   response: Response,
-  schema: z.ZodType<T>,
+  schema: v.GenericSchema<unknown, T>,
   errorContext: string,
   notFoundType: AppErrorType
 ): Promise<T> => {
@@ -166,11 +166,11 @@ const parseResponse = async <T>(
     throw new GitHubError("unexpected_github_error", `Invalid GitHub JSON response: ${errorContext}`, 502);
   }
 
-  const parsed = schema.safeParse(raw);
+  const parsed = v.safeParse(schema, raw);
   if (!parsed.success) {
     throw new GitHubError("unexpected_github_error", `Invalid GitHub response shape: ${errorContext}`, 502);
   }
-  return parsed.data;
+  return parsed.output;
 };
 
 export class GitHubClientImpl implements GitHubClient {
@@ -231,7 +231,7 @@ export class GitHubClientImpl implements GitHubClient {
     );
     return parseResponse(
       response,
-      z.array(gitHubPullRequestSummarySchema),
+      v.array(gitHubPullRequestSummarySchema),
       `listOpenPullRequests ${owner}/${repo}`,
       "repo_not_registered"
     );

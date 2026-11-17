@@ -1,5 +1,5 @@
-import { splitRepository } from "@flightdeck/rules";
-import { z } from "zod";
+import { commitSha, splitRepository } from "@flightdeck/validation";
+import * as v from "valibot";
 
 import { callGitHub, DEFAULT_RATE_LIMIT_DELAY_SECONDS, parseResponse, retryDelaySeconds } from "./request.js";
 import {
@@ -31,29 +31,34 @@ import type {
 } from "../../usecase/sync/dependencies.js";
 
 const ZERO_OID = "0000000000000000000000000000000000000000";
+
 // compare の応答の上限
 // Free plan の CPU 時間（Worker の 1 回の起動、つまり Queue の message 1 件の処理で 10 ms）のうち、JSON の解釈に使ってよい分の目安
 const COMPARE_MAX_BYTES = 1024 * 1024;
 
-const refSchema = z.object({ object: z.object({ sha: z.string() }) });
-const shaSchema = z.object({ sha: z.string() });
-const compareSchema = z.object({
-  total_commits: z.number(),
-  commits: z.array(z.object({ sha: z.string(), commit: z.object({ message: z.string() }) })),
+const refSchema = v.object({ object: v.object({ sha: commitSha }) });
+
+const shaSchema = v.object({ sha: commitSha });
+
+const compareSchema = v.object({
+  total_commits: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+  commits: v.array(v.object({ sha: commitSha, commit: v.object({ message: v.string() }) })),
 });
-const graphqlSchema = z.object({
-  data: z.unknown().optional(),
-  errors: z
-    .array(
-      z.object({
-        type: z.string().optional(),
-        message: z.string(),
-        path: z.array(z.union([z.string(), z.number()])).optional(),
+
+const graphqlSchema = v.object({
+  data: v.optional(v.unknown()),
+  errors: v.optional(
+    v.array(
+      v.object({
+        type: v.optional(v.string()),
+        message: v.string(),
+        path: v.optional(v.array(v.union([v.string(), v.number()]))),
       })
     )
-    .optional(),
+  ),
 });
-type GraphqlError = NonNullable<z.output<typeof graphqlSchema>["errors"]>[number];
+
+type GraphqlError = NonNullable<v.InferOutput<typeof graphqlSchema>["errors"]>[number];
 
 const UPDATE_REFS = `mutation UpdateDispatchRef($repositoryId: ID!, $ref: GitRefname!, $before: GitObjectID!, $after: GitObjectID!) {
   updateRefs(input: { repositoryId: $repositoryId, refUpdates: [{ name: $ref, beforeOid: $before, afterOid: $after, force: true }] }) {

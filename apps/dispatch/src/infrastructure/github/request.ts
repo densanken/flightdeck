@@ -1,10 +1,13 @@
+import * as v from "valibot";
+
 import { DispatchError } from "../../errors.js";
 
-import type { z } from "zod";
-
 const API_ORIGIN = "https://api.github.com";
+
 const REQUEST_TIMEOUT_MS = 15_000;
+
 export const DEFAULT_RATE_LIMIT_DELAY_SECONDS = 60;
+
 const MAX_RETRY_DELAY_SECONDS = 3_600;
 
 export type Fetcher = (input: string, init: RequestInit) => Promise<Response>;
@@ -120,10 +123,10 @@ export const callGitHub = async (
   }
 };
 
-export const parseResponse = <T extends z.ZodType>(schema: T, value: unknown, what: string): z.output<T> => {
-  const parsed = schema.safeParse(value);
+export const parseResponse = <T extends v.GenericSchema>(schema: T, value: unknown, what: string): v.InferOutput<T> => {
+  const parsed = v.safeParse(schema, value);
 
   if (!parsed.success) throw new DispatchError("undeterminable", `unexpected GitHub response: ${what}`);
 
-  return parsed.data;
+  return parsed.output;
 };

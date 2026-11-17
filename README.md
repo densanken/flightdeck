@@ -18,6 +18,7 @@ densanken における Pull Request の運用・管理を自動化するため�
 | [`@flightdeck/pr-title`](packages/pr-title/README.md)                                 | Conventional Commits に準拠した PR タイトル検証ロジック                             |
 | [`@flightdeck/private-key-env`](packages/private-key-env/README.md)                   | GitHub App の秘密鍵（PEM）を PKCS#8 へ変換し `.env` に書き込む CLI / ユーティリティ |
 | [`@flightdeck/rules`](packages/rules/README.md)                                       | 設定ファイル・命名規則・承認判定の共通規則                                          |
+| [`@flightdeck/validation`](packages/validation/README.md)                             | GitHub の識別子と環境変数の共通検証                                                 |
 
 ※PR タイトルの命名規約（利用可能な type、scope、全角記号の制限など）については、[@flightdeck/pr-title のドキュメント](packages/pr-title/README.md#タイトルの検証ルール) を参照してください。
 

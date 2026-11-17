@@ -1,3 +1,5 @@
+import { ConfigurationError } from "@flightdeck/validation";
+
 import { createGitHubAppJwt } from "./app-auth.js";
 import { getAuthenticatedAppBotUserId } from "./app-identity.js";
 import { createInstallationAccessToken } from "./installation-token.js";
@@ -36,7 +38,7 @@ const normalizeAuthenticationError = (error: unknown, signal: AbortSignal): neve
       signal.aborted ? (signal.reason as unknown) : error
     );
   }
-  if (error instanceof AppError) throw error;
+  if (error instanceof AppError || error instanceof ConfigurationError) throw error;
   throw new GitHubError(
     "GITHUB_AUTH_FAILED",
     "GitHub App authentication operation failed",

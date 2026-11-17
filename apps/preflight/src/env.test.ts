@@ -37,10 +37,10 @@ describe("環境変数の読み取り", () => {
     );
   });
 
-  it("GitHub 認証の 2 値を trim して読み取り、private key の未設定を拒否する", () => {
+  it("GitHub 認証の 2 値をそのまま読み取り、private key の未設定を拒否する", () => {
     expect(getGitHubAuthConfig({ GITHUB_APP_ID: " 123 ", GITHUB_PRIVATE_KEY: " pem " })).toEqual({
-      appId: "123",
-      privateKeyPem: "pem",
+      appId: " 123 ",
+      privateKeyPem: " pem ",
     });
     expect(() => getGitHubAuthConfig({ GITHUB_APP_ID: "123" })).toThrow(
       expect.objectContaining({ configKey: "GITHUB_PRIVATE_KEY", reason: "missing" })

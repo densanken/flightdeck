@@ -1,3 +1,5 @@
+import * as v from "valibot";
+
 import { DispatchError, isPermanent } from "../../errors.js";
 import { dispatchMessageSchema } from "../../message/webhook.js";
 
@@ -30,7 +32,7 @@ const describe = (message: DispatchMessage): Record<string, string> => {
 export const createMessageConsumer =
   ({ createUseCase, logger }: ConsumeDependencies) =>
   async (message: Pick<Message, "id" | "body" | "attempts" | "ack" | "retry">): Promise<void> => {
-    const parsed = dispatchMessageSchema.safeParse(message.body);
+    const parsed = v.safeParse(dispatchMessageSchema, message.body);
     // 形が壊れた message は retry しても同じ結果になるため捨てる
     if (!parsed.success) {
       logger.log("error", { event: "consume", result: "invalid_message", messageId: message.id });
@@ -39,7 +41,7 @@ export const createMessageConsumer =
       return;
     }
 
-    const queued = parsed.data;
+    const queued = parsed.output;
     const log = {
       event: "consume",
       messageEvent: queued.event,

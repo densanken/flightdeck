@@ -1,10 +1,10 @@
 import { verifyGitHubWebhookSignature } from "@flightdeck/github-webhook-signature";
+import { ConfigurationError } from "@flightdeck/validation";
 
 import { budgetedCacheStorage, createSubrequestBudget } from "./subrequest-budget.js";
 import { createApp } from "../app.js";
 import { TITLE_STATUS_MESSAGES } from "../domain/title-status-message.js";
 import { getGitHubAuthConfig, getRuntimeOptions, getWebhookSecret, parseGitHubAppBotUserId } from "../env.js";
-import { ConfigurationError } from "../errors.js";
 import { createQueuedGitHubWebhookHandler } from "../handler/github/webhook-queue.js";
 import { createGitHubWebhookProcessor, HARD_DEADLINE_MS } from "../handler/github/webhook.js";
 import { setPullRequestTitleStatus } from "../infrastructure/github/commit-status.js";
@@ -138,11 +138,11 @@ export const composeGitHubWebhookProcessor =
         result: "internal_error",
         deliveryId: delivery.deliveryId,
         durationMs: Date.now() - startedAt,
-        errorCode: error.code,
+        errorCode: "INTERNAL_ERROR",
         configKey: error.configKey,
         configReason: error.reason,
       });
-      return { status: "failed", errorCode: error.code };
+      return { status: "failed", errorCode: "INTERNAL_ERROR" };
     }
   };
 
@@ -168,11 +168,11 @@ const composeQueuedGitHubWebhookHandler =
         event: "github_webhook_receive",
         result: "internal_error",
         durationMs: Date.now() - startedAt,
-        errorCode: error.code,
+        errorCode: "INTERNAL_ERROR",
         configKey: error.configKey,
         configReason: error.reason,
       });
-      return jsonResponse({ ok: false, code: error.code }, error.statusCode);
+      return jsonResponse({ ok: false, code: "INTERNAL_ERROR" }, 500);
     }
   };
 

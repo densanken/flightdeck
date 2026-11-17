@@ -16,6 +16,12 @@ describe("Merge API", () => {
     });
   });
 
+  it.each([null, {}, { merged: "true" }])("不正な merge 応答を拒否する", async (data) => {
+    const request = vi.fn().mockResolvedValue({ data, response: { status: 200 } });
+    const github = new GitHubGatewayImpl({ request } as unknown as GitHubRequest, "org/repo");
+    await expect(github.merge(3, "head")).rejects.toThrow("invalid merge response");
+  });
+
   it.each([403, 405, 409, 422])("GitHub の拒否 %i を記録可能な結果として返す", async (status) => {
     const request = vi.fn().mockRejectedValue(new ApiError(status));
     const github = new GitHubGatewayImpl({ request } as unknown as GitHubRequest, "org/repo");

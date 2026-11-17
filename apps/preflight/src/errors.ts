@@ -28,18 +28,6 @@ export class RequestTimeoutError extends AppError {
   }
 }
 
-type ConfigurationErrorReason = "invalid" | "missing";
-
-export class ConfigurationError extends AppError {
-  constructor(
-    readonly configKey: string,
-    readonly reason: ConfigurationErrorReason
-  ) {
-    super("INTERNAL_ERROR", 500, `Runtime configuration is ${reason}: ${configKey}`);
-    this.name = "ConfigurationError";
-  }
-}
-
 // GitHub が返した error の message と、App の権限不足時に GitHub が示す必要権限
 interface GitHubErrorOptions extends ErrorOptions {
   githubMessage?: string;

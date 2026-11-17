@@ -1,7 +1,8 @@
+import { ConfigurationError } from "@flightdeck/validation";
 import { describe, expect, it } from "vitest";
 
 import { logFeatureFailure, logFeatureResult } from "./logging.js";
-import { ConfigurationError, GitHubError } from "../../errors.js";
+import { GitHubError } from "../../errors.js";
 import { RecordingLogger } from "../../test-helper/platform.js";
 import { TitleValidationExecutionError } from "../../usecase/title-validation/errors.js";
 

@@ -1,4 +1,5 @@
-import { z } from "zod";
+import { commitSha, githubId, repositoryFullName } from "@flightdeck/validation";
+import * as v from "valibot";
 
 import type {
   GitHubCheckRun,
@@ -14,156 +15,144 @@ import type {
   GitHubWorkflowRun,
 } from "../../usecase/github.js";
 
-// GitHub response の parse には schema が要るため port（usecase/github.ts）と型が二重に見えるが、
-// 契約の所有者は port に一本化し、ここでは satisfies で schema の出力が port の型からずれたら compile error にする
-export const gitHubRepositorySchema = z.object({
-  id: z.number().int(),
-  name: z.string(),
-  full_name: z.string(),
-  html_url: z.url(),
-  owner: z.object({
-    login: z.string(),
-  }),
-}) satisfies z.ZodType<GitHubRepository>;
+const url = v.pipe(v.string(), v.url());
 
-export const gitHubPullRequestSchema = z.object({
-  number: z.number().int(),
-  title: z.string(),
-  html_url: z.url(),
-  state: z.string(),
-  draft: z.boolean(),
-  mergeable: z.boolean().nullable(),
-  merge_commit_sha: z.string().nullable().optional(),
-  head: z.object({
-    sha: z.string(),
-    ref: z.string(),
-    label: z.string(),
-    repo: z.object({ id: z.number().int() }).nullable(),
-  }),
-  base: z.object({
-    ref: z.string(),
-    sha: z.string(),
-    repo: z.object({ id: z.number().int() }),
-  }),
-  user: z
-    .object({
-      login: z.string(),
-    })
-    .nullable(),
-  updated_at: z.iso.datetime(),
-}) satisfies z.ZodType<GitHubPullRequest>;
+const count = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 
-export const gitHubPullRequestSummarySchema = gitHubPullRequestSchema.omit({
-  mergeable: true,
-}) satisfies z.ZodType<GitHubPullRequestSummary>;
-
-export const gitHubCheckRunSchema = z.object({
-  id: z.number().int(),
-  name: z.string(),
-  status: z.string(),
-  conclusion: z.string().nullable(),
-  html_url: z.url().nullable(),
-  app: z.object({ id: z.number().int(), slug: z.string().optional() }).nullable(),
-}) satisfies z.ZodType<GitHubCheckRun>;
-
-export const gitHubCheckRunsResponseSchema = z.object({
-  total_count: z.number().int(),
-  check_runs: z.array(gitHubCheckRunSchema),
-}) satisfies z.ZodType<GitHubCheckRunsResponse>;
-
-export const gitHubStatusContextSchema = z.object({
-  state: z.string(),
-  context: z.string(),
-  target_url: z.url().nullable(),
-}) satisfies z.ZodType<GitHubStatusContext>;
-
-export const gitHubCombinedStatusSchema = z.object({
-  state: z.string(),
-  total_count: z.number().int(),
-  statuses: z.array(gitHubStatusContextSchema),
-}) satisfies z.ZodType<GitHubCombinedStatus>;
-
-export const gitHubMergeResponseSchema = z.object({
-  sha: z.string(),
-  merged: z.boolean(),
-  message: z.string(),
-}) satisfies z.ZodType<GitHubMergeResponse>;
-
-// Contents API でディレクトリを取得すると、直下の entry の配列が返る
-export const gitHubWorkflowFilesSchema = z.array(
-  z.object({
-    path: z.string(),
-    sha: z.string(),
-  })
-) satisfies z.ZodType<GitHubWorkflowFile[]>;
-
-// rename された file は変更前の path も持つ
-export const gitHubPullRequestFilesSchema = z.array(
-  z.object({
-    filename: z.string(),
-    previous_filename: z.string().optional(),
+const utcDateTime = v.pipe(
+  v.string(),
+  v.regex(/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?Z$/),
+  v.check((value) => {
+    const date = new Date(value);
+    return Number.isFinite(date.valueOf()) && date.toISOString().slice(0, 10) === value.slice(0, 10);
   })
 );
 
-export const gitHubInstallationSchema = z.object({
-  id: z.number().int(),
-  app_id: z.number().int(),
+// GitHub response の parse には schema が要るため port（usecase/github.ts）と型が二重に見えるが、
+// 契約の所有者は port に一本化し、ここでは satisfies で schema の出力が port の型からずれたら compile error にする
+export const gitHubRepositorySchema = v.object({
+  id: githubId,
+  name: v.string(),
+  full_name: repositoryFullName,
+  html_url: url,
+  owner: v.object({ login: v.string() }),
+}) satisfies v.GenericSchema<unknown, GitHubRepository>;
+
+const pullRequestEntries = {
+  number: githubId,
+  title: v.string(),
+  html_url: url,
+  state: v.string(),
+  draft: v.boolean(),
+  merge_commit_sha: v.nullish(commitSha),
+  head: v.object({ sha: commitSha, ref: v.string(), label: v.string(), repo: v.nullable(v.object({ id: githubId })) }),
+  base: v.object({ ref: v.string(), sha: commitSha, repo: v.object({ id: githubId }) }),
+  user: v.nullable(v.object({ login: v.string() })),
+  updated_at: utcDateTime,
+};
+
+export const gitHubPullRequestSchema = v.object({
+  ...pullRequestEntries,
+  mergeable: v.nullable(v.boolean()),
+}) satisfies v.GenericSchema<unknown, GitHubPullRequest>;
+
+export const gitHubPullRequestSummarySchema = v.object(pullRequestEntries) satisfies v.GenericSchema<
+  unknown,
+  GitHubPullRequestSummary
+>;
+
+export const gitHubCheckRunSchema = v.object({
+  id: githubId,
+  name: v.string(),
+  status: v.string(),
+  conclusion: v.nullable(v.string()),
+  html_url: v.nullable(url),
+  app: v.nullable(v.object({ id: githubId, slug: v.optional(v.string()) })),
+}) satisfies v.GenericSchema<unknown, GitHubCheckRun>;
+
+export const gitHubCheckRunsResponseSchema = v.object({
+  total_count: count,
+  check_runs: v.array(gitHubCheckRunSchema),
+}) satisfies v.GenericSchema<unknown, GitHubCheckRunsResponse>;
+
+export const gitHubStatusContextSchema = v.object({
+  state: v.string(),
+  context: v.string(),
+  target_url: v.nullable(url),
+}) satisfies v.GenericSchema<unknown, GitHubStatusContext>;
+
+export const gitHubCombinedStatusSchema = v.object({
+  total_count: count,
+  state: v.string(),
+  statuses: v.array(gitHubStatusContextSchema),
+}) satisfies v.GenericSchema<unknown, GitHubCombinedStatus>;
+
+export const gitHubMergeResponseSchema = v.object({
+  sha: commitSha,
+  merged: v.boolean(),
+  message: v.string(),
+}) satisfies v.GenericSchema<unknown, GitHubMergeResponse>;
+
+// Contents API でディレクトリを取得すると、直下の entry の配列が返る
+export const gitHubWorkflowFilesSchema = v.array(
+  v.object({ path: v.string(), sha: commitSha })
+) satisfies v.GenericSchema<unknown, GitHubWorkflowFile[]>;
+
+// rename された file は変更前の path も持つ
+export const gitHubPullRequestFilesSchema = v.array(
+  v.object({ filename: v.string(), previous_filename: v.optional(v.string()) })
+);
+
+export const gitHubInstallationSchema = v.object({ id: githubId, app_id: githubId });
+
+export type GitHubInstallation = v.InferOutput<typeof gitHubInstallationSchema>;
+
+export const gitHubInstallationTokenSchema = v.object({
+  token: v.pipe(v.string(), v.nonEmpty()),
+  expires_at: v.string(),
 });
 
-export type GitHubInstallation = z.infer<typeof gitHubInstallationSchema>;
+export type GitHubInstallationToken = v.InferOutput<typeof gitHubInstallationTokenSchema>;
 
-export const gitHubInstallationTokenSchema = z.object({
-  token: z.string().min(1),
-  expires_at: z.string(),
+export const gitHubInstallationReposResponseSchema = v.object({
+  total_count: count,
+  repositories: v.array(gitHubRepositorySchema),
 });
 
-export type GitHubInstallationToken = z.infer<typeof gitHubInstallationTokenSchema>;
+export type GitHubInstallationReposResponse = v.InferOutput<typeof gitHubInstallationReposResponseSchema>;
 
-export const gitHubInstallationReposResponseSchema = z.object({
-  total_count: z.number().int(),
-  repositories: z.array(gitHubRepositorySchema),
+export const gitHubWorkflowRunSchema = v.object({
+  id: githubId,
+  name: v.string(),
+  status: v.string(),
+  actor: v.object({ login: v.string() }),
+}) satisfies v.GenericSchema<unknown, GitHubWorkflowRun>;
+
+export const gitHubWorkflowRunsResponseSchema = v.object({
+  total_count: count,
+  workflow_runs: v.array(gitHubWorkflowRunSchema),
 });
 
-export type GitHubInstallationReposResponse = z.infer<typeof gitHubInstallationReposResponseSchema>;
+export type GitHubWorkflowRunsResponse = v.InferOutput<typeof gitHubWorkflowRunsResponseSchema>;
 
-export const gitHubWorkflowRunSchema = z.object({
-  id: z.number().int(),
-  name: z.string(),
-  status: z.string(),
-  actor: z.object({ login: z.string() }),
-}) satisfies z.ZodType<GitHubWorkflowRun>;
+export const gitHubEffectiveBranchRuleSchema = v.object({ type: v.string(), parameters: v.optional(v.unknown()) });
 
-export const gitHubWorkflowRunsResponseSchema = z.object({
-  total_count: z.number().int(),
-  workflow_runs: z.array(gitHubWorkflowRunSchema),
-});
+export const gitHubEffectiveBranchRulesSchema = v.array(gitHubEffectiveBranchRuleSchema);
 
-export type GitHubWorkflowRunsResponse = z.infer<typeof gitHubWorkflowRunsResponseSchema>;
-
-export const gitHubEffectiveBranchRuleSchema = z.object({
-  type: z.string(),
-  parameters: z.unknown().optional(),
-});
-
-export const gitHubEffectiveBranchRulesSchema = z.array(gitHubEffectiveBranchRuleSchema);
-
-export const gitHubRequiredStatusChecksParametersSchema = z.object({
-  required_status_checks: z.array(
-    z.object({
-      context: z.string().min(1),
-      integration_id: z.number().int().nullable().optional(),
-    })
+export const gitHubRequiredStatusChecksParametersSchema = v.object({
+  required_status_checks: v.array(
+    v.object({ context: v.pipe(v.string(), v.nonEmpty()), integration_id: v.nullish(githubId) })
   ),
-  strict_required_status_checks_policy: z.boolean(),
+  strict_required_status_checks_policy: v.boolean(),
 });
 
-export const toGitHubRequiredStatusChecks = (rules: z.infer<typeof gitHubEffectiveBranchRulesSchema>) => {
+export const toGitHubRequiredStatusChecks = (rules: v.InferOutput<typeof gitHubEffectiveBranchRulesSchema>) => {
   const requiredChecks: GitHubRequiredStatusCheck[] = [];
   for (const rule of rules) {
     if (rule.type !== "required_status_checks") continue;
-    const parameters = gitHubRequiredStatusChecksParametersSchema.safeParse(rule.parameters);
+    const parameters = v.safeParse(gitHubRequiredStatusChecksParametersSchema, rule.parameters);
     if (!parameters.success) return parameters;
-    for (const check of parameters.data.required_status_checks) {
+    for (const check of parameters.output.required_status_checks) {
       requiredChecks.push({ context: check.context, integrationId: check.integration_id ?? null });
     }
   }

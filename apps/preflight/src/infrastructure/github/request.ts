@@ -1,12 +1,18 @@
+import * as v from "valibot";
+
 import { GitHubError, RequestTimeoutError, SubrequestBudgetExceededError } from "../../errors.js";
 import { isAbortError, raceWithSignal } from "../../util/timeout.js";
 
 export const GITHUB_API_BASE_URL = "https://api.github.com";
+
 export const GITHUB_API_VERSION = "2026-03-10";
 
 const USER_AGENT = "preflight";
+
 const DEFAULT_RETRY_ATTEMPTS = 3;
+
 const DEFAULT_RETRY_BUDGET_MS = 2_000;
+
 const BASE_RETRY_DELAY_MS = 100;
 
 export type GitHubErrorCode = "GITHUB_AUTH_FAILED" | "GITHUB_API_FAILED";
@@ -149,10 +155,11 @@ const ERROR_BODY_TIMEOUT_MS = 1_000;
 const readGitHubMessage = async (response: Response, signal: AbortSignal): Promise<string | undefined> => {
   try {
     const body = await raceWithSignal(
-      response.json<{ message?: unknown } | null>(),
+      response.json<unknown>(),
       AbortSignal.any([signal, AbortSignal.timeout(ERROR_BODY_TIMEOUT_MS)])
     );
-    return typeof body?.message === "string" ? body.message : undefined;
+    const parsed = v.safeParse(v.object({ message: v.optional(v.string()) }), body);
+    return parsed.success ? parsed.output.message : undefined;
   } catch {
     // message は診断用の補足なので、読めなくても元の GitHubError を返す
     discardResponseBody(response);

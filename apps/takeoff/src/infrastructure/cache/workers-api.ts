@@ -1,7 +1,7 @@
+import * as v from "valibot";
+
 import { errorDetail } from "../../util/error-detail.js";
 import { logger } from "../../util/logger.js";
-
-import type { z } from "zod";
 
 // 既定 cache（`caches.default`）は edge の HTTP cache と同じ空間のため、
 // takeoff 専用の named cache へ隔離する
@@ -17,18 +17,18 @@ const openCache = (): Promise<Cache> => caches.open(TAKEOFF_CACHE_NAME);
 export const workersCache = {
   // Cache API の値は別 isolate や過去バージョンが書いた可能性があるため unknown として扱い、呼び出し元の schema で検証する
   // parse に失敗した値は cache miss として捨てる
-  async get<T>(key: string, schema: z.ZodType<T>): Promise<T | null> {
+  async get<T>(key: string, schema: v.GenericSchema<unknown, T>): Promise<T | null> {
     try {
       const cache = await openCache();
       const response = await cache.match(new Request(key));
       if (!response) return null;
       const raw: unknown = await response.json();
-      const parsed = schema.safeParse(raw);
+      const parsed = v.safeParse(schema, raw);
       if (!parsed.success) {
-        logger.log("error", { event: "workers_cache_value_invalid", key, issueCount: parsed.error.issues.length });
+        logger.log("error", { event: "workers_cache_value_invalid", key, issueCount: parsed.issues.length });
         return null;
       }
-      return parsed.data;
+      return parsed.output;
     } catch (error) {
       logger.log("error", { event: "workers_cache_get_failed", error: errorDetail(error) });
       return null;

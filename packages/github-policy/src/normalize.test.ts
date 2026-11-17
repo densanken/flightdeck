@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { parseResponse } from "./error.js";
 import { normalizeConfigs, normalizePr } from "./normalize.js";
 import { prResponse } from "./schema.js";
 
@@ -13,7 +14,7 @@ const makeResponse = () => ({
       body: "",
       createdAt: "2026-01-01T00:00:00Z",
       headRefName: "branch",
-      headRefOid: "head",
+      headRefOid: "a".repeat(40),
       author: null,
       editor: null,
       lastEditedAt: null,
@@ -22,10 +23,12 @@ const makeResponse = () => ({
       files: { totalCount: 0, nodes: [] },
       latestOpinionatedReviews: { totalCount: 0, nodes: [] },
       latestReviews: { totalCount: 0, nodes: [] },
-      commits: { nodes: [{ commit: { oid: "head", statusCheckRollup: { contexts: { totalCount: 0, nodes: [] } } } }] },
+      commits: {
+        nodes: [{ commit: { oid: "a".repeat(40), statusCheckRollup: { contexts: { totalCount: 0, nodes: [] } } } }],
+      },
       potentialMergeCommit: null,
       baseRef: {
-        target: { oid: "base", submodules: { nodes: [], pageInfo: { hasNextPage: false } } },
+        target: { oid: "b".repeat(40), submodules: { nodes: [], pageInfo: { hasNextPage: false } } },
       },
       recent: { pageCount: 0 },
       timelineItems: { pageCount: 0, pageInfo: { hasPreviousPage: false }, nodes: [] },
@@ -44,7 +47,8 @@ describe("PR connection の完全性", () => {
         nodes: [{ __typename: "Other" }],
       },
     };
-    const pr = prResponse.parse({ repository: { databaseId: 1, pullRequest: response } }).repository.pullRequest;
+    const pr = parseResponse(prResponse, { repository: { databaseId: 1, pullRequest: response } }).repository
+      .pullRequest;
 
     if (!pr) throw new Error("missing fixture");
 
@@ -56,7 +60,7 @@ describe("PR connection の完全性", () => {
 
     data.repository.pullRequest.timelineItems.pageCount = 1;
 
-    const pr = prResponse.parse(data).repository.pullRequest;
+    const pr = parseResponse(prResponse, data).repository.pullRequest;
 
     if (!pr) throw new Error("missing fixture");
 
@@ -75,7 +79,7 @@ describe("PR connection の完全性", () => {
     for (const field of ["files", "latestReviews", "latestOpinionatedReviews", "labels"] as const) {
       const data = makeResponse();
       data.repository.pullRequest[field].totalCount = 1;
-      const pr = prResponse.parse(data).repository.pullRequest;
+      const pr = parseResponse(prResponse, data).repository.pullRequest;
       expect(pr).not.toBeNull();
       if (pr) expect(() => normalizePr(pr)).toThrow("truncated");
     }
@@ -86,7 +90,7 @@ describe("PR connection の完全性", () => {
     if (!head) throw new Error("missing fixture");
     head.commit.statusCheckRollup.contexts.totalCount = 1;
 
-    const pr = prResponse.parse(data).repository.pullRequest;
+    const pr = parseResponse(prResponse, data).repository.pullRequest;
 
     if (!pr) throw new Error("missing fixture");
 
@@ -98,7 +102,7 @@ describe("PR connection の完全性", () => {
 
     data.repository.pullRequest.baseRef.target.submodules.pageInfo.hasNextPage = true;
 
-    const pr = prResponse.parse(data).repository.pullRequest;
+    const pr = parseResponse(prResponse, data).repository.pullRequest;
 
     if (!pr) throw new Error("missing fixture");
 
@@ -142,7 +146,7 @@ describe("PR connection の完全性", () => {
             ],
           },
           potentialMergeCommit: {
-            oid: "merge",
+            oid: "c".repeat(40),
             statusCheckRollup: {
               contexts: {
                 totalCount: 2,
@@ -153,7 +157,7 @@ describe("PR connection の完全性", () => {
         },
       },
     };
-    const pr = prResponse.parse(response).repository.pullRequest;
+    const pr = parseResponse(prResponse, response).repository.pullRequest;
 
     if (!pr) throw new Error("missing fixture");
 
@@ -172,9 +176,9 @@ describe("PR connection の完全性", () => {
   it("GraphQL の取得中に変化した head を拒否する", () => {
     const data = makeResponse();
 
-    data.repository.pullRequest.headRefOid = "other";
+    data.repository.pullRequest.headRefOid = "f".repeat(40);
 
-    const pr = prResponse.parse(data).repository.pullRequest;
+    const pr = parseResponse(prResponse, data).repository.pullRequest;
 
     if (!pr) throw new Error("missing fixture");
 

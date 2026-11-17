@@ -143,6 +143,11 @@ export default [
               from: "./apps",
               message: "The shared autopilot policy must not depend on applications.",
             },
+            {
+              target: "./packages/validation",
+              from: "./apps",
+              message: "The shared validation package must not depend on applications.",
+            },
           ],
         },
       ],
@@ -252,7 +257,7 @@ export default [
     },
   },
   {
-    files: ["apps/{clearance,autopilot}/src/{handler,domain}/**/*.ts", "packages/rules/src/**/*.ts"],
+    files: ["apps/{clearance,autopilot}/src/{handler,domain}/**/*.ts", "packages/{rules,validation}/src/**/*.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",
@@ -337,6 +342,27 @@ export default [
                 "**/github-policy/**",
               ],
               message: "The shared rules must not depend on applications or the GitHub policy package.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["packages/validation/src/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: [
+                "../../../apps/**",
+                "@flightdeck/github-policy",
+                "@flightdeck/github-policy/*",
+                "**/github-policy/**",
+              ],
+              message: "The shared validation package must not depend on applications or the GitHub policy package.",
             },
           ],
         },

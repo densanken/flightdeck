@@ -1,14 +1,14 @@
+import * as v from "valibot";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 
 import { cacheKeys } from "./keys.js";
 import { TAKEOFF_CACHE_NAME, workersCache } from "./workers-api.js";
 import { buildCacheBaseUrl } from "../../config.js";
-import { mergeCooldownSchema } from "../../repository/cache/interface.js";
+import { mergeCooldownSchema } from "../../repository/cache/schema.js";
 import { logger } from "../../util/logger.js";
 
-// installation-id は getInstallationToken の URL に流れるため z.number().int().positive() で防御する
-const installationIdSchema = z.number().int().positive();
+// installation-id は getInstallationToken の URL に流れるため v.pipe(v.number(), v.safeInteger(), v.minValue(1)) で防御する
+const installationIdSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(1));
 
 describe("workersCache.get schema 検証", () => {
   afterEach(() => {
@@ -39,7 +39,7 @@ describe("workersCache.get schema 検証", () => {
   it("既定 cache とは別の named cache へ書き、公開 origin の URL では読めない", async () => {
     const cacheBaseUrl = buildCacheBaseUrl("https://takeoff-isolation.example.com");
     const key = cacheKeys.prList(cacheBaseUrl, "repo-1");
-    const valueSchema = z.object({ value: z.literal("private") });
+    const valueSchema = v.object({ value: v.literal("private") });
 
     await workersCache.set(key, { value: "private" }, 60);
 

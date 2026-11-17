@@ -25,6 +25,23 @@ describe("validateEnv", () => {
     }).not.toThrow();
   });
 
+  it("安全な整数の範囲を超える Discord ID を文字列として受け入れる", () => {
+    expect(() => {
+      validateEnv({
+        ...validBindings(),
+        DISCORD_APPLICATION_ID: "1234567890123456789",
+        ALLOWED_GUILD_IDS: "1234567890123456789, 2345678901234567890",
+        ADMIN_ROLE_IDS: "3456789012345678901",
+      });
+    }).not.toThrow();
+  });
+
+  it.each(["ALLOWED_GUILD_IDS", "ADMIN_ROLE_IDS"] as const)("空の ID 一覧 %s を拒否する", (key) => {
+    expect(() => {
+      validateEnv({ ...validBindings(), [key]: " , " });
+    }).toThrow(EnvValidationError);
+  });
+
   it("必須 env の空文字を拒否する", () => {
     expect(() => {
       validateEnv({ ...validBindings(), GITHUB_ORG: "" });

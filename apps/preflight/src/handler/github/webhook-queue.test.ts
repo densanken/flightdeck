@@ -1,3 +1,4 @@
+import { ConfigurationError } from "@flightdeck/validation";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -5,7 +6,6 @@ import {
   parseGitHubWebhookQueueMessage,
   parseQueuedWebhookPayload,
 } from "./webhook-queue.js";
-import { ConfigurationError } from "../../errors.js";
 import { MAX_WEBHOOK_BODY_BYTES } from "../../util/request-body.js";
 
 import type { GitHubWebhookQueueMessage } from "../../message/github-webhook.js";
@@ -14,11 +14,11 @@ import type { Logger } from "../../util/logger.js";
 const payload = JSON.stringify({
   action: "opened",
   installation: { id: 42 },
-  repository: { name: "repo", owner: { login: "owner" } },
+  repository: { full_name: "owner/repo" },
   pull_request: {
     number: 7,
     title: "feat: add login",
-    head: { sha: "abc123" },
+    head: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
     user: { login: "author", type: "User" },
     assignees: [],
   },
@@ -93,11 +93,11 @@ describe("producer の HTTP 境界", () => {
     const largePayload = JSON.stringify({
       action: "opened",
       installation: { id: 42 },
-      repository: { name: "repo", owner: { login: "owner" } },
+      repository: { full_name: "owner/repo" },
       pull_request: {
         number: 7,
         title: '"'.repeat(55_000),
-        head: { sha: "abc123" },
+        head: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
         user: { login: "author", type: "User" },
         assignees: [],
       },
@@ -341,6 +341,20 @@ describe("parseGitHubWebhookQueueMessage", () => {
     body,
   });
 
+  it("不正なフィールドを拒否し、未知のキーを除く", () => {
+    const valid = message("{}");
+    for (const invalid of [
+      null,
+      { ...valid, version: 2 },
+      { ...valid, event: "push" },
+      { ...valid, deliveryId: "invalid id" },
+      { ...valid, body: 1 },
+    ]) {
+      expect(parseGitHubWebhookQueueMessage(invalid)).toBeNull();
+    }
+    expect(parseGitHubWebhookQueueMessage({ ...valid, extra: "ignored" })).toEqual(valid);
+  });
+
   it("ASCII body は byte 上限ちょうどまで受け入れ、超過を拒否する", () => {
     expect(parseGitHubWebhookQueueMessage(message("x".repeat(MAX_WEBHOOK_BODY_BYTES)))).not.toBeNull();
     expect(parseGitHubWebhookQueueMessage(message("x".repeat(MAX_WEBHOOK_BODY_BYTES + 1)))).toBeNull();
@@ -391,7 +405,7 @@ describe("parseQueuedWebhookPayload", () => {
     expect(parseQueuedWebhookPayload(message(payload))).toMatchObject({
       action: "opened",
       installation: { id: 42 },
-      pullRequest: { number: 7, head: { sha: "abc123" } },
+      pullRequest: { number: 7, head: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" } },
     });
   });
 

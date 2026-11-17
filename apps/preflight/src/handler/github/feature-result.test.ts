@@ -1,7 +1,8 @@
+import { ConfigurationError } from "@flightdeck/validation";
 import { describe, expect, it } from "vitest";
 
 import { failureErrorCode, underlyingError } from "./feature-result.js";
-import { ConfigurationError, GitHubError } from "../../errors.js";
+import { GitHubError } from "../../errors.js";
 import { TitleValidationExecutionError } from "../../usecase/title-validation/errors.js";
 
 import type { FeatureResult } from "../../usecase/pull-request-policy/interface.js";

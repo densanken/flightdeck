@@ -1,13 +1,13 @@
-import {
-  DEFAULT_INSTALLATION_REPO_CACHE_TTL_SECONDS,
-  DEFAULT_MERGE_COOLDOWN_SECONDS,
-  DEFAULT_PR_LIST_CACHE_TTL_SECONDS,
-  DEFAULT_REPO_INDEX_CACHE_TTL_SECONDS,
-  DEFAULT_SYNC_COOLDOWN_SECONDS,
-  parseIntWithDefault,
-} from "./env.js";
+import { optionalPositiveInteger } from "@flightdeck/validation";
 
 import type { Env } from "./env.js";
+
+const DEFAULT_PR_LIST_CACHE_TTL_SECONDS = 60;
+// repo-index の Cache API entry は colo local のため、この TTL がそのまま他拠点への反映遅延の上限になる
+const DEFAULT_REPO_INDEX_CACHE_TTL_SECONDS = 300;
+const DEFAULT_MERGE_COOLDOWN_SECONDS = 10;
+const DEFAULT_SYNC_COOLDOWN_SECONDS = 30;
+const DEFAULT_INSTALLATION_REPO_CACHE_TTL_SECONDS = 60;
 
 export interface AppConfig {
   cacheBaseUrl: string;
@@ -43,15 +43,29 @@ export const buildAppConfig = (env: Env["Bindings"]): AppConfig => {
     githubAppId: env.GITHUB_APP_ID,
     githubAppPrivateKey: env.GITHUB_APP_PRIVATE_KEY,
     mergeAuditWebhookUrl: env.MERGE_AUDIT_DISCORD_WEBHOOK_URL,
-    prListCacheTtlSeconds: parseIntWithDefault(env.PR_LIST_CACHE_TTL_SECONDS, DEFAULT_PR_LIST_CACHE_TTL_SECONDS),
-    repoIndexCacheTtlSeconds: parseIntWithDefault(
+    prListCacheTtlSeconds: optionalPositiveInteger(
+      env.PR_LIST_CACHE_TTL_SECONDS,
+      "PR_LIST_CACHE_TTL_SECONDS",
+      DEFAULT_PR_LIST_CACHE_TTL_SECONDS
+    ),
+    repoIndexCacheTtlSeconds: optionalPositiveInteger(
       env.REPO_INDEX_CACHE_TTL_SECONDS,
+      "REPO_INDEX_CACHE_TTL_SECONDS",
       DEFAULT_REPO_INDEX_CACHE_TTL_SECONDS
     ),
-    mergeCooldownSeconds: parseIntWithDefault(env.MERGE_COOLDOWN_SECONDS, DEFAULT_MERGE_COOLDOWN_SECONDS),
-    syncCooldownSeconds: parseIntWithDefault(env.SYNC_COOLDOWN_SECONDS, DEFAULT_SYNC_COOLDOWN_SECONDS),
-    installationRepoCacheTtlSeconds: parseIntWithDefault(
+    mergeCooldownSeconds: optionalPositiveInteger(
+      env.MERGE_COOLDOWN_SECONDS,
+      "MERGE_COOLDOWN_SECONDS",
+      DEFAULT_MERGE_COOLDOWN_SECONDS
+    ),
+    syncCooldownSeconds: optionalPositiveInteger(
+      env.SYNC_COOLDOWN_SECONDS,
+      "SYNC_COOLDOWN_SECONDS",
+      DEFAULT_SYNC_COOLDOWN_SECONDS
+    ),
+    installationRepoCacheTtlSeconds: optionalPositiveInteger(
       env.INSTALLATION_REPO_CACHE_TTL_SECONDS,
+      "INSTALLATION_REPO_CACHE_TTL_SECONDS",
       DEFAULT_INSTALLATION_REPO_CACHE_TTL_SECONDS
     ),
   };

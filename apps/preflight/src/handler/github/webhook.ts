@@ -1,7 +1,9 @@
+import { ConfigurationError, splitRepository } from "@flightdeck/validation";
+
 import { failureErrorCode } from "./feature-result.js";
 import { githubErrorFields, logFeatureFailure, logFeatureResult, policyLog, unexpectedErrorFields } from "./logging.js";
 import { triggersTitleValidation } from "../../domain/webhook-actions.js";
-import { AppError, ConfigurationError } from "../../errors.js";
+import { AppError } from "../../errors.js";
 
 import type { RequestLogContext } from "./context.js";
 import type { PullRequestWebhookPayload } from "./payload.js";
@@ -44,8 +46,10 @@ export type GitHubWebhookProcessOutcome =
 // 重複配信と並行配信は wall time とは独立に起こるため、この値は再配信されない保証ではない
 // batch の message は逐次処理するので HARD_DEADLINE_MS × max_batch_size を 15 分未満に保つ
 export const HARD_DEADLINE_MS = 60_000;
+
 // 失敗後の status 再収束と fail-closed の投稿へ 5 秒を残す
 const SOFT_DEADLINE_MS = 55_000;
+
 // 検証本体に使える時間を削らないよう、pending の書き込みは短い deadline で打ち切る
 const PENDING_STATUS_DEADLINE_MS = 2_500;
 
@@ -63,6 +67,7 @@ const PENDING_STATUS_DEADLINE_MS = 2_500;
 const postPendingTitleStatus = async (
   dependencies: GitHubWebhookProcessorDependencies,
   payload: PullRequestWebhookPayload,
+  { owner, repo }: { owner: string; repo: string },
   delivery: WebhookDelivery,
   context: RequestLogContext,
   startedAt: number,
@@ -101,8 +106,8 @@ const postPendingTitleStatus = async (
     await setPendingTitleStatus(
       {
         installationId: payload.installation.id,
-        owner: payload.repository.owner.login,
-        repo: payload.repository.name,
+        owner,
+        repo,
         sha: payload.pullRequest.head.sha,
       },
       pendingSignal
@@ -128,14 +133,13 @@ export const createGitHubWebhookProcessor =
   async (payload: PullRequestWebhookPayload, delivery: WebhookDelivery): Promise<GitHubWebhookProcessOutcome> => {
     const startedAt = Date.now();
     const deliveryId = delivery.deliveryId;
-    const owner = payload.repository.owner.login;
-    const repo = payload.repository.name;
+    const { owner, name: repo } = splitRepository(payload.repository.fullName);
     const author = payload.pullRequest.user.login;
     const context: RequestLogContext = {
       deliveryId,
       githubEvent: "pull_request",
       action: payload.action,
-      repository: `${owner}/${repo}`,
+      repository: payload.repository.fullName,
       pullRequestNumber: payload.pullRequest.number,
       author,
       installationId: payload.installation.id,
@@ -151,7 +155,7 @@ export const createGitHubWebhookProcessor =
     const signal = AbortSignal.any([softDeadlineSignal, hardDeadlineSignal]);
 
     try {
-      await postPendingTitleStatus(dependencies, payload, delivery, context, startedAt, signal);
+      await postPendingTitleStatus(dependencies, payload, { owner, repo }, delivery, context, startedAt, signal);
 
       const outcome = await dependencies.policyUseCase.execute(
         {

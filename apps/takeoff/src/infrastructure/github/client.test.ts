@@ -173,9 +173,9 @@ const mockPullRequest = {
   state: "open",
   draft: false,
   mergeable: true,
-  merge_commit_sha: "test-merge-sha",
-  head: { sha: "abc", ref: "feature", label: "org:feature", repo: { id: 101 } },
-  base: { ref: "main", sha: "base-sha", repo: { id: 101 } },
+  merge_commit_sha: "0000000000000000000000000000000000000001",
+  head: { sha: "0000000000000000000000000000000000000002", ref: "feature", label: "org:feature", repo: { id: 101 } },
+  base: { ref: "main", sha: "0000000000000000000000000000000000000003", repo: { id: 101 } },
   user: { login: "user" },
   updated_at: "2024-01-01T00:00:00Z",
 };
@@ -186,8 +186,8 @@ const mockPullRequestSummary = {
   html_url: "https://github.com/org/repo/pull/1",
   state: "open",
   draft: false,
-  head: { sha: "abc", ref: "feature", label: "org:feature", repo: { id: 101 } },
-  base: { ref: "main", sha: "base-sha", repo: { id: 101 } },
+  head: { sha: "0000000000000000000000000000000000000002", ref: "feature", label: "org:feature", repo: { id: 101 } },
+  base: { ref: "main", sha: "0000000000000000000000000000000000000003", repo: { id: 101 } },
   user: { login: "user" },
   updated_at: "2024-01-01T00:00:00Z",
 };
@@ -265,7 +265,7 @@ describe("GitHubClientImpl - getPullRequest", () => {
 
     expect(result.number).toBe(1);
     expect(result.title).toBe("feat: test");
-    expect(result.merge_commit_sha).toBe("test-merge-sha");
+    expect(result.merge_commit_sha).toBe("0000000000000000000000000000000000000001");
     expect(result.head).toEqual(mockPullRequest.head);
   });
 
@@ -276,6 +276,31 @@ describe("GitHubClientImpl - getPullRequest", () => {
     const result = await new GitHubClientImpl(mockFetcher).getPullRequest("token", "org", "repo", 1);
 
     expect(result.head).toEqual(head);
+  });
+
+  it.each(["2026-02-28T12:00:00+09:00", "2026-02-28 12:00:00Z", "2026-02-31T12:00:00Z", "2023-02-29T12:00:00Z"])(
+    "UTC 形式でない日時や存在しない日付 %s を拒否する",
+    async (updatedAt) => {
+      const mockFetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(jsonResponse({ ...mockPullRequest, updated_at: updatedAt }));
+
+      await expect(new GitHubClientImpl(mockFetcher).getPullRequest("token", "org", "repo", 1)).rejects.toMatchObject({
+        type: "unexpected_github_error",
+        statusCode: 502,
+      });
+    }
+  );
+
+  it("うるう日と長い小数秒の UTC 日時を受け付ける", async () => {
+    const updatedAt = "2024-02-29T12:34:56.123456789123Z";
+    const mockFetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse({ ...mockPullRequest, updated_at: updatedAt }));
+
+    await expect(new GitHubClientImpl(mockFetcher).getPullRequest("token", "org", "repo", 1)).resolves.toMatchObject({
+      updated_at: updatedAt,
+    });
   });
 
   it("ISO datetime 以外の updated_at を拒否する", async () => {
@@ -323,7 +348,7 @@ describe("GitHubClientImpl - listOpenPullRequests", () => {
 describe("GitHubClientImpl - mergePullRequest", () => {
   const mergeOptions = {
     commitTitle: "feat: merge",
-    sha: "abc",
+    sha: "0000000000000000000000000000000000000002",
     mergeMethod: "squash" as const,
   };
 
@@ -389,7 +414,9 @@ describe("GitHubClientImpl - mergePullRequest", () => {
   it("merged: false のレスポンスで merge_conflict エラーを投げる", async () => {
     const mockFetcher = vi.fn<typeof fetch>();
     const client = new GitHubClientImpl(mockFetcher);
-    mockFetcher.mockResolvedValueOnce(jsonResponse({ sha: "abc", merged: false, message: "not merged" }));
+    mockFetcher.mockResolvedValueOnce(
+      jsonResponse({ sha: "0000000000000000000000000000000000000002", merged: false, message: "not merged" })
+    );
 
     await expect(client.mergePullRequest("token", "org", "repo", 1, mergeOptions)).rejects.toMatchObject({
       type: "merge_conflict",
@@ -399,18 +426,20 @@ describe("GitHubClientImpl - mergePullRequest", () => {
   it("head SHA を request body に指定して正常な merge レスポンスを返す", async () => {
     const mockFetcher = vi.fn<typeof fetch>();
     const client = new GitHubClientImpl(mockFetcher);
-    mockFetcher.mockResolvedValueOnce(jsonResponse({ sha: "merge-sha", merged: true, message: "merged" }));
+    mockFetcher.mockResolvedValueOnce(
+      jsonResponse({ sha: "0000000000000000000000000000000000000004", merged: true, message: "merged" })
+    );
 
     const result = await client.mergePullRequest("token", "org", "repo", 1, mergeOptions);
 
     expect(mockFetcher.mock.calls.at(0)?.[1]?.body).toBe(
       JSON.stringify({
         commit_title: "feat: merge",
-        sha: "abc",
+        sha: "0000000000000000000000000000000000000002",
         merge_method: "squash",
       })
     );
-    expect(result.sha).toBe("merge-sha");
+    expect(result.sha).toBe("0000000000000000000000000000000000000004");
     expect(result.merged).toBe(true);
   });
 });
@@ -420,11 +449,18 @@ describe("GitHubClientImpl - listWorkflowFiles", () => {
     const mockFetcher = vi.fn<typeof fetch>();
     const client = new GitHubClientImpl(mockFetcher);
     mockFetcher.mockResolvedValueOnce(
-      jsonResponse([{ name: "ci.yml", path: ".github/workflows/ci.yml", sha: "ci-sha", type: "file" }])
+      jsonResponse([
+        {
+          name: "ci.yml",
+          path: ".github/workflows/ci.yml",
+          sha: "0000000000000000000000000000000000000005",
+          type: "file",
+        },
+      ])
     );
 
     await expect(client.listWorkflowFiles("token", "org", "repo", "head-sha")).resolves.toEqual([
-      { path: ".github/workflows/ci.yml", sha: "ci-sha" },
+      { path: ".github/workflows/ci.yml", sha: "0000000000000000000000000000000000000005" },
     ]);
     expect(mockFetcher.mock.calls[0]?.[0]).toBe(
       "https://api.github.com/repos/org/repo/contents/.github/workflows?ref=head-sha"

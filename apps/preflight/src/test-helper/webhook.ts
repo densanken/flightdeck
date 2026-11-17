@@ -50,11 +50,11 @@ export const pullRequestBody = (
     action: overrides.action ?? "opened",
     changes: overrides.titleChanged ? { title: { from: "old title" } } : undefined,
     installation: { id: 42 },
-    repository: { name: "repo", owner: { login: "owner" } },
+    repository: { full_name: "owner/repo" },
     pull_request: {
       number: 7,
       title: overrides.title ?? "feat: add auto assignment",
-      head: { sha: overrides.headSha ?? "abc123" },
+      head: { sha: overrides.headSha ?? "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
       user: { login: overrides.author ?? "author", type: overrides.authorType ?? "User" },
       assignees: (overrides.assignees ?? []).map((login) => ({ login })),
     },

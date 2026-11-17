@@ -1,5 +1,5 @@
+import * as v from "valibot";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 
 import { createGitHubAppJwt, GitHubAppAuthImpl } from "./app-auth.js";
 import { GitHubError } from "./client.js";
@@ -153,7 +153,7 @@ describe("GitHub App authentication", () => {
     );
 
     const cacheKey = cacheKeys.installationToken(cacheBaseUrl, 111);
-    await expect(workersCache.get(cacheKey, z.string())).resolves.toBeNull();
+    await expect(workersCache.get(cacheKey, v.string())).resolves.toBeNull();
   });
 
   it("有効期限が近い installation token を memory cache へ固定 TTL で載せず、失効後に再発行する", async () => {
@@ -203,7 +203,7 @@ describe("GitHub App authentication", () => {
     );
 
     expect(fetcher).toHaveBeenCalledTimes(4);
-    await expect(workersCache.get(installationIdCacheKey, z.number())).resolves.toBe(222);
+    await expect(workersCache.get(installationIdCacheKey, v.number())).resolves.toBe(222);
     await expect(auth.getInstallationId("jwt", "12345", "org", cacheBaseUrl)).resolves.toBe(222);
     expect(fetcher).toHaveBeenCalledTimes(4);
   });

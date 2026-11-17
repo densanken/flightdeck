@@ -1,21 +1,12 @@
+import * as v from "valibot";
+
 import { GITHUB_API_BASE_URL, githubRequest, invalidShapeError, readGitHubJson } from "./request.js";
 
-interface AssigneeResponseBody {
-  assignees?: unknown;
-}
+const assigneeSchema = v.object({ assignees: v.array(v.object({ login: v.string() })) });
 
 const parseAssigneeLogins = (body: unknown): string[] | null => {
-  if (typeof body !== "object" || body === null) return null;
-  const assignees = (body as AssigneeResponseBody).assignees;
-  if (!Array.isArray(assignees)) return null;
-
-  const logins: string[] = [];
-  for (const assignee of assignees as unknown[]) {
-    if (typeof assignee !== "object" || assignee === null || !("login" in assignee)) return null;
-    if (typeof assignee.login !== "string") return null;
-    logins.push(assignee.login);
-  }
-  return logins;
+  const parsed = v.safeParse(assigneeSchema, body);
+  return parsed.success ? parsed.output.assignees.map((assignee) => assignee.login) : null;
 };
 
 export const addPullRequestAuthorAsAssignee = async (input: {

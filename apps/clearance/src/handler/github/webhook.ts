@@ -1,7 +1,5 @@
-import { REPOSITORY_PATTERN } from "@flightdeck/rules";
-import { z } from "zod";
-
-import { ConfigurationError } from "../../errors.js";
+import { commitSha, githubId, repositoryFullName, ConfigurationError } from "@flightdeck/validation";
+import * as v from "valibot";
 
 import type {
   ApprovalContext,
@@ -20,32 +18,35 @@ export interface WebhookHandlerDependencies {
   logger: Logger;
 }
 
-const base = z.object({
-  repository: z.object({ id: z.number().int().positive(), full_name: z.string().regex(REPOSITORY_PATTERN) }),
-  installation: z.object({ id: z.number().int().positive() }),
-  sender: z.object({ id: z.number() }),
+const base = v.object({
+  repository: v.object({ id: githubId, full_name: repositoryFullName }),
+  installation: v.object({ id: githubId }),
+  sender: v.object({ id: githubId }),
 });
 
-const action = base.extend({ action: z.string() });
+const action = v.object({ ...base.entries, action: v.string() });
 
-const pull = action.extend({ number: z.number().int().positive() });
+const pull = v.object({ ...action.entries, number: githubId });
 
-const review = action.extend({ pull_request: z.object({ number: z.number().int().positive() }) });
+const review = v.object({ ...action.entries, pull_request: v.object({ number: githubId }) });
 
-const issue = action.extend({
-  issue: z.object({ number: z.number().int().positive(), pull_request: z.unknown().optional() }),
+const issue = v.object({
+  ...action.entries,
+  issue: v.object({ number: githubId, pull_request: v.optional(v.unknown()) }),
 });
 
-const suite = action.extend({
-  check_suite: z.object({
-    head_sha: z.string().regex(/^[a-f0-9]{40}$/i),
-    pull_requests: z.array(z.object({ number: z.number().int().positive() })),
+const suite = v.object({
+  ...action.entries,
+  check_suite: v.object({
+    head_sha: commitSha,
+    pull_requests: v.array(v.object({ number: githubId })),
   }),
 });
 
-const status = base.extend({ sha: z.string().regex(/^[a-f0-9]{40}$/i) });
+const status = v.object({ ...base.entries, sha: commitSha });
 
 const searchActions = new Set(["opened", "synchronize", "reopened", "ready_for_review", "closed"]);
+
 const pullActions = new Set([...searchActions, "converted_to_draft", "edited", "labeled", "unlabeled"]);
 
 type ApprovalRequest =
@@ -65,7 +66,7 @@ const parseEvent = (
   payload: unknown,
   botUserId: number
 ): ApprovalRequest | "invalid" | undefined => {
-  const context = (value: z.output<typeof base>) => ({
+  const context = (value: v.InferOutput<typeof base>) => ({
     deliveryId,
     installationId: value.installation.id,
     repository: value.repository.full_name,
@@ -73,17 +74,17 @@ const parseEvent = (
   });
 
   if (event === "status") {
-    const parsed = status.safeParse(payload);
+    const parsed = v.safeParse(status, payload);
     if (!parsed.success) return "invalid";
 
-    return { kind: "commit", input: { ...context(parsed.data), sha: parsed.data.sha } };
+    return { kind: "commit", input: { ...context(parsed.output), sha: parsed.output.sha } };
   }
 
   if (event === "check_suite") {
-    const parsed = suite.safeParse(payload);
+    const parsed = v.safeParse(suite, payload);
     if (!parsed.success) return "invalid";
 
-    const value = parsed.data;
+    const value = parsed.output;
     if (value.action !== "completed") return undefined;
 
     // pull_requests が空の場合は、status と同じく sha から関連 PR を引く
@@ -100,10 +101,10 @@ const parseEvent = (
   }
 
   if (event === "pull_request") {
-    const parsed = pull.safeParse(payload);
+    const parsed = v.safeParse(pull, payload);
     if (!parsed.success) return "invalid";
 
-    const value = parsed.data;
+    const value = parsed.output;
     if (!pullActions.has(value.action)) return undefined;
 
     // closed の PR は評価せず、古い PR の探索だけを行う
@@ -120,10 +121,10 @@ const parseEvent = (
   }
 
   if (event === "issue_comment") {
-    const parsed = issue.safeParse(payload);
+    const parsed = v.safeParse(issue, payload);
     if (!parsed.success) return "invalid";
 
-    const value = parsed.data;
+    const value = parsed.output;
     if (!["created", "edited"].includes(value.action) || value.issue.pull_request === undefined) return undefined;
 
     return {
@@ -133,10 +134,10 @@ const parseEvent = (
   }
 
   if (event === "pull_request_review" || event === "pull_request_review_comment") {
-    const parsed = review.safeParse(payload);
+    const parsed = v.safeParse(review, payload);
     if (!parsed.success) return "invalid";
 
-    const value = parsed.data;
+    const value = parsed.output;
 
     // 自分のレビューによる Webhook の循環を防ぐ
     if (

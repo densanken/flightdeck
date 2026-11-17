@@ -1,4 +1,5 @@
-import { CONFIG_PATHS, splitRepository, STALE_MS } from "@flightdeck/rules";
+import { CONFIG_PATHS, STALE_MS } from "@flightdeck/rules";
+import { splitRepository } from "@flightdeck/validation";
 
 import { parseResponse } from "./error.js";
 import { GitHubDataError } from "./errors.js";

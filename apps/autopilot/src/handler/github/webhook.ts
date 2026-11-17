@@ -1,7 +1,5 @@
-import { REPOSITORY_PATTERN } from "@flightdeck/rules";
-import { z } from "zod";
-
-import { ConfigurationError } from "../../errors.js";
+import { commitSha, githubId, repositoryFullName, ConfigurationError } from "@flightdeck/validation";
+import * as v from "valibot";
 
 import type { MergeContext, MergeInput, MergeUseCase } from "../../usecase/merge/interface.js";
 import type { Logger } from "@flightdeck/logger";
@@ -14,17 +12,20 @@ export interface WebhookHandlerDependencies {
   logger: Logger;
 }
 
-const base = z.object({
-  repository: z.object({ id: z.number().int().positive(), full_name: z.string().regex(REPOSITORY_PATTERN) }),
-  installation: z.object({ id: z.number().int().positive() }),
+const base = v.object({
+  repository: v.object({ id: githubId, full_name: repositoryFullName }),
+  installation: v.object({ id: githubId }),
 });
-const sha = z.string().regex(/^[a-f0-9]{40}$/i);
-const review = base.extend({ action: z.string(), pull_request: z.object({ number: z.number().int().positive() }) });
-const suite = base.extend({
-  action: z.string(),
-  check_suite: z.object({ head_sha: sha, pull_requests: z.array(z.object({ number: z.number().int().positive() })) }),
+
+const review = v.object({ ...base.entries, action: v.string(), pull_request: v.object({ number: githubId }) });
+
+const suite = v.object({
+  ...base.entries,
+  action: v.string(),
+  check_suite: v.object({ head_sha: commitSha, pull_requests: v.array(v.object({ number: githubId })) }),
 });
-const status = base.extend({ sha });
+
+const status = v.object({ ...base.entries, sha: commitSha });
 
 const parsePayload = (rawBody: Uint8Array): { ok: true; value: unknown } | { ok: false } => {
   try {
@@ -35,7 +36,7 @@ const parsePayload = (rawBody: Uint8Array): { ok: true; value: unknown } | { ok:
 };
 
 const parseEvent = (event: string, deliveryId: string, payload: unknown): MergeInput | "invalid" | undefined => {
-  const context = (data: z.output<typeof base>): MergeContext => ({
+  const context = (data: v.InferOutput<typeof base>): MergeContext => ({
     deliveryId,
     installationId: data.installation.id,
     repositoryId: data.repository.id,
@@ -43,20 +44,20 @@ const parseEvent = (event: string, deliveryId: string, payload: unknown): MergeI
   });
 
   if (event === "pull_request_review") {
-    const parsed = review.safeParse(payload);
+    const parsed = v.safeParse(review, payload);
     if (!parsed.success) return "invalid";
 
-    const data = parsed.data;
+    const data = parsed.output;
     if (data.action !== "submitted") return undefined;
 
     return { ...context(data), kind: "pull_request", number: data.pull_request.number };
   }
 
   if (event === "check_suite") {
-    const parsed = suite.safeParse(payload);
+    const parsed = v.safeParse(suite, payload);
     if (!parsed.success) return "invalid";
 
-    const data = parsed.data;
+    const data = parsed.output;
     if (data.action !== "completed") return undefined;
 
     // pull_requests が空の場合は、status と同じく sha から関連 PR を引く
@@ -71,10 +72,10 @@ const parseEvent = (event: string, deliveryId: string, payload: unknown): MergeI
   }
 
   if (event === "status") {
-    const parsed = status.safeParse(payload);
+    const parsed = v.safeParse(status, payload);
     if (!parsed.success) return "invalid";
 
-    return { ...context(parsed.data), kind: "commit", sha: parsed.data.sha };
+    return { ...context(parsed.output), kind: "commit", sha: parsed.output.sha };
   }
 
   return undefined;

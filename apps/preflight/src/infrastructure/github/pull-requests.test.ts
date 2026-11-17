@@ -30,14 +30,19 @@ const currentInput = (fetchImpl: typeof fetch) => ({
 const listInput = (logger: Logger = new RecordingLogger()) => ({
   owner: "owner",
   repo: "repo",
-  headShas: ["shared-sha"],
+  headShas: ["9f4ec6d0f2ae16551d600db3261072c8c99f4c1f"],
   installationToken: "token",
   signal: new AbortController().signal,
   logger,
   deliveryId: "delivery-1",
 });
 
-const node = (number: number, title: string, headRefOid = "shared-sha", isDraft = false) => ({
+const node = (
+  number: number,
+  title: string,
+  headRefOid = "9f4ec6d0f2ae16551d600db3261072c8c99f4c1f",
+  isDraft = false
+) => ({
   number,
   title,
   state: "OPEN",
@@ -69,20 +74,30 @@ describe("getCurrentPolicyState", () => {
   const response = (status: string, nodes: unknown[] = [], overrides: Record<string, unknown> = {}) => ({
     data: {
       repository: {
-        pullRequest: { title: "feat: current", state: "MERGED", isDraft: false, headRefOid: "shared-sha" },
+        pullRequest: {
+          title: "feat: current",
+          state: "MERGED",
+          isDraft: false,
+          headRefOid: "9f4ec6d0f2ae16551d600db3261072c8c99f4c1f",
+        },
         object: { associatedPullRequests: { totalCount: nodes.length, nodes, pageInfo: { hasNextPage: false } } },
-        defaultBranchRef: { compare: { status, headTarget: { oid: "shared-sha" } } },
+        defaultBranchRef: { compare: { status, headTarget: { oid: "9f4ec6d0f2ae16551d600db3261072c8c99f4c1f" } } },
       },
     },
     ...overrides,
   });
-  const read = (body: unknown, headSha = "shared-sha") => {
+  const read = (body: unknown, headSha = "9f4ec6d0f2ae16551d600db3261072c8c99f4c1f") => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(body));
     return getCurrentPolicyState({ ...currentInput(fetchImpl), headSha });
   };
   it.each(["AHEAD", "DIVERGED"])("%s と完全な空一覧なら走査しない", async (status) => {
     await expect(read(response(status))).resolves.toEqual({
-      current: { title: "feat: current", state: "closed", draft: false, headSha: "shared-sha" },
+      current: {
+        title: "feat: current",
+        state: "closed",
+        draft: false,
+        headSha: "9f4ec6d0f2ae16551d600db3261072c8c99f4c1f",
+      },
       associatedPullRequests: [],
     });
   });
@@ -96,12 +111,14 @@ describe("getCurrentPolicyState", () => {
       read(
         response("AHEAD", [
           node(8, "fix: shared"),
-          node(9, "other", "other"),
+          node(9, "other", "d0941e68da8f38151ff86a61fc59f7c5cf9fcaa2"),
           { ...node(10, "closed"), state: "CLOSED" },
         ])
       )
     ).resolves.toMatchObject({
-      associatedPullRequests: [{ number: 8, title: "fix: shared", headSha: "shared-sha", draft: false }],
+      associatedPullRequests: [
+        { number: 8, title: "fix: shared", headSha: "9f4ec6d0f2ae16551d600db3261072c8c99f4c1f", draft: false },
+      ],
     });
   });
   it("errors、SHA 不一致、打ち切りは一覧を破棄する", async () => {
@@ -109,22 +126,34 @@ describe("getCurrentPolicyState", () => {
     truncated.data.repository.object.associatedPullRequests.pageInfo.hasNextPage = true;
     for (const result of [
       await read(response("AHEAD", [], { errors: [{ message: "partial" }] })),
-      await read(response("AHEAD"), "old-sha"),
+      await read(response("AHEAD"), "3cc2b777ba8748ddfdc9f633b0600efc3bf72f5c"),
       await read(truncated),
     ]) {
       expect(result).toMatchObject({ associatedPullRequests: undefined });
     }
   });
   it("現在 head と異なる SHA でも比較と関連一覧が確定すれば再利用する", async () => {
-    const body = response("AHEAD", [node(8, "fix: old", "old-sha")]);
-    body.data.repository.defaultBranchRef.compare.headTarget.oid = "old-sha";
-    await expect(read(body, "old-sha")).resolves.toMatchObject({
-      associatedPullRequests: [{ number: 8, title: "fix: old", headSha: "old-sha", draft: false }],
+    const body = response("AHEAD", [node(8, "fix: old", "3cc2b777ba8748ddfdc9f633b0600efc3bf72f5c")]);
+    body.data.repository.defaultBranchRef.compare.headTarget.oid = "3cc2b777ba8748ddfdc9f633b0600efc3bf72f5c";
+    await expect(read(body, "3cc2b777ba8748ddfdc9f633b0600efc3bf72f5c")).resolves.toMatchObject({
+      associatedPullRequests: [
+        { number: 8, title: "fix: old", headSha: "3cc2b777ba8748ddfdc9f633b0600efc3bf72f5c", draft: false },
+      ],
     });
   });
 
   it("関連 PR の番号が重複する場合は一覧を破棄する", async () => {
     await expect(read(response("AHEAD", [node(8, "one"), node(8, "two")]))).resolves.toMatchObject({
+      associatedPullRequests: undefined,
+    });
+  });
+
+  it.each(["defaultBranchRef", "object"] as const)("%s の不正な補助データは現在の PR を使って走査する", async (key) => {
+    const body = response("AHEAD");
+    const repository: Record<string, unknown> = body.data.repository;
+    repository[key] = "invalid";
+    await expect(read(body)).resolves.toMatchObject({
+      current: { title: "feat: current" },
       associatedPullRequests: undefined,
     });
   });
@@ -152,7 +181,11 @@ describe("listOpenPullRequestsForHeadSha", () => {
         jsonResponse(
           graphQlPage({
             nodes: Array.from({ length: count }, (_, index) =>
-              node(offset + index + 1, `feat: title ${String(offset + index + 1)}`, "other-sha")
+              node(
+                offset + index + 1,
+                `feat: title ${String(offset + index + 1)}`,
+                "7e4897fd2ca7302452530290fc16cedeaa7ef949"
+              )
             ),
             totalCount,
             hasNextPage: offset + count < totalCount,
@@ -179,7 +212,12 @@ describe("listOpenPullRequestsForHeadSha", () => {
       return Promise.resolve(
         jsonResponse(
           graphQlPage({
-            nodes: page === 1 ? [node(1, "feat: first", "sha-1")] : page === 6 ? [node(2, "fix: second", "sha-2")] : [],
+            nodes:
+              page === 1
+                ? [node(1, "feat: first", "b710a299818728a4e4cb4851fca1607ae797a07b")]
+                : page === 6
+                  ? [node(2, "fix: second", "8c43657fb4fd6a9f41ea1a038006cdf4a11460c3")]
+                  : [],
             totalCount: 2,
             hasNextPage: page < 6,
             endCursor: page < 6 ? String(page) : null,
@@ -188,10 +226,14 @@ describe("listOpenPullRequestsForHeadSha", () => {
       );
     });
     await expect(
-      listOpenPullRequestsForHeadShas({ ...listInput(), headShas: ["sha-1", "sha-2"], fetchImpl })
+      listOpenPullRequestsForHeadShas({
+        ...listInput(),
+        headShas: ["b710a299818728a4e4cb4851fca1607ae797a07b", "8c43657fb4fd6a9f41ea1a038006cdf4a11460c3"],
+        fetchImpl,
+      })
     ).resolves.toEqual([
-      { number: 1, title: "feat: first", headSha: "sha-1", draft: false },
-      { number: 2, title: "fix: second", headSha: "sha-2", draft: false },
+      { number: 1, title: "feat: first", headSha: "b710a299818728a4e4cb4851fca1607ae797a07b", draft: false },
+      { number: 2, title: "fix: second", headSha: "8c43657fb4fd6a9f41ea1a038006cdf4a11460c3", draft: false },
     ]);
     expect(fetchImpl).toHaveBeenCalledTimes(6);
   });
@@ -212,7 +254,11 @@ describe("listOpenPullRequestsForHeadSha", () => {
         url.endsWith("/graphql")
           ? jsonResponse(
               graphQlPage({
-                nodes: [node(20, "feat: first"), node(21, "fix: second"), node(22, "feat: other", "other-sha")],
+                nodes: [
+                  node(20, "feat: first"),
+                  node(21, "fix: second"),
+                  node(22, "feat: other", "7e4897fd2ca7302452530290fc16cedeaa7ef949"),
+                ],
                 totalCount: 3,
               })
             )
@@ -221,8 +267,8 @@ describe("listOpenPullRequestsForHeadSha", () => {
     });
 
     await expect(listOpenPullRequestsForHeadShas({ ...listInput(), fetchImpl })).resolves.toEqual([
-      { number: 20, title: "feat: first", headSha: "shared-sha", draft: false },
-      { number: 21, title: "fix: second", headSha: "shared-sha", draft: false },
+      { number: 20, title: "feat: first", headSha: "9f4ec6d0f2ae16551d600db3261072c8c99f4c1f", draft: false },
+      { number: 21, title: "fix: second", headSha: "9f4ec6d0f2ae16551d600db3261072c8c99f4c1f", draft: false },
     ]);
   });
 
@@ -259,7 +305,7 @@ describe("listOpenPullRequestsForHeadSha", () => {
         result: "open_pull_request_total_count_mismatch",
         deliveryId: "delivery-1",
         repository: "owner/repo",
-        headSha: "shared-sha",
+        headSha: "9f4ec6d0f2ae16551d600db3261072c8c99f4c1f",
         expectedTotalCount: 2,
         observedTotalCount: 1,
       },

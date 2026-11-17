@@ -1,5 +1,6 @@
 import { CONFIG_PATHS, MANAGED_BRANCH_PREFIX } from "@flightdeck/rules";
-import { z } from "zod";
+import { commitSha, githubId, repositoryFullName } from "@flightdeck/validation";
+import * as v from "valibot";
 
 import { parseResponse } from "./request.js";
 import { isManagedBranch } from "../../domain/naming.js";
@@ -16,10 +17,13 @@ const BLOB = "... on Blob { text isTruncated }";
 const CONFIG_FILES = `
   yml: file(path: "${CONFIG_PATHS.yml}") { object { ${BLOB} } }
   yaml: file(path: "${CONFIG_PATHS.yaml}") { object { ${BLOB} } }`;
+
 const SUBMODULES = "submodules(first: 100) { nodes { path gitUrl subprojectCommitOid } pageInfo { hasNextPage } }";
+
 // head がその ref である Open PR を返す
 // 別の repository の PR（fork の管理 branch から upstream へ出された PR など）も含まれるため、PR 自身の repository の id で絞る
 const PULL_REQUEST_NODE = "number title baseRefName repository { id }";
+
 // 本文は parent の PR を同期するときにだけ使う（source の管理 branch の一覧では読まない）
 const OPEN_PULL_REQUESTS = `associatedPullRequests(states: OPEN, first: 10) { pageInfo { hasNextPage } nodes { ${PULL_REQUEST_NODE} body } }`;
 
@@ -106,106 +110,103 @@ export const PATH_OBJECTS_QUERY = `query ReadPathObjects($owner: String!, $name:
   }
 }`;
 
-const blobSchema = z
-  .object({ text: z.string().nullable().optional(), isTruncated: z.boolean().optional() })
-  .nullable()
-  .optional();
-const fileSchema = z.object({ object: blobSchema }).nullable().optional();
+const blobSchema = v.nullish(v.object({ text: v.nullish(v.string()), isTruncated: v.optional(v.boolean()) }));
 
-const sourceCommitSchema = z
-  .object({ oid: z.string().optional(), yml: fileSchema, yaml: fileSchema })
-  .nullable()
-  .optional();
-const pullRequestNodeSchema = z.object({
-  number: z.number(),
-  title: z.string(),
-  baseRefName: z.string(),
-  repository: z.object({ id: z.string() }),
+const fileSchema = v.nullish(v.object({ object: blobSchema }));
+
+const sourceCommitSchema = v.nullish(v.object({ oid: v.optional(commitSha), yml: fileSchema, yaml: fileSchema }));
+
+const pullRequestNodeSchema = v.object({
+  number: githubId,
+  title: v.string(),
+  baseRefName: v.string(),
+  repository: v.object({ id: v.string() }),
 });
-const pullRequestsSchema = <T extends z.ZodType>(node: T) =>
-  z.object({ pageInfo: z.object({ hasNextPage: z.boolean() }), nodes: z.array(node) });
-const openPullRequestsSchema = pullRequestsSchema(pullRequestNodeSchema.extend({ body: z.string() }));
-const sourceSchema = z.object({
-  repository: z.object({
-    id: z.string(),
-    nameWithOwner: z.string(),
-    isPrivate: z.boolean(),
-    defaultBranchRef: z.object({ name: z.string(), target: sourceCommitSchema }).nullable(),
+
+const pullRequestsSchema = <T extends v.GenericSchema>(node: T) =>
+  v.object({ pageInfo: v.object({ hasNextPage: v.boolean() }), nodes: v.array(node) });
+
+const openPullRequestsSchema = pullRequestsSchema(v.object({ ...pullRequestNodeSchema.entries, body: v.string() }));
+
+const sourceSchema = v.object({
+  repository: v.object({
+    id: v.string(),
+    nameWithOwner: repositoryFullName,
+    isPrivate: v.boolean(),
+    defaultBranchRef: v.nullable(v.object({ name: v.string(), target: sourceCommitSchema })),
     previous: sourceCommitSchema,
-    managed: z
-      .object({
-        pageInfo: z.object({ hasNextPage: z.boolean() }),
-        nodes: z.array(
-          z.object({
-            name: z.string(),
-            associatedPullRequests: pullRequestsSchema(pullRequestNodeSchema),
+    managed: v.optional(
+      v.object({
+        pageInfo: v.object({ hasNextPage: v.boolean() }),
+        nodes: v.array(
+          v.object({ name: v.string(), associatedPullRequests: pullRequestsSchema(pullRequestNodeSchema) })
+        ),
+      })
+    ),
+  }),
+});
+
+const submodulesSchema = v.object({
+  nodes: v.array(v.object({ path: v.string(), gitUrl: v.string(), subprojectCommitOid: v.nullable(commitSha) })),
+  pageInfo: v.object({ hasNextPage: v.boolean() }),
+});
+
+const baseCommitSchema = v.object({ oid: commitSha, tree: v.object({ oid: commitSha }), submodules: submodulesSchema });
+
+const parentSchema = v.object({
+  repository: v.object({
+    id: v.string(),
+    nameWithOwner: repositoryFullName,
+    isPrivate: v.boolean(),
+    defaultBranchRef: v.nullable(v.object({ name: v.string(), target: v.nullish(baseCommitSchema) })),
+    base: v.nullish(v.object({ target: v.nullable(baseCommitSchema) })),
+    branch: v.nullable(
+      v.object({
+        associatedPullRequests: openPullRequestsSchema,
+        target: v.nullable(
+          v.object({
+            oid: commitSha,
+            message: v.string(),
+            changedFilesIfAvailable: v.nullable(v.number()),
+            submodules: submodulesSchema,
+            parents: v.object({ nodes: v.array(v.object({ oid: commitSha })) }),
           })
         ),
       })
-      .optional(),
-  }),
-});
-const submodulesSchema = z.object({
-  nodes: z.array(z.object({ path: z.string(), gitUrl: z.string(), subprojectCommitOid: z.string().nullable() })),
-  pageInfo: z.object({ hasNextPage: z.boolean() }),
-});
-const baseCommitSchema = z.object({
-  oid: z.string(),
-  tree: z.object({ oid: z.string() }),
-  submodules: submodulesSchema,
-});
-const parentSchema = z.object({
-  repository: z.object({
-    id: z.string(),
-    nameWithOwner: z.string(),
-    isPrivate: z.boolean(),
-    defaultBranchRef: z.object({ name: z.string(), target: baseCommitSchema.nullable().optional() }).nullable(),
-    base: z.object({ target: baseCommitSchema.nullable() }).nullable().optional(),
-    branch: z
-      .object({
-        associatedPullRequests: openPullRequestsSchema,
-        target: z
-          .object({
-            oid: z.string(),
-            message: z.string(),
-            changedFilesIfAvailable: z.number().nullable(),
-            submodules: submodulesSchema,
-            parents: z.object({ nodes: z.array(z.object({ oid: z.string() })) }),
-          })
-          .nullable(),
-      })
-      .nullable(),
-    latest: z.object({
-      nodes: z.array(
-        z.object({
-          number: z.number(),
-          title: z.string(),
-          state: z.enum(["OPEN", "CLOSED", "MERGED"]),
-          closedAt: z.string().nullable(),
-          headRefOid: z.string(),
-          headRepository: z.object({ id: z.string() }).nullable(),
+    ),
+    latest: v.object({
+      nodes: v.array(
+        v.object({
+          number: githubId,
+          title: v.string(),
+          state: v.picklist(["OPEN", "CLOSED", "MERGED"]),
+          closedAt: v.nullable(v.string()),
+          headRefOid: commitSha,
+          headRepository: v.nullable(v.object({ id: v.string() })),
         })
       ),
     }),
   }),
 });
-const managedSchema = z.object({
-  repository: z.object({
-    id: z.string(),
-    nameWithOwner: z.string(),
-    ref: z.object({ associatedPullRequests: openPullRequestsSchema }).nullable(),
+
+const managedSchema = v.object({
+  repository: v.object({
+    id: v.string(),
+    nameWithOwner: repositoryFullName,
+    ref: v.nullable(v.object({ associatedPullRequests: openPullRequestsSchema })),
   }),
 });
-const pathObjectsSchema = z.object({
-  repository: z.object({
-    previous: z.object({ oid: z.string() }).nullable(),
-    source: z.object({ oid: z.string() }).nullable(),
+
+const pathObjectsSchema = v.object({
+  repository: v.object({
+    previous: v.nullable(v.object({ oid: commitSha })),
+    source: v.nullable(v.object({ oid: commitSha })),
   }),
 });
 
 // GitHub が .gitmodules を解釈した結果
 // 一覧が 1 ページに収まらなければ、一部だけで判断しない
-const toSubmodules = (value: z.output<typeof submodulesSchema>, what: string): Submodule[] => {
+const toSubmodules = (value: v.InferOutput<typeof submodulesSchema>, what: string): Submodule[] => {
   if (value.pageInfo.hasNextPage) throw new DispatchError("undeterminable", `too many submodules: ${what}`);
 
   return value.nodes.map((node) => ({
@@ -222,7 +223,7 @@ const ownNodes = <T extends { repository: { id: string } }>(nodes: T[], reposito
 // 1 本の管理 branch に紐づく Open PR
 // 件数が上限を超えるなら、一部だけで判断しない
 const toPullRequests = (
-  value: z.output<typeof openPullRequestsSchema>,
+  value: v.InferOutput<typeof openPullRequestsSchema>,
   repositoryId: string,
   what: string
 ): OpenPullRequest[] => {
@@ -239,12 +240,12 @@ const toPullRequests = (
 // Blob の本文を返す
 // ファイルがない、または Blob でなければ undefined
 // 切り詰められた本文は一部の target だけの設定に見えるため、バイナリと同じく null にして、読めないことを use case に伝える
-const blobText = (blob: z.output<typeof blobSchema>): string | null | undefined =>
+const blobText = (blob: v.InferOutput<typeof blobSchema>): string | null | undefined =>
   blob?.text === undefined ? undefined : blob.isTruncated ? null : blob.text;
 
 // 存在する設定ファイルの本文（.yml と .yaml）
 // ファイルがなければ含めず、読めないファイル（切り詰められた、バイナリ）は null にする
-const configsOf = (commit: z.output<typeof sourceCommitSchema>): ConfigFile[] =>
+const configsOf = (commit: v.InferOutput<typeof sourceCommitSchema>): ConfigFile[] =>
   [
     { path: CONFIG_PATHS.yml, text: blobText(commit?.yml?.object) },
     { path: CONFIG_PATHS.yaml, text: blobText(commit?.yaml?.object) },
@@ -280,13 +281,16 @@ export const parseRepositoryState = (data: unknown): RepositoryState => {
   };
 };
 
-const sourceHeadSchema = z.object({
-  repository: z.object({
-    defaultBranchRef: z.object({ name: z.string(), target: z.object({ oid: z.string() }).nullable() }).nullable(),
+const sourceHeadSchema = v.object({
+  repository: v.object({
+    defaultBranchRef: v.nullable(v.object({ name: v.string(), target: v.nullable(v.object({ oid: commitSha })) })),
   }),
 });
-const parentHeadSchema = z.object({
-  repository: z.object({ ref: z.object({ target: z.object({ oid: z.string() }).nullable() }).nullable() }),
+
+const parentHeadSchema = v.object({
+  repository: v.object({
+    ref: v.nullable(v.object({ target: v.nullable(v.object({ oid: commitSha })) })),
+  }),
 });
 
 // source の default branch の名前と HEAD が、渡された状態のままか
@@ -356,7 +360,7 @@ export const parseParentState = (data: unknown, requestedBase: string | undefine
   };
 };
 
-const repositoryIdSchema = z.object({ repository: z.object({ id: z.string() }) });
+const repositoryIdSchema = v.object({ repository: v.object({ id: v.string() }) });
 
 export const parseRepositoryId = (data: unknown): string =>
   parseResponse(repositoryIdSchema, data, "repository id").repository.id;

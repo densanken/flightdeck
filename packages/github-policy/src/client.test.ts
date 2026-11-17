@@ -30,7 +30,7 @@ describe("GitHub データの取得", () => {
           body: "",
           createdAt: "2026-01-01T00:00:00Z",
           headRefName: "branch",
-          headRefOid: "head",
+          headRefOid: "a".repeat(40),
           author: null,
           editor: null,
           lastEditedAt: null,
@@ -39,9 +39,9 @@ describe("GitHub データの取得", () => {
           files: empty,
           latestOpinionatedReviews: empty,
           latestReviews: empty,
-          commits: { nodes: [{ commit: { oid: "head", statusCheckRollup: null } }] },
+          commits: { nodes: [{ commit: { oid: "a".repeat(40), statusCheckRollup: null } }] },
           potentialMergeCommit: null,
-          baseRef: { target: { oid: "base", submodules: { nodes: [], pageInfo: { hasNextPage: false } } } },
+          baseRef: { target: { oid: "b".repeat(40), submodules: { nodes: [], pageInfo: { hasNextPage: false } } } },
           timelineItems: { pageCount: 0, pageInfo: { hasPreviousPage: false }, nodes: [] },
           recent: { pageCount: 0 },
         },
@@ -50,7 +50,7 @@ describe("GitHub データの取得", () => {
 
     const result = await github.pullRequest(7, Date.parse("2026-11-10T00:00:00Z"));
 
-    expect(result.pr.headSha).toBe("head");
+    expect(result.pr.headSha).toBe("a".repeat(40));
     expect(graphql).toHaveBeenCalledTimes(1);
   });
 
@@ -131,11 +131,11 @@ describe("repository の範囲", () => {
           associatedPullRequests: {
             totalCount: 5,
             nodes: [
-              pr(1, 9, "OPEN", "sha"),
-              pr(2, 1, "CLOSED", "sha"),
-              pr(3, 1, "OPEN", "other"),
-              pr(4, 1, "OPEN", "sha"),
-              pr(5, 1, "OPEN", "other", "sha"),
+              pr(1, 9, "OPEN", "d".repeat(40)),
+              pr(2, 1, "CLOSED", "d".repeat(40)),
+              pr(3, 1, "OPEN", "f".repeat(40)),
+              pr(4, 1, "OPEN", "d".repeat(40)),
+              pr(5, 1, "OPEN", "f".repeat(40), "d".repeat(40)),
             ],
           },
           parents: { nodes: [] },
@@ -143,7 +143,7 @@ describe("repository の範囲", () => {
       },
     });
 
-    expect(await github.associated("sha", 1)).toEqual([4, 5]);
+    expect(await github.associated("d".repeat(40), 1)).toEqual([4, 5]);
   });
 
   it("potentialMergeCommit の SHA から親の head に関連する PR を特定する", async () => {
@@ -151,7 +151,7 @@ describe("repository の範囲", () => {
     const pr = (number: number, mergeOid: string) => ({
       number,
       state: "OPEN",
-      headRefOid: "head",
+      headRefOid: "a".repeat(40),
       potentialMergeCommit: { oid: mergeOid },
       repository: { databaseId: 1 },
     });
@@ -163,14 +163,14 @@ describe("repository の範囲", () => {
           parents: {
             nodes: [
               { associatedPullRequests: { totalCount: 0, nodes: [] } },
-              { associatedPullRequests: { totalCount: 2, nodes: [pr(6, "merge"), pr(7, "other")] } },
+              { associatedPullRequests: { totalCount: 2, nodes: [pr(6, "c".repeat(40)), pr(7, "f".repeat(40))] } },
             ],
           },
         },
       },
     });
 
-    expect(await github.associated("merge", 1)).toEqual([6]);
+    expect(await github.associated("c".repeat(40), 1)).toEqual([6]);
   });
 });
 
@@ -179,14 +179,14 @@ describe("tree", () => {
     const { graphql, github } = client();
 
     graphql.mockResolvedValueOnce({ repository: { base: null, head: { entries: [] } } });
-    await expect(github.trees("base", "head", "dir/sub")).rejects.toThrow("parent tree unavailable");
+    await expect(github.trees("b".repeat(40), "a".repeat(40), "dir/sub")).rejects.toThrow("parent tree unavailable");
     graphql.mockResolvedValueOnce({
-      repository: { base: { entries: [] }, head: { entries: [{ name: "sub", type: "commit", oid: "new" }] } },
+      repository: { base: { entries: [] }, head: { entries: [{ name: "sub", type: "commit", oid: "e".repeat(40) }] } },
     });
 
-    expect(await github.trees("base", "head", "dir/sub")).toEqual({
+    expect(await github.trees("b".repeat(40), "a".repeat(40), "dir/sub")).toEqual({
       base: null,
-      head: { name: "sub", type: "commit", oid: "new" },
+      head: { name: "sub", type: "commit", oid: "e".repeat(40) },
     });
   });
 });

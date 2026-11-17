@@ -1,9 +1,14 @@
+import * as v from "valibot";
+
 import { GITHUB_API_BASE_URL, githubRequest, invalidShapeError, readGitHubJson } from "./request.js";
 
-interface InstallationTokenBody {
-  token?: unknown;
-  expires_at?: unknown;
-}
+const tokenSchema = v.object({
+  token: v.pipe(v.string(), v.nonEmpty()),
+  expires_at: v.pipe(
+    v.string(),
+    v.check((value) => Number.isFinite(Date.parse(value)))
+  ),
+});
 
 export const createInstallationAccessToken = async (input: {
   installationId: number;
@@ -22,14 +27,7 @@ export const createInstallationAccessToken = async (input: {
     retry: true,
   });
 
-  const body = (await readGitHubJson(response, "GITHUB_AUTH_FAILED", input.signal)) as InstallationTokenBody;
-  if (
-    typeof body.token !== "string" ||
-    body.token.length === 0 ||
-    typeof body.expires_at !== "string" ||
-    !Number.isFinite(Date.parse(body.expires_at))
-  ) {
-    throw invalidShapeError(response, "GITHUB_AUTH_FAILED", "installation token");
-  }
-  return body.token;
+  const parsed = v.safeParse(tokenSchema, await readGitHubJson(response, "GITHUB_AUTH_FAILED", input.signal));
+  if (!parsed.success) throw invalidShapeError(response, "GITHUB_AUTH_FAILED", "installation token");
+  return parsed.output.token;
 };

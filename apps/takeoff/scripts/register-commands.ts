@@ -1,10 +1,10 @@
 import { pathToFileURL } from "node:url";
 
-import { z } from "zod";
+import * as v from "valibot";
 
 import { commands } from "../src/handler/discord/commands.js";
 
-const registrationResponseSchema = z.array(z.unknown());
+const registrationResponseSchema = v.array(v.unknown());
 
 export interface RegisterCommandsEnvironment {
   DISCORD_APPLICATION_ID?: string;
@@ -78,11 +78,11 @@ const parseRegistrationResponse = async (response: Response, operation: string):
     throw new Error(`Discord returned invalid JSON while attempting to ${operation}`);
   }
 
-  const parsed = registrationResponseSchema.safeParse(raw);
+  const parsed = v.safeParse(registrationResponseSchema, raw);
   if (!parsed.success) {
     throw new Error(`Discord returned an invalid response while attempting to ${operation}`);
   }
-  return parsed.data.length;
+  return parsed.output.length;
 };
 
 // 終了コードを返す

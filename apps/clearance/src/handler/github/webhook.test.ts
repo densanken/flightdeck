@@ -1,9 +1,9 @@
 import { verifyGitHubWebhookSignature } from "@flightdeck/github-webhook-signature";
 import { createLogger } from "@flightdeck/logger";
+import { ConfigurationError } from "@flightdeck/validation";
 import { describe, expect, it, vi } from "vitest";
 
 import { createWebhookHandler } from "./webhook.js";
-import { ConfigurationError } from "../../errors.js";
 
 const base = { installation: { id: 1 }, repository: { id: 2, full_name: "org/repo" }, sender: { id: 5 } };
 const secret = "test-secret";
@@ -110,6 +110,14 @@ describe("Webhook の振り分け", () => {
 });
 
 describe("Webhook の受信", () => {
+  it("正でない送信者 ID を拒否する", async () => {
+    const { send, waitUntil } = setup();
+    const payload = { ...base, sender: { id: 0 }, action: "opened", number: 1 };
+
+    expect((await send("pull_request", payload)).status).toBe(400);
+    expect(waitUntil).not.toHaveBeenCalled();
+  });
+
   it("署名が不正なら JSON を解析せず 401 を返す", async () => {
     const { send, reviewPullRequests, waitUntil } = setup();
 
@@ -190,7 +198,7 @@ describe("Webhook の受信", () => {
   });
 
   it("usecase を組み立てられない設定の不備を configuration_error として記録する", async () => {
-    const { send, waitUntil, sink } = setup({ createFailure: new ConfigurationError("missing") });
+    const { send, waitUntil, sink } = setup({ createFailure: new ConfigurationError("test", "missing") });
 
     expect((await send("pull_request", { ...base, action: "opened", number: 4 })).status).toBe(202);
 

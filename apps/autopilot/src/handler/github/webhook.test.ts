@@ -48,6 +48,14 @@ describe("Webhook", () => {
     expect(waitUntil).not.toHaveBeenCalled();
   });
 
+  it("安全な整数の範囲を超える ID を拒否する", async () => {
+    const { handler, waitUntil } = setup();
+    const invalid = { ...payload, installation: { id: Number.MAX_SAFE_INTEGER + 1 } };
+
+    expect((await handler(request("pull_request_review", invalid))).status).toBe(400);
+    expect(waitUntil).not.toHaveBeenCalled();
+  });
+
   it("購読対象外のイベントを無視する", async () => {
     const { handler, waitUntil } = setup();
     expect((await handler(request("pull_request", payload))).status).toBe(200);

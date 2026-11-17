@@ -1,4 +1,5 @@
 import { validatePullRequestTitle } from "@flightdeck/pr-title";
+import { ConfigurationError } from "@flightdeck/validation";
 
 import { reconcileTitleValidationComments } from "./comment-reconciler.js";
 import { TitleValidationExecutionError } from "./errors.js";
@@ -14,7 +15,7 @@ import {
 } from "./policy-state.js";
 import { SupersededStatusSweep } from "./superseded-status-sweep.js";
 import { TITLE_STATUS_MESSAGES } from "../../domain/title-status-message.js";
-import { ConfigurationError, PullRequestStateChangedError } from "../../errors.js";
+import { PullRequestStateChangedError } from "../../errors.js";
 
 import type { TitleStatusState, TitleValidationGateway, TitleValidationPhases } from "./dependencies.js";
 import type {
@@ -26,6 +27,7 @@ import type { DetachedHeadPolicyState, PullRequestPolicyState } from "./policy-s
 import type { TitleStatusMessage } from "../../domain/title-status-message.js";
 
 const { supersededHead: SUPERSEDED_HEAD_MESSAGE, failClosed: FAIL_CLOSED_MESSAGE } = TITLE_STATUS_MESSAGES;
+
 // 古い delivery による status の上書きを検出しつつ API 往復を制限する
 const MAX_STATUS_STABILIZATION_ATTEMPTS = 2;
 

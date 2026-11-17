@@ -1,4 +1,5 @@
 import { CONFIG_PATHS } from "@flightdeck/rules";
+import * as v from "valibot";
 
 import { GitHubDataError } from "./errors.js";
 import { blob } from "./schema.js";
@@ -10,9 +11,9 @@ import type { CheckRun, CommitStatus, PolicyPullRequest, PolicyReview } from "@f
 const complete = (value: { totalCount: number; nodes: unknown[] }) => value.totalCount === value.nodes.length;
 
 const readBlob = (value: unknown): string | null => {
-  const parsed = blob.safeParse(value);
+  const parsed = v.safeParse(blob, value);
 
-  return parsed.success && !parsed.data.isBinary && !parsed.data.isTruncated ? parsed.data.text : null;
+  return parsed.success && !parsed.output.isBinary && !parsed.output.isTruncated ? parsed.output.text : null;
 };
 
 export const normalizeConfigs = (files: { yml: unknown; yaml: unknown }) =>

@@ -1,3 +1,4 @@
+import { ConfigurationError } from "@flightdeck/validation";
 import { describe, expect, it, vi } from "vitest";
 
 import { GitHubInstallationSession } from "./installation-session.js";
@@ -26,6 +27,18 @@ const createFixture = () => {
 };
 
 describe("GitHubInstallationSession", () => {
+  it("認証設定の不備を設定エラーのまま伝播する", async () => {
+    const error = new ConfigurationError("GITHUB_APP_ID", "missing");
+    const session = new GitHubInstallationSession({
+      installationId: 42,
+      getCredentials: () => {
+        throw error;
+      },
+    });
+
+    await expect(session.getInstallationToken(new AbortController().signal)).rejects.toBe(error);
+  });
+
   it("複数の API 操作で 1 つの installation token を共有する", async () => {
     const fixture = createFixture();
 

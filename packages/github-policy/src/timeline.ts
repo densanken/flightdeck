@@ -1,4 +1,5 @@
-import { z } from "zod";
+import { githubId } from "@flightdeck/validation";
+import * as v from "valibot";
 
 import { parseResponse } from "./error.js";
 import { actor } from "./schema.js";
@@ -6,23 +7,23 @@ import { TIMELINE_EVENT_TYPES } from "./timeline-events.js";
 
 import type { Actor, TimelineItem } from "@flightdeck/rules";
 
-export const normalizeActor = (value: z.output<typeof actor>): Actor | null =>
+export const normalizeActor = (value: v.InferOutput<typeof actor>): Actor | null =>
   value ? { type: value.__typename, id: value.databaseId ?? null, login: value.login } : null;
 
 const eventTypes = new Set<string>(TIMELINE_EVENT_TYPES);
 
-const timedActor = z.object({ createdAt: z.string(), actor });
+const timedActor = v.object({ createdAt: v.string(), actor });
 
-const comment = z.object({ createdAt: z.string(), author: actor, editor: actor, lastEditedAt: z.string().nullable() });
+const comment = v.object({ createdAt: v.string(), author: actor, editor: actor, lastEditedAt: v.nullable(v.string()) });
 
-const review = z.object({ createdAt: z.string(), submittedAt: z.string().nullable(), author: actor });
+const review = v.object({ createdAt: v.string(), submittedAt: v.nullable(v.string()), author: actor });
 
-const commit = z.object({
-  commit: z.object({
-    committedDate: z.string(),
-    author: z
-      .object({ email: z.string().nullable(), user: z.object({ databaseId: z.number().nullable() }).nullable() })
-      .nullable(),
+const commit = v.object({
+  commit: v.object({
+    committedDate: v.string(),
+    author: v.nullable(
+      v.object({ email: v.nullable(v.string()), user: v.nullable(v.object({ databaseId: v.nullable(githubId) })) })
+    ),
   }),
 });
 

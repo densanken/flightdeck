@@ -1,5 +1,6 @@
+import { configObject } from "@flightdeck/validation";
+import * as v from "valibot";
 import { parseDocument } from "yaml";
-import { z } from "zod";
 
 // repository 内の設定ファイル
 // 切り詰められたファイルやバイナリの本文は null
@@ -57,19 +58,18 @@ export const parseConfigDocument = (text: string): Record<string, unknown> | nul
 
   // 空のファイルには設定がない
   if (raw === null) return null;
-  if (typeof raw !== "object" || Array.isArray(raw)) {
-    throw new ConfigError("config_invalid", "flightdeck config must be a mapping");
-  }
+  const parsed = v.safeParse(configObject, raw);
+  if (!parsed.success) throw new ConfigError("config_invalid", "flightdeck config must be a mapping");
 
-  return raw as Record<string, unknown>;
+  return parsed.output;
 };
 
-const autopilotSchema = z.strictObject({ "renovate-stale": z.boolean().nullish() });
+const autopilotSchema = v.pipe(configObject, v.strictObject({ "renovate-stale": v.nullish(v.boolean()) }));
 
 export const parseAutopilotConfig = (text: string): { renovateStale: boolean } => {
   const raw = parseConfigDocument(text);
-  const parsed = autopilotSchema.nullish().safeParse(raw?.autopilot);
+  const parsed = v.safeParse(v.nullish(autopilotSchema), raw?.autopilot);
   if (!parsed.success) throw new ConfigError("config_invalid", "flightdeck config is invalid at autopilot");
 
-  return { renovateStale: parsed.data?.["renovate-stale"] ?? true };
+  return { renovateStale: parsed.output?.["renovate-stale"] ?? true };
 };

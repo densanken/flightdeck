@@ -11,6 +11,14 @@ describe("共有設定", () => {
     expect(parseAutopilotConfig("autopilot:\n  renovate-stale: false")).toEqual({ renovateStale: false });
   });
 
+  it("autopilot の設定が配列なら拒否する", () => {
+    expect(() => parseAutopilotConfig("autopilot: []")).toThrow(expect.objectContaining({ code: "config_invalid" }));
+  });
+
+  it.each(["[]", "42", "false"])("トップレベルが mapping でない設定を拒否する", (text) => {
+    expect(() => parseConfigDocument(text)).toThrow(expect.objectContaining({ code: "config_invalid" }));
+  });
+
   it("未知の項目、型不一致、不正な YAML を拒否する", () => {
     for (const text of ["autopilot:\n  unknown: true", "autopilot:\n  renovate-stale: no", "other: !unknown x"]) {
       expect(() => parseAutopilotConfig(text)).toThrow();

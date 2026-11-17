@@ -69,6 +69,22 @@ describe("GitHub リクエストの回数上限", () => {
     await expect(api.graphql("query { viewer { login } }", {})).rejects.toThrow("GraphQL error");
   });
 
+  it.each([{}, { errors: null, data: {} }, [], null])("不正な GraphQL 応答を拒否する", async (body) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve(
+          url.includes("access_tokens")
+            ? Response.json({ token: "secret", expires_at: "2099-01-01T00:00:00Z" })
+            : Response.json(body)
+        )
+      )
+    );
+    const api = new GitHubRequest("graphql-shape", "key", 130, "flightdeck-test");
+    await api.authenticate();
+    await expect(api.graphql("query { viewer { login } }", {})).rejects.toThrow("GraphQL error");
+  });
+
   it("不正な JSON と timeout を安全なエラーに変換する", async () => {
     const fetcher = vi.fn((url: string) => {
       if (url.includes("access_tokens"))

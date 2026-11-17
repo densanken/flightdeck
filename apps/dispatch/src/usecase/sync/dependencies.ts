@@ -1,3 +1,4 @@
+import type { Target } from "../../domain/config.js";
 import type { Submodule } from "../../domain/gitmodules.js";
 import type { IncludedCommits } from "../../domain/pull-request-body.js";
 import type { DispatchMessage } from "../../message/webhook.js";
@@ -155,6 +156,7 @@ export type ChildMessage = Omit<
 
 export interface SyncDependencies {
   gateway: DispatchGateway;
+  readConfig: (files: ConfigFile[]) => { path: string; targets: Target[] } | undefined;
   // 子 message を Queue へ積む
   // 1 回の呼び出しで複数をまとめて積める
   enqueue: (messages: ChildMessage[]) => Promise<void>;

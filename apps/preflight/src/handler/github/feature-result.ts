@@ -1,4 +1,6 @@
-import { AppError, ConfigurationError } from "../../errors.js";
+import { ConfigurationError } from "@flightdeck/validation";
+
+import { AppError } from "../../errors.js";
 import { TitleValidationExecutionError } from "../../usecase/title-validation/errors.js";
 
 import type { ErrorCode } from "../../errors.js";

@@ -34,22 +34,40 @@ const json = (body: unknown, init?: ResponseInit) => () => Response.json(body, i
 
 describe("tree と commit の作成", () => {
   it("base_tree を指定し、対象の gitlink だけを 160000 の commit として差し替える", async () => {
-    const { gateway, requests } = createFetcher({ "POST /repos/o/p/git/trees": json({ sha: "new-tree" }) });
+    const { gateway, requests } = createFetcher({
+      "POST /repos/o/p/git/trees": json({ sha: "000000000000000000000000000000000000000b" }),
+    });
 
-    const sha = await gateway.createGitlinkTree("o/p", { baseTreeSha: "T", path: "content/blog", gitlinkSha: "S" });
+    const sha = await gateway.createGitlinkTree("o/p", {
+      baseTreeSha: "0000000000000000000000000000000000000009",
+      path: "content/blog",
+      gitlinkSha: "0000000000000000000000000000000000000008",
+    });
 
-    expect(sha).toBe("new-tree");
+    expect(sha).toBe("000000000000000000000000000000000000000b");
     expect(requests[0]?.body).toEqual({
-      base_tree: "T",
-      tree: [{ path: "content/blog", mode: "160000", type: "commit", sha: "S" }],
+      base_tree: "0000000000000000000000000000000000000009",
+      tree: [{ path: "content/blog", mode: "160000", type: "commit", sha: "0000000000000000000000000000000000000008" }],
     });
   });
 
   it("親を base 1 つだけにした commit を作る", async () => {
-    const { gateway, requests } = createFetcher({ "POST /repos/o/p/git/commits": json({ sha: "N" }) });
+    const { gateway, requests } = createFetcher({
+      "POST /repos/o/p/git/commits": json({ sha: "0000000000000000000000000000000000000006" }),
+    });
 
-    await expect(gateway.createCommit("o/p", { treeSha: "T2", parentSha: "B", message: "m" })).resolves.toBe("N");
-    expect(requests[0]?.body).toEqual({ message: "m", tree: "T2", parents: ["B"] });
+    await expect(
+      gateway.createCommit("o/p", {
+        treeSha: "000000000000000000000000000000000000000a",
+        parentSha: "0000000000000000000000000000000000000002",
+        message: "m",
+      })
+    ).resolves.toBe("0000000000000000000000000000000000000006");
+    expect(requests[0]?.body).toEqual({
+      message: "m",
+      tree: "000000000000000000000000000000000000000a",
+      parents: ["0000000000000000000000000000000000000002"],
+    });
   });
 });
 
@@ -69,7 +87,7 @@ describe("updateRef", () => {
     await expect(
       gateway.updateRef("o/p", "flightdeck-dispatch/a-b-submodule", {
         before: undefined,
-        after: "N",
+        after: "0000000000000000000000000000000000000006",
       })
     ).resolves.toBe("updated");
 
@@ -82,19 +100,22 @@ describe("updateRef", () => {
       repositoryId: "R_node",
       ref: "refs/heads/flightdeck-dispatch/a-b-submodule",
       before: "0".repeat(40),
-      after: "N",
+      after: "0000000000000000000000000000000000000006",
     });
   });
 
   it("既存 branch には現在の HEAD を before に使う", async () => {
     const { gateway, requests } = createFetcher(route({ data: {} }));
 
-    await gateway.updateRef("o/p", "b", { before: "H", after: "N" });
+    await gateway.updateRef("o/p", "b", {
+      before: "0000000000000000000000000000000000000005",
+      after: "0000000000000000000000000000000000000006",
+    });
 
     const graphql = requests.at(-1)?.body as {
       variables: { before: string };
     };
-    expect(graphql.variables.before).toBe("H");
+    expect(graphql.variables.before).toBe("0000000000000000000000000000000000000005");
   });
 
   const withHead = (head: string, body: unknown) => ({
@@ -103,18 +124,32 @@ describe("updateRef", () => {
   });
 
   it("エラー時に branch の HEAD が before から動いていれば conflict として返し、REST の force update へ fallback しない", async () => {
-    const { gateway, requests } = createFetcher(withHead("other", { errors: [{ message: "anything" }] }));
+    const { gateway, requests } = createFetcher(
+      withHead("000000000000000000000000000000000000000d", { errors: [{ message: "anything" }] })
+    );
 
-    await expect(gateway.updateRef("o/p", "b", { before: "H", after: "N" })).resolves.toBe("conflict");
+    await expect(
+      gateway.updateRef("o/p", "b", {
+        before: "0000000000000000000000000000000000000005",
+        after: "0000000000000000000000000000000000000006",
+      })
+    ).resolves.toBe("conflict");
     expect(requests.filter((request) => request.method === "PATCH")).toEqual([]);
   });
 
   it("HEAD が動いていなければ、分類済みのエラーをそのまま返す（FORBIDDEN は permission、type のない失敗は retryable）", async () => {
-    const call = { before: "H", after: "N" };
-    const forbidden = createFetcher(withHead("H", { errors: [{ type: "FORBIDDEN", message: "x" }] }));
+    const call = {
+      before: "0000000000000000000000000000000000000005",
+      after: "0000000000000000000000000000000000000006",
+    };
+    const forbidden = createFetcher(
+      withHead("0000000000000000000000000000000000000005", { errors: [{ type: "FORBIDDEN", message: "x" }] })
+    );
     await expect(forbidden.gateway.updateRef("o/p", "b", call)).rejects.toMatchObject({ kind: "permission" });
 
-    const untyped = createFetcher(withHead("H", { errors: [{ message: "timeout" }] }));
+    const untyped = createFetcher(
+      withHead("0000000000000000000000000000000000000005", { errors: [{ message: "timeout" }] })
+    );
     await expect(untyped.gateway.updateRef("o/p", "b", call)).rejects.toMatchObject({ kind: "retryable" });
   });
 
@@ -124,14 +159,17 @@ describe("updateRef", () => {
         fetcher: (url, init) =>
           Promise.resolve(
             new URL(url).pathname.includes("/git/ref/")
-              ? Response.json({ object: { sha: "H" } })
+              ? Response.json({ object: { sha: "0000000000000000000000000000000000000005" } })
               : isRepositoryIdQuery(init)
                 ? repositoryId()
                 : Response.json({ errors: [{ type: "RATE_LIMITED", message: "limit" }] }, { headers })
           ),
         getToken: () => Promise.resolve("token"),
       });
-    const call = { before: "H", after: "N" };
+    const call = {
+      before: "0000000000000000000000000000000000000005",
+      after: "0000000000000000000000000000000000000006",
+    };
 
     await expect(limited({ "retry-after": "17" }).updateRef("o/p", "b", call)).rejects.toMatchObject({
       kind: "retryable",
@@ -147,11 +185,11 @@ describe("updateRef", () => {
 describe("読み取り", () => {
   it("branch の HEAD を返し、存在しなければ undefined を返す", async () => {
     const { gateway } = createFetcher({
-      "GET /repos/o/p/git/ref/heads/feature/x": json({ object: { sha: "abc" } }),
+      "GET /repos/o/p/git/ref/heads/feature/x": json({ object: { sha: "000000000000000000000000000000000000000c" } }),
       "GET /repos/o/p/git/ref/heads/missing": json({ message: "Not Found" }, { status: 404 }),
     });
 
-    await expect(gateway.getBranchHead("o/p", "feature/x")).resolves.toBe("abc");
+    await expect(gateway.getBranchHead("o/p", "feature/x")).resolves.toBe("000000000000000000000000000000000000000c");
     await expect(gateway.getBranchHead("o/p", "missing")).resolves.toBeUndefined();
   });
 
@@ -194,32 +232,61 @@ describe("PR の更新", () => {
 });
 
 describe("compareCommits", () => {
-  it("応答が 1 MiB を超えたら、解釈せずに undefined を返す", async () => {
-    const commits = [{ sha: "A", commit: { message: "x".repeat(1024 * 1024) } }];
+  it.each([-1, 1.5, Number.MAX_SAFE_INTEGER + 1])("不正な total_commits %s を拒否する", async (total_commits) => {
     const { gateway } = createFetcher({
-      "GET /repos/o/src/compare/P...S": json({ total_commits: 1, commits }),
+      "GET /repos/o/src/compare/0000000000000000000000000000000000000007...0000000000000000000000000000000000000008":
+        json({ total_commits, commits: [] }),
     });
 
-    await expect(gateway.compareCommits("o/src", "P", "S")).resolves.toBeUndefined();
+    await expect(
+      gateway.compareCommits(
+        "o/src",
+        "0000000000000000000000000000000000000007",
+        "0000000000000000000000000000000000000008"
+      )
+    ).rejects.toThrow();
+  });
+
+  it("応答が 1 MiB を超えたら、解釈せずに undefined を返す", async () => {
+    const commits = [{ sha: "0000000000000000000000000000000000000001", commit: { message: "x".repeat(1024 * 1024) } }];
+    const { gateway } = createFetcher({
+      "GET /repos/o/src/compare/0000000000000000000000000000000000000007...0000000000000000000000000000000000000008":
+        json({ total_commits: 1, commits }),
+    });
+
+    await expect(
+      gateway.compareCommits(
+        "o/src",
+        "0000000000000000000000000000000000000007",
+        "0000000000000000000000000000000000000008"
+      )
+    ).resolves.toBeUndefined();
   });
 
   it("compare の commit を古い順のまま、件名（message の 1 行目）だけで返す", async () => {
     const { gateway } = createFetcher({
-      "GET /repos/o/src/compare/P...S": json({
-        total_commits: 300,
-        commits: [
-          { sha: "A", commit: { message: "first\r\n\r\nbody" } },
-          { sha: "B", commit: { message: "second" } },
-          { sha: "C", commit: { message: "third\r\r@someone" } },
-        ],
-      }),
+      "GET /repos/o/src/compare/0000000000000000000000000000000000000007...0000000000000000000000000000000000000008":
+        json({
+          total_commits: 300,
+          commits: [
+            { sha: "0000000000000000000000000000000000000001", commit: { message: "first\r\n\r\nbody" } },
+            { sha: "0000000000000000000000000000000000000002", commit: { message: "second" } },
+            { sha: "0000000000000000000000000000000000000003", commit: { message: "third\r\r@someone" } },
+          ],
+        }),
     });
 
-    await expect(gateway.compareCommits("o/src", "P", "S")).resolves.toEqual({
+    await expect(
+      gateway.compareCommits(
+        "o/src",
+        "0000000000000000000000000000000000000007",
+        "0000000000000000000000000000000000000008"
+      )
+    ).resolves.toEqual({
       commits: [
-        { sha: "A", subject: "first" },
-        { sha: "B", subject: "second" },
-        { sha: "C", subject: "third" },
+        { sha: "0000000000000000000000000000000000000001", subject: "first" },
+        { sha: "0000000000000000000000000000000000000002", subject: "second" },
+        { sha: "0000000000000000000000000000000000000003", subject: "third" },
       ],
       total: 300,
     });
@@ -227,10 +294,17 @@ describe("compareCommits", () => {
 
   it("比べられない（404）なら undefined を返す", async () => {
     const { gateway } = createFetcher({
-      "GET /repos/o/src/compare/P...S": json({ message: "Not Found" }, { status: 404 }),
+      "GET /repos/o/src/compare/0000000000000000000000000000000000000007...0000000000000000000000000000000000000008":
+        json({ message: "Not Found" }, { status: 404 }),
     });
 
-    await expect(gateway.compareCommits("o/src", "P", "S")).resolves.toBeUndefined();
+    await expect(
+      gateway.compareCommits(
+        "o/src",
+        "0000000000000000000000000000000000000007",
+        "0000000000000000000000000000000000000008"
+      )
+    ).resolves.toBeUndefined();
   });
 });
 
@@ -251,7 +325,10 @@ describe("readRepositoryState", () => {
       ...repositoryFields,
       defaultBranchRef: {
         name: "main",
-        target: { oid: "S", yml: { object: blob("targets:\n  - repository: o/x\n    path: sub\n") } },
+        target: {
+          oid: "0000000000000000000000000000000000000008",
+          yml: { object: blob("targets:\n  - repository: o/x\n    path: sub\n") },
+        },
       },
       previous: undefined,
       managed: undefined,
@@ -264,7 +341,7 @@ describe("readRepositoryState", () => {
 
     await expect(gateway.readRepositoryState("o/p")).resolves.toEqual({
       repository: { fullName: "o/p", defaultBranch: "main", isPrivate: true },
-      sha: "S",
+      sha: "0000000000000000000000000000000000000008",
       configs: [yml("targets:\n  - repository: o/x\n    path: sub\n")],
       previous: undefined,
       managed: [],
@@ -278,7 +355,10 @@ describe("readRepositoryState", () => {
   it("設定の本文は、不正でも切り詰められていても、そのまま返す（検査は use case が行う）", async () => {
     for (const text of ["targets: [unclosed", "x".repeat(1000)]) {
       const data = sourceData({
-        defaultBranchRef: { name: "main", target: { oid: "S", yml: { object: blob(text) } } },
+        defaultBranchRef: {
+          name: "main",
+          target: { oid: "0000000000000000000000000000000000000008", yml: { object: blob(text) } },
+        },
       });
       const { gateway } = createFetcher({ "POST /graphql": graphql(data) });
 
@@ -292,14 +372,27 @@ describe("readRepositoryState", () => {
 
     const noFile = createFetcher({
       "POST /graphql": graphql(
-        sourceData({ defaultBranchRef: { name: "main", target: { oid: "S", yml: null, yaml: null } } })
+        sourceData({
+          defaultBranchRef: {
+            name: "main",
+            target: { oid: "0000000000000000000000000000000000000008", yml: null, yaml: null },
+          },
+        })
       ),
     });
-    await expect(noFile.gateway.readRepositoryState("o/p")).resolves.toMatchObject({ sha: "S", configs: [] });
+    await expect(noFile.gateway.readRepositoryState("o/p")).resolves.toMatchObject({
+      sha: "0000000000000000000000000000000000000008",
+      configs: [],
+    });
 
     const binary = createFetcher({
       "POST /graphql": graphql(
-        sourceData({ defaultBranchRef: { name: "main", target: { oid: "S", yml: { object: blob(null) } } } })
+        sourceData({
+          defaultBranchRef: {
+            name: "main",
+            target: { oid: "0000000000000000000000000000000000000008", yml: { object: blob(null) } },
+          },
+        })
       ),
     });
     await expect(binary.gateway.readRepositoryState("o/p")).resolves.toMatchObject({ configs: [yml(null)] });
@@ -310,7 +403,10 @@ describe("readRepositoryState", () => {
         sourceData({
           defaultBranchRef: {
             name: "main",
-            target: { oid: "S", yml: { object: blob("targets:\n  - repository: o/x\n", { isTruncated: true }) } },
+            target: {
+              oid: "0000000000000000000000000000000000000008",
+              yml: { object: blob("targets:\n  - repository: o/x\n", { isTruncated: true }) },
+            },
           },
         })
       ),
@@ -321,7 +417,11 @@ describe("readRepositoryState", () => {
     const previous = createFetcher({
       "POST /graphql": graphql(
         sourceData({
-          previous: { oid: "B", yml: { object: blob("x", { isTruncated: true }) }, yaml: { object: blob(null) } },
+          previous: {
+            oid: "0000000000000000000000000000000000000002",
+            yml: { object: blob("x", { isTruncated: true }) },
+            yaml: { object: blob(null) },
+          },
         })
       ),
     });
@@ -338,16 +438,21 @@ describe("readRepositoryState", () => {
 
     expect((await previous(null)).previous).toBeUndefined();
     expect((await previous({})).previous).toBeUndefined();
-    expect((await previous({ oid: "B", yml: null, yaml: null })).previous).toEqual({ configs: [] });
-    expect((await previous({ oid: "B", yml: { object: blob("targets: []\n") } })).previous).toEqual({
+    expect(
+      (await previous({ oid: "0000000000000000000000000000000000000002", yml: null, yaml: null })).previous
+    ).toEqual({ configs: [] });
+    expect(
+      (await previous({ oid: "0000000000000000000000000000000000000002", yml: { object: blob("targets: []\n") } }))
+        .previous
+    ).toEqual({
       configs: [yml("targets: []\n")],
     });
   });
 
   it("設定ファイルは .yml と .yaml のどちらも読み、あるものだけを返す（現在の設定も旧設定も）", async () => {
     const at = (files: Record<string, unknown>) => ({
-      defaultBranchRef: { name: "main", target: { oid: "S", ...files } },
-      previous: { oid: "B", ...files },
+      defaultBranchRef: { name: "main", target: { oid: "0000000000000000000000000000000000000008", ...files } },
+      previous: { oid: "0000000000000000000000000000000000000002", ...files },
     });
     const read = async (files: Record<string, unknown>) =>
       createFetcher({ "POST /graphql": graphql(sourceData(at(files))) }).gateway.readRepositoryState("o/p", {
@@ -381,10 +486,14 @@ describe("readRepositoryState", () => {
       repository: { ...sourceData().repository, defaultBranchRef: { name: "main", target } },
     });
     await expect(
-      read(head({ oid: "S", yml: { object: blob("a") }, yaml: null }), [notFound("defaultBranchRef", "target", "yaml")])
+      read(head({ oid: "0000000000000000000000000000000000000008", yml: { object: blob("a") }, yaml: null }), [
+        notFound("defaultBranchRef", "target", "yaml"),
+      ])
     ).resolves.toMatchObject({ configs: [yml("a")] });
     await expect(
-      read(head({ oid: "S", yml: null, yaml: { object: blob("b") } }), [notFound("defaultBranchRef", "target", "yml")])
+      read(head({ oid: "0000000000000000000000000000000000000008", yml: null, yaml: { object: blob("b") } }), [
+        notFound("defaultBranchRef", "target", "yml"),
+      ])
     ).resolves.toMatchObject({ configs: [yaml("b")] });
 
     // top-level の field 自体の NOT_FOUND は、repository が見えない失敗として分類する
@@ -394,12 +503,12 @@ describe("readRepositoryState", () => {
   it("旧設定を指定したときだけ、変数で問い合わせる", async () => {
     const { gateway, requests } = createFetcher({ "POST /graphql": graphql(sourceData()) });
 
-    await gateway.readRepositoryState("o/p", { previous: { sha: "B" } });
+    await gateway.readRepositoryState("o/p", { previous: { sha: "0000000000000000000000000000000000000002" } });
     await gateway.readRepositoryState("o/p", { previous: { branch: "main" } });
     await gateway.readRepositoryState("o/p");
 
     expect(requests.map((request) => request.body)).toMatchObject([
-      { variables: { hasPrevious: true, previous: "B" } },
+      { variables: { hasPrevious: true, previous: "0000000000000000000000000000000000000002" } },
       { variables: { hasPrevious: true, previous: "refs/heads/main" } },
       { variables: { hasPrevious: false } },
     ]);
@@ -417,7 +526,7 @@ describe("readRepositoryState の管理 branch", () => {
   const withManaged = (managed: unknown) => ({
     repository: {
       ...repositoryFields,
-      defaultBranchRef: { name: "main", target: { oid: "S", file: null } },
+      defaultBranchRef: { name: "main", target: { oid: "0000000000000000000000000000000000000008", file: null } },
       managed,
     },
   });
@@ -479,8 +588,8 @@ describe("readRepositoryState の管理 branch", () => {
 });
 
 describe("checkUnchanged", () => {
-  const source = { repository: "a/src", defaultBranch: "main", sha: "S" };
-  const parent = { repository: "b/parent", branch: "main", sha: "B" };
+  const source = { repository: "a/src", defaultBranch: "main", sha: "0000000000000000000000000000000000000008" };
+  const parent = { repository: "b/parent", branch: "main", sha: "0000000000000000000000000000000000000002" };
   const create = (sourceData: unknown, parentData: unknown) => {
     const requests: { token: string | null; variables: Record<string, unknown> }[] = [];
     const gateway = new GitHubGatewayImpl({
@@ -493,8 +602,10 @@ describe("checkUnchanged", () => {
     });
     return { gateway, requests };
   };
-  const sourceHead = (name = "main", oid = "S") => ({ repository: { defaultBranchRef: { name, target: { oid } } } });
-  const parentHead = (oid: string | null = "B") => ({
+  const sourceHead = (name = "main", oid = "0000000000000000000000000000000000000008") => ({
+    repository: { defaultBranchRef: { name, target: { oid } } },
+  });
+  const parentHead = (oid: string | null = "0000000000000000000000000000000000000002") => ({
     repository: { ref: { target: oid === null ? null : { oid } } },
   });
 
@@ -512,9 +623,9 @@ describe("checkUnchanged", () => {
   });
 
   it.each([
-    ["source の HEAD が動いた", sourceHead("main", "S2"), parentHead()],
+    ["source の HEAD が動いた", sourceHead("main", "00000000000000000000000000000000000000a1"), parentHead()],
     ["source の default branch の名前が変わった", sourceHead("trunk"), parentHead()],
-    ["parent の base が動いた", sourceHead(), parentHead("B2")],
+    ["parent の base が動いた", sourceHead(), parentHead("00000000000000000000000000000000000000b1")],
     ["parent の base がなくなった", sourceHead(), parentHead(null)],
   ])("%s なら false にする", async (_name, sourceData, parentData) => {
     const { gateway } = create(sourceData, parentData);
@@ -525,10 +636,16 @@ describe("checkUnchanged", () => {
 
 describe("readParentState", () => {
   const baseCommit = (overrides: Record<string, unknown> = {}) => ({
-    oid: "B",
-    tree: { oid: "T" },
+    oid: "0000000000000000000000000000000000000002",
+    tree: { oid: "0000000000000000000000000000000000000009" },
     submodules: {
-      nodes: [{ path: "sub", gitUrl: "git@github.com:o/a.git", subprojectCommitOid: "P" }],
+      nodes: [
+        {
+          path: "sub",
+          gitUrl: "git@github.com:o/a.git",
+          subprojectCommitOid: "0000000000000000000000000000000000000007",
+        },
+      ],
       pageInfo: { hasNextPage: false },
     },
     ...overrides,
@@ -548,14 +665,20 @@ describe("readParentState", () => {
           ],
         },
         target: {
-          oid: "H",
+          oid: "0000000000000000000000000000000000000005",
           message: "m",
           changedFilesIfAvailable: 1,
           submodules: {
-            nodes: [{ path: "sub", gitUrl: "git@github.com:o/a.git", subprojectCommitOid: "S" }],
+            nodes: [
+              {
+                path: "sub",
+                gitUrl: "git@github.com:o/a.git",
+                subprojectCommitOid: "0000000000000000000000000000000000000008",
+              },
+            ],
             pageInfo: { hasNextPage: false },
           },
-          parents: { nodes: [{ oid: "B" }] },
+          parents: { nodes: [{ oid: "0000000000000000000000000000000000000002" }] },
         },
       },
       latest: { nodes: [] },
@@ -572,15 +695,19 @@ describe("readParentState", () => {
     expect(state.repository).toEqual({ fullName: "o/p", defaultBranch: "main", isPrivate: true });
     expect(state.base).toEqual({
       branch: "main",
-      sha: "B",
-      treeSha: "T",
-      submodules: [{ path: "sub", url: "git@github.com:o/a.git", commitSha: "P" }],
+      sha: "0000000000000000000000000000000000000002",
+      treeSha: "0000000000000000000000000000000000000009",
+      submodules: [
+        { path: "sub", url: "git@github.com:o/a.git", commitSha: "0000000000000000000000000000000000000007" },
+      ],
     });
     expect(state.branch).toEqual({
-      sha: "H",
-      parentShas: ["B"],
+      sha: "0000000000000000000000000000000000000005",
+      parentShas: ["0000000000000000000000000000000000000002"],
       message: "m",
-      submodules: [{ path: "sub", url: "git@github.com:o/a.git", commitSha: "S" }],
+      submodules: [
+        { path: "sub", url: "git@github.com:o/a.git", commitSha: "0000000000000000000000000000000000000008" },
+      ],
       changedFiles: 1,
     });
     // head が同じ repository の branch である PR だけが返る（fork の PR は GitHub が含めない）
@@ -598,7 +725,7 @@ describe("readParentState", () => {
       title: `t${String(number)}`,
       state,
       closedAt,
-      headRefOid: `H${String(number)}`,
+      headRefOid: String(number).padStart(40, "0"),
       headRepository,
     });
     const read = async (nodes: unknown[]) =>
@@ -617,7 +744,7 @@ describe("readParentState", () => {
           pr(7, "CLOSED", "2026-01-01T00:00:00Z", { id: "R_node" }),
           pr(6, "MERGED", "2026-01-02T00:00:00Z", { id: "R_node" }),
         ])
-      ).resolves.toEqual({ number: 6, title: "t6", merged: true, headSha: "H6" });
+      ).resolves.toEqual({ number: 6, title: "t6", merged: true, headSha: "0000000000000000000000000000000000000006" });
     });
 
     it("Open の PR があれば undefined にする", async () => {
@@ -628,12 +755,12 @@ describe("readParentState", () => {
   });
 
   it("base-branch を明示すると、その branch を base とする", async () => {
-    const data = parentData({ base: { target: baseCommit({ oid: "D" }) } });
+    const data = parentData({ base: { target: baseCommit({ oid: "0000000000000000000000000000000000000004" }) } });
     const { gateway, requests } = createFetcher({ "POST /graphql": graphql(data) });
 
     const state = await gateway.readParentState("o/p", { ...input, baseBranch: "dev" });
 
-    expect(state.base).toMatchObject({ branch: "dev", sha: "D" });
+    expect(state.base).toMatchObject({ branch: "dev", sha: "0000000000000000000000000000000000000004" });
     expect(requests[0]?.body).toMatchObject({ variables: { baseRef: "refs/heads/dev", hasBase: true } });
   });
 
@@ -778,8 +905,8 @@ describe("GraphQL 読み取りのエラー分類", () => {
 describe("API エラーの分類", () => {
   const getRepository = (response: () => Response) =>
     createFetcher({ "POST /repos/o/p/git/commits": response }).gateway.createCommit("o/p", {
-      treeSha: "T",
-      parentSha: "B",
+      treeSha: "0000000000000000000000000000000000000009",
+      parentSha: "0000000000000000000000000000000000000002",
       message: "m",
     });
 
@@ -814,7 +941,13 @@ describe("API エラーの分類", () => {
       fetcher: () => Promise.reject(new Error("network down")),
       getToken: () => Promise.resolve("token"),
     });
-    await expect(gateway.createCommit("o/p", { treeSha: "T", parentSha: "B", message: "m" })).rejects.toMatchObject({
+    await expect(
+      gateway.createCommit("o/p", {
+        treeSha: "0000000000000000000000000000000000000009",
+        parentSha: "0000000000000000000000000000000000000002",
+        message: "m",
+      })
+    ).rejects.toMatchObject({
       kind: "retryable",
     });
   });
@@ -845,13 +978,24 @@ describe("API エラーの分類", () => {
 describe("readPathObjects", () => {
   it("2 つの式を一度に問い合わせ、存在しないオブジェクトを undefined にする", async () => {
     const { gateway, requests } = createFetcher({
-      "POST /graphql": graphql({ repository: { previous: null, source: { oid: "tree" } } }),
+      "POST /graphql": graphql({
+        repository: { previous: null, source: { oid: "000000000000000000000000000000000000000e" } },
+      }),
     });
 
     await expect(
-      gateway.readPathObjects("o/src", { path: "contents/a", previousSha: "P", sourceSha: "S" })
-    ).resolves.toEqual({ previous: undefined, source: "tree" });
+      gateway.readPathObjects("o/src", {
+        path: "contents/a",
+        previousSha: "0000000000000000000000000000000000000007",
+        sourceSha: "0000000000000000000000000000000000000008",
+      })
+    ).resolves.toEqual({ previous: undefined, source: "000000000000000000000000000000000000000e" });
 
-    expect(requests[0]?.body).toMatchObject({ variables: { previous: "P:contents/a", source: "S:contents/a" } });
+    expect(requests[0]?.body).toMatchObject({
+      variables: {
+        previous: "0000000000000000000000000000000000000007:contents/a",
+        source: "0000000000000000000000000000000000000008:contents/a",
+      },
+    });
   });
 });

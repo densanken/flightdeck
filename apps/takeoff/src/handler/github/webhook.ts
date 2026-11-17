@@ -1,5 +1,7 @@
+import { ConfigurationError } from "@flightdeck/validation";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import * as v from "valibot";
 
 import { gitHubRepositoryEventSchema, gitHubWorkflowRunEventSchema } from "./payload.js";
 import { logger } from "../../util/logger.js";
@@ -16,6 +18,7 @@ export interface GitHubWebhookDependencies {
 
 export interface GitHubWebhookRouteDependencies {
   createDependencies(env: Env["Bindings"]): GitHubWebhookDependencies;
+  getWebhookSecret(env: Env["Bindings"]): string;
   verifySignature(secret: string, signature: string, body: Uint8Array): Promise<boolean>;
 }
 
@@ -24,18 +27,18 @@ const ok = (c: Context<Env>) => c.json({ ok: true }, 200);
 const errorNameOf = (error: unknown): string => (error instanceof Error ? error.name : typeof error);
 
 const handleWorkflowRunEvent = (c: Context<Env>, deps: GitHubWebhookDependencies, json: unknown): Response => {
-  const parsed = gitHubWorkflowRunEventSchema.safeParse(json);
+  const parsed = v.safeParse(gitHubWorkflowRunEventSchema, json);
   if (!parsed.success) {
-    // ZodError は payload 由来の値を含むため、安定した event 名と issue 数だけを記録する
+    // valibot の issue は payload 由来の値を含むため、安定した event 名と issue 数だけを記録する
     logger.log("error", {
       event: "github_webhook_payload_invalid",
       githubEvent: "workflow_run",
-      issueCount: parsed.error.issues.length,
+      issueCount: parsed.issues.length,
     });
     return ok(c);
   }
 
-  const payload = parsed.data;
+  const payload = parsed.output;
 
   if (payload.action !== "requested" || payload.workflow_run.event !== "pull_request") {
     return ok(c);
@@ -92,18 +95,18 @@ const handleRepositoryEvent = (
   json: unknown,
   deliveryId: string
 ): Response => {
-  const parsed = gitHubRepositoryEventSchema.safeParse(json);
+  const parsed = v.safeParse(gitHubRepositoryEventSchema, json);
   if (!parsed.success) {
-    // ZodError は payload 由来の値を含むため、安定した event 名と issue 数だけを記録する
+    // valibot の issue は payload 由来の値を含むため、安定した event 名と issue 数だけを記録する
     logger.log("error", {
       event: "github_webhook_payload_invalid",
       githubEvent: "repository",
-      issueCount: parsed.error.issues.length,
+      issueCount: parsed.issues.length,
     });
     return ok(c);
   }
 
-  const payload = parsed.data;
+  const payload = parsed.output;
   if (payload.action !== "renamed" && payload.action !== "transferred") {
     return ok(c);
   }
@@ -133,10 +136,15 @@ export const createGitHubWebhookRoute = (dependencies: GitHubWebhookRouteDepende
   github.use("/github", bodyLimit({ maxSize: 256 * 1024 }));
 
   github.post("/github", async (c) => {
-    const secret = c.env.GITHUB_WEBHOOK_SECRET;
-    if (!secret) {
-      return c.json({ error: "webhook secret not configured" }, 401);
-    }
+    const secret = (() => {
+      try {
+        return dependencies.getWebhookSecret(c.env);
+      } catch (error) {
+        if (error instanceof ConfigurationError) return undefined;
+        throw error;
+      }
+    })();
+    if (secret === undefined) return c.json({ error: "webhook secret not configured" }, 401);
 
     const signature = c.req.header("X-Hub-Signature-256");
     if (!signature) return c.json({ error: "missing signature" }, 401);

@@ -102,6 +102,13 @@ describe("署名検証", () => {
 });
 
 describe("event の振り分け", () => {
+  it.each([0, -1, Number.MAX_SAFE_INTEGER + 1])("不正な installation ID %s を拒否する", async (id) => {
+    const { send, queued } = setup();
+
+    expect((await send("push", push({ installation: { id } }))).status).toBe(400);
+    expect(queued).toEqual([]);
+  });
+
   it("ping には 200 を返し、enqueue しない", async () => {
     const { send, queued } = setup();
 

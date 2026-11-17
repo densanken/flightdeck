@@ -1,3 +1,5 @@
+import * as v from "valibot";
+
 import { parsePullRequestWebhookPayload } from "./payload.js";
 import { jsonResponse, requestError } from "../../util/http-response.js";
 import { MAX_WEBHOOK_BODY_BYTES, readWebhookBody } from "../../util/request-body.js";
@@ -27,6 +29,13 @@ const textEncoder = new TextEncoder();
 // consumer が Queue message を parse するときと同じ形
 // ここで通すと consumer が捨てる delivery を防ぐ
 const DELIVERY_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
+
+const queueMessageSchema = v.object({
+  version: v.literal(1),
+  event: v.literal("pull_request"),
+  deliveryId: v.pipe(v.string(), v.regex(DELIVERY_ID_PATTERN)),
+  body: v.string(),
+});
 
 const boundedHeader = (value: string | null, maximumLength: number): string | null => {
   const normalized = value?.trim();
@@ -152,19 +161,9 @@ export const createQueuedGitHubWebhookHandler =
   };
 
 export const parseGitHubWebhookQueueMessage = (value: unknown): GitHubWebhookQueueMessage | null => {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  if (record.version !== 1 || record.event !== "pull_request") return null;
-  if (typeof record.deliveryId !== "string" || !DELIVERY_ID_PATTERN.test(record.deliveryId)) return null;
-  if (typeof record.body !== "string" || textEncoder.encode(record.body).byteLength > MAX_WEBHOOK_BODY_BYTES) {
-    return null;
-  }
-  const message: GitHubWebhookQueueMessage = {
-    version: 1,
-    event: "pull_request",
-    deliveryId: record.deliveryId,
-    body: record.body,
-  };
+  const parsed = v.safeParse(queueMessageSchema, value);
+  if (!parsed.success || textEncoder.encode(parsed.output.body).byteLength > MAX_WEBHOOK_BODY_BYTES) return null;
+  const message = parsed.output;
   if (textEncoder.encode(JSON.stringify(message)).byteLength > MAX_QUEUE_MESSAGE_BYTES) return null;
   return message;
 };

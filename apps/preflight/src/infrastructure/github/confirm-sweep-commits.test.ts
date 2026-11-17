@@ -5,25 +5,33 @@ import { confirmSweepCommits } from "./commit-status.js";
 describe("confirmSweepCommits", () => {
   const connection = () => ({
     totalCount: 1,
-    nodes: [{ number: 1, title: "feat: a", state: "OPEN", isDraft: false, headRefOid: "a" }],
+    nodes: [
+      {
+        number: 1,
+        title: "feat: a",
+        state: "OPEN",
+        isDraft: false,
+        headRefOid: "86f7e437faa5a7fce15d1ddcb9eaeaea377667b8",
+      },
+    ],
     pageInfo: { hasNextPage: false },
   });
   const repository = () => ({
-    o0: { oid: "a", associatedPullRequests: connection() },
+    o0: { oid: "86f7e437faa5a7fce15d1ddcb9eaeaea377667b8", associatedPullRequests: connection() },
     o1: {
-      oid: "b",
+      oid: "e9d71f5ee7c92d6dc9e92ffdad17b8bd49418f98",
       associatedPullRequests: { ...connection(), totalCount: 0, nodes: [] as ReturnType<typeof connection>["nodes"] },
     },
     defaultBranchRef: {
-      c0: { status: "AHEAD", headTarget: { oid: "a" } },
-      c1: { status: "DIVERGED", headTarget: { oid: "b" } },
+      c0: { status: "AHEAD", headTarget: { oid: "86f7e437faa5a7fce15d1ddcb9eaeaea377667b8" } },
+      c1: { status: "DIVERGED", headTarget: { oid: "e9d71f5ee7c92d6dc9e92ffdad17b8bd49418f98" } },
     },
   });
   const confirm = (body: unknown) =>
     confirmSweepCommits({
       owner: "owner",
       repo: "repo",
-      shas: ["a", "b"],
+      shas: ["86f7e437faa5a7fce15d1ddcb9eaeaea377667b8", "e9d71f5ee7c92d6dc9e92ffdad17b8bd49418f98"],
       installationToken: "token",
       fetchImpl: vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(body), { status: 200 })),
       signal: new AbortController().signal,
@@ -48,7 +56,7 @@ describe("confirmSweepCommits", () => {
           title: "feat: title",
           state: "OPEN",
           isDraft: false,
-          headRefOid: "a",
+          headRefOid: "86f7e437faa5a7fce15d1ddcb9eaeaea377667b8",
         });
         repo.o0.associatedPullRequests.totalCount = 2;
       },
@@ -56,7 +64,7 @@ describe("confirmSweepCommits", () => {
     [
       "比較先の SHA 不一致",
       (repo: ReturnType<typeof repository>) => {
-        repo.defaultBranchRef.c0.headTarget.oid = "b";
+        repo.defaultBranchRef.c0.headTarget.oid = "e9d71f5ee7c92d6dc9e92ffdad17b8bd49418f98";
       },
     ],
     [
@@ -81,8 +89,8 @@ describe("confirmSweepCommits", () => {
     const repo = repository();
     invalidate(repo);
     expect([...(await confirm({ data: { repository: repo } }))]).toEqual([
-      ["a", undefined],
-      ["b", []],
+      ["86f7e437faa5a7fce15d1ddcb9eaeaea377667b8", undefined],
+      ["e9d71f5ee7c92d6dc9e92ffdad17b8bd49418f98", []],
     ]);
   });
 
@@ -90,12 +98,26 @@ describe("confirmSweepCommits", () => {
     const repo = repository();
     repo.o1.associatedPullRequests = {
       totalCount: 1,
-      nodes: [{ number: 2, title: "fix: b", state: "OPEN", isDraft: true, headRefOid: "b" }],
+      nodes: [
+        {
+          number: 2,
+          title: "fix: b",
+          state: "OPEN",
+          isDraft: true,
+          headRefOid: "e9d71f5ee7c92d6dc9e92ffdad17b8bd49418f98",
+        },
+      ],
       pageInfo: { hasNextPage: false },
     };
     expect([...(await confirm({ data: { repository: repo } }))]).toEqual([
-      ["a", [{ number: 1, title: "feat: a", draft: false, headSha: "a" }]],
-      ["b", [{ number: 2, title: "fix: b", draft: true, headSha: "b" }]],
+      [
+        "86f7e437faa5a7fce15d1ddcb9eaeaea377667b8",
+        [{ number: 1, title: "feat: a", draft: false, headSha: "86f7e437faa5a7fce15d1ddcb9eaeaea377667b8" }],
+      ],
+      [
+        "e9d71f5ee7c92d6dc9e92ffdad17b8bd49418f98",
+        [{ number: 2, title: "fix: b", draft: true, headSha: "e9d71f5ee7c92d6dc9e92ffdad17b8bd49418f98" }],
+      ],
     ]);
   });
 });

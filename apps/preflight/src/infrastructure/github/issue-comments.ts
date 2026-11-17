@@ -1,32 +1,26 @@
+import { githubId } from "@flightdeck/validation";
+import * as v from "valibot";
+
 import { GITHUB_API_BASE_URL, githubRequest, invalidShapeError, nextPageUrl, readGitHubJson } from "./request.js";
 import { GitHubError } from "../../errors.js";
-import { positiveSafeInteger } from "../../util/type-guards.js";
 
 import type { IssueComment } from "../../usecase/title-validation/dependencies.js";
 
 const MAX_COMMENT_PAGES = 10;
+
 const MAX_COMMENTS = 1_000;
 
+const issueCommentsSchema = v.array(
+  v.object({
+    id: githubId,
+    body: v.nullable(v.string()),
+    user: v.nullable(v.object({ id: githubId })),
+  })
+);
+
 const parseIssueComments = (value: unknown): IssueComment[] | null => {
-  if (!Array.isArray(value)) return null;
-  const comments: IssueComment[] = [];
-  for (const item of value as unknown[]) {
-    if (typeof item !== "object" || item === null) return null;
-    const comment = item as Record<string, unknown>;
-    if (!positiveSafeInteger(comment.id)) return null;
-    if (comment.body !== null && typeof comment.body !== "string") return null;
-    if (comment.user !== null) {
-      if (typeof comment.user !== "object" || !positiveSafeInteger((comment.user as Record<string, unknown>).id)) {
-        return null;
-      }
-    }
-    comments.push({
-      id: comment.id,
-      body: comment.body,
-      user: comment.user === null ? null : { id: (comment.user as { id: number }).id },
-    });
-  }
-  return comments;
+  const parsed = v.safeParse(issueCommentsSchema, value);
+  return parsed.success ? parsed.output : null;
 };
 
 export const listIssueComments = async (input: {

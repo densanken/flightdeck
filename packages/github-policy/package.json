@@ -16,6 +16,7 @@
   "dependencies": {
     "@flightdeck/github-app-jwt": "workspace:*",
     "@flightdeck/rules": "workspace:*",
-    "zod": "^4.6.5"
+    "@flightdeck/validation": "workspace:*",
+    "valibot": "^1.5.0"
   }
 }

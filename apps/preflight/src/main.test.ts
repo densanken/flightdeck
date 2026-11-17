@@ -1,6 +1,6 @@
+import { ConfigurationError } from "@flightdeck/validation";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ConfigurationError } from "./errors.js";
 import worker from "./main.js";
 
 import type { GitHubWebhookQueueMessage } from "./message/github-webhook.js";
@@ -22,11 +22,11 @@ vi.mock("./util/logger.js", () => ({ createLogger: mocks.createLogger }));
 const validBody = JSON.stringify({
   action: "opened",
   installation: { id: 42 },
-  repository: { name: "repo", owner: { login: "owner" } },
+  repository: { full_name: "owner/repo" },
   pull_request: {
     number: 7,
     title: "feat: add login",
-    head: { sha: "abc123" },
+    head: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
     user: { login: "author", type: "User" },
     assignees: [],
   },

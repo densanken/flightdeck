@@ -1,5 +1,7 @@
+import { ConfigurationError } from "@flightdeck/validation";
+
 import { underlyingError } from "./feature-result.js";
-import { AppError, ConfigurationError, GitHubError } from "../../errors.js";
+import { AppError, GitHubError } from "../../errors.js";
 import { TitleValidationExecutionError } from "../../usecase/title-validation/errors.js";
 
 import type { RequestLogContext } from "./context.js";
@@ -42,7 +44,7 @@ export const githubErrorFields = (
 
 // 想定外の例外は message に payload 由来の値が乗りうるため、型名と stack の先頭 frame だけを残す
 export const unexpectedErrorFields = (error: unknown): Pick<LogRecord, "errorName" | "errorLocation"> =>
-  error instanceof Error && !(error instanceof AppError)
+  error instanceof Error && !(error instanceof AppError) && !(error instanceof ConfigurationError)
     ? {
         errorName: error.name,
         // stack の先頭は "name: message" で message が複数行にわたることがあるため、その行数分を飛ばして探す
@@ -119,7 +121,14 @@ export const logFeatureResult = (
   if (feature.supersededSweepFailed) {
     const error = feature.supersededSweepError;
     policyLog(logger, "warn", "superseded_sweep_failed", context, startedAt, feature.feature, {
-      errorCode: error instanceof AppError ? error.code : error instanceof Error ? error.name : undefined,
+      errorCode:
+        error instanceof ConfigurationError
+          ? "INTERNAL_ERROR"
+          : error instanceof AppError
+            ? error.code
+            : error instanceof Error
+              ? error.name
+              : undefined,
       ...githubErrorFields(error),
     });
   }

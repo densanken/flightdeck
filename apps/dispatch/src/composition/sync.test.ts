@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { SyncUseCaseImpl } from "./impl.js";
-import { DispatchError, isPermanent } from "../../errors.js";
+import { DispatchError, isPermanent } from "../errors.js";
+import { readConfig } from "../infrastructure/config/parse.js";
+import { SyncUseCaseImpl } from "../usecase/sync/impl.js";
 
+import type { Submodule } from "../domain/gitmodules.js";
 import type {
   ChildMessage,
   DispatchGateway,
@@ -11,9 +13,8 @@ import type {
   RefUpdateResult,
   RepositoryInfo,
   RepositoryState,
-} from "./dependencies.js";
-import type { Submodule } from "../../domain/gitmodules.js";
-import type { LogRecord } from "../../util/logger.js";
+} from "../usecase/sync/dependencies.js";
+import type { LogRecord } from "../util/logger.js";
 import type { ConfigFile } from "@flightdeck/rules";
 
 const BRANCH = "flightdeck-dispatch/o/src";
@@ -441,6 +442,7 @@ const setup = (config: unknown = { targets: [{ repository: "o/parent" }] }) => {
   const enqueued: ChildMessage[] = [];
   const useCase = new SyncUseCaseImpl({
     gateway: gh,
+    readConfig,
     enqueue: (messages) => {
       enqueued.push(...messages);
       gh.children.push(...messages);

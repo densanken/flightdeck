@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { chooseConfig, MAX_TARGETS, parseConfig as parseConfigText } from "./config.js";
+import { chooseConfig, MAX_TARGETS, parseConfig as parseConfigText } from "./parse.js";
 
 // dispatch の section の内容を、JSON（YAML の一部）で渡す
 const parseConfig = (raw: unknown) => parseConfigText(JSON.stringify({ dispatch: raw }));
@@ -38,6 +38,8 @@ describe("parseConfig", () => {
     ["未知のトップレベル項目", { targets: [], extra: 1 }],
     ["targets がない", {}],
     ["null", null],
+    ["空の配列", []],
+    ["target が配列", { targets: [[]] }],
     ["repository が owner/repo 形式でない", { targets: [target({ repository: "parent" })] }],
     ["repository に余計な階層がある", { targets: [target({ repository: "a/b/c" })] }],
     ["repository が .. を指す", { targets: [target({ repository: "o/.." })] }],

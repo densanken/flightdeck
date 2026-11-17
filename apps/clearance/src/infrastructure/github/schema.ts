@@ -1,28 +1,36 @@
-import { z } from "zod";
+import { commitSha, githubId } from "@flightdeck/validation";
+import * as v from "valibot";
 
-const actor = z
-  .object({ __typename: z.string(), login: z.string().optional(), databaseId: z.number().nullable().optional() })
-  .nullable();
+const actor = v.nullable(
+  v.object({
+    __typename: v.string(),
+    login: v.optional(v.string()),
+    databaseId: v.nullish(githubId),
+  })
+);
 
-const review = z.object({
-  databaseId: z.number().nullable().optional(),
-  state: z.string(),
+const review = v.object({
+  databaseId: v.nullish(githubId),
+  state: v.string(),
   author: actor,
-  commit: z.object({ oid: z.string() }).nullable().optional(),
+  commit: v.nullish(v.object({ oid: commitSha })),
 });
 
-export const reviewResponse = z.object({ id: z.number().int() });
+export const reviewResponse = v.object({ id: githubId });
 
-export const reviewStateResponse = z.object({ state: z.string() });
+export const reviewStateResponse = v.object({ state: v.string() });
 
-export const searchResponse = z.object({
-  search: z.object({
-    nodes: z.array(
-      z.object({
-        number: z.number(),
-        headRefOid: z.string(),
-        author: z.object({ databaseId: z.number().nullable().optional() }).nullable(),
-        latestReviews: z.object({ totalCount: z.number().int().nonnegative(), nodes: z.array(review) }),
+export const searchResponse = v.object({
+  search: v.object({
+    nodes: v.array(
+      v.object({
+        number: githubId,
+        headRefOid: commitSha,
+        author: v.nullable(v.object({ databaseId: v.nullish(githubId) })),
+        latestReviews: v.object({
+          totalCount: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+          nodes: v.array(review),
+        }),
       })
     ),
   }),

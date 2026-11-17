@@ -1,14 +1,10 @@
-import { z } from "zod";
+import * as v from "valibot";
 
 import { GitHubPolicyError } from "./errors.js";
 
 export const normalizeError = (error: unknown): unknown => {
-  if (error instanceof z.ZodError || error instanceof SyntaxError) {
-    return new GitHubPolicyError(
-      "invalid_response",
-      error instanceof z.ZodError ? "ZodError" : "SyntaxError",
-      "invalid GitHub response"
-    );
+  if (error instanceof SyntaxError) {
+    return new GitHubPolicyError("invalid_response", "SyntaxError", "invalid GitHub response");
   }
   if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
     return new GitHubPolicyError("timeout", error.name, "GitHub request timed out");
@@ -17,9 +13,9 @@ export const normalizeError = (error: unknown): unknown => {
   return error;
 };
 
-export const parseResponse = <T extends z.ZodType>(schema: T, value: unknown): z.output<T> => {
-  const result = schema.safeParse(value);
-  if (!result.success) throw normalizeError(result.error);
+export const parseResponse = <T extends v.GenericSchema>(schema: T, value: unknown): v.InferOutput<T> => {
+  const result = v.safeParse(schema, value);
+  if (!result.success) throw new GitHubPolicyError("invalid_response", "ValidationError", "invalid GitHub response");
 
-  return result.data;
+  return result.output;
 };

@@ -1,14 +1,15 @@
 import { createGitHubAppJwt } from "@flightdeck/github-app-jwt";
-import { splitRepository } from "@flightdeck/rules";
-import { z } from "zod";
+import { githubId, splitRepository } from "@flightdeck/validation";
+import * as v from "valibot";
 
 import { callGitHub, parseResponse } from "./request.js";
 import { DispatchError } from "../../errors.js";
 
 import type { Fetcher } from "./request.js";
 
-const installationSchema = z.object({ id: z.number() });
-const accessTokenSchema = z.object({ token: z.string() });
+const installationSchema = v.object({ id: githubId });
+
+const accessTokenSchema = v.object({ token: v.string() });
 
 // key ごとに make の結果（Promise）を保持し、同じ key では再実行しない
 const cachedPromise = <K, V>(cache: Map<K, Promise<V>>, key: K, make: () => Promise<V>): Promise<V> => {

@@ -17,8 +17,9 @@
     "@flightdeck/logger": "workspace:*",
     "@flightdeck/pr-title": "workspace:*",
     "@flightdeck/rules": "workspace:*",
+    "@flightdeck/validation": "workspace:*",
     "hono": "^4.13.8",
-    "zod": "^4.6.5"
+    "valibot": "^1.5.0"
   },
   "devDependencies": {
     "@flightdeck/private-key-env": "workspace:*"

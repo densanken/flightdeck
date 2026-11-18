@@ -5,6 +5,28 @@ import { FanoutUseCaseImpl } from "./impl.js";
 import type { BoardingMessage } from "../../message/webhook.js";
 
 describe("FanoutUseCaseImpl", () => {
+  it("実行要求では未完了 CI があっても関連 PR を投入する", async () => {
+    const enqueue = vi.fn();
+    const usecase = new FanoutUseCaseImpl({
+      appId: 20,
+      verifyInstallation: vi.fn(),
+      listOpenPullRequests: vi.fn(),
+      associatedPullRequests: vi.fn().mockResolvedValue({
+        numbers: [3],
+        ci: { checks: [{ name: "ci", status: "in_progress", conclusion: null, app: { id: 2 } }], statuses: [] },
+      }),
+      enqueue,
+    });
+    await usecase.execute({
+      event: "ci-requested",
+      sha: "sha",
+      repositoryId: 1,
+      deliveryId: "delivery",
+      installationId: 1,
+    });
+    expect(enqueue).toHaveBeenCalledWith([{ event: "evaluate", deliveryId: "delivery", installationId: 1, number: 3 }]);
+  });
+
   it("PR ごとの message をまとめて投入する", async () => {
     const enqueue = vi.fn<(messages: BoardingMessage[]) => Promise<void>>().mockResolvedValue(undefined);
     const usecase = new FanoutUseCaseImpl({

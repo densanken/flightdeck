@@ -12,7 +12,7 @@ const pageInfo = v.object({ hasNextPage: v.boolean(), endCursor: v.nullable(v.st
 const query = `query Evaluation($number: Int!, $commits: String, $reviews: String, $first: Boolean!) {
   repository(owner: "densanken", name: "blog-contents") {
     pullRequest(number: $number) {
-      state baseRefName headRefOid changedFiles isDraft body lastEditedAt
+      state baseRefName headRefOid isCrossRepository headRepository { databaseId } changedFiles isDraft body lastEditedAt
       headCommit: commits(last: 1) @include(if: $first) { nodes { commit { oid ${statusCheckRollup} } } }
       potentialMergeCommit @include(if: $first) { oid ${statusCheckRollup} }
       baseRef { target { oid ... on Commit {
@@ -56,6 +56,8 @@ const responseSchema = v.object({
         }),
       }),
       headRefOid: v.string(),
+      isCrossRepository: v.boolean(),
+      headRepository: v.nullable(v.object({ databaseId: v.pipe(v.number(), v.safeInteger(), v.minValue(1)) })),
       changedFiles: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
       author: v.object({ ...person.entries, __typename: v.picklist(["User", "Bot"]) }),
       commits: v.object({
@@ -267,6 +269,8 @@ export class GitHubGatewayImpl {
       baseBranch: pr.baseRefName,
       baseSha: pr.baseRef.target.oid,
       headSha: pr.headRefOid,
+      isCrossRepository: pr.isCrossRepository,
+      headRepositoryId: pr.headRepository?.databaseId ?? null,
       author: { id: pr.author.databaseId, login: pr.author.login, isBot: pr.author.__typename === "Bot" },
       files,
       commits: commits.map(({ commit }) => ({

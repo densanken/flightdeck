@@ -23,9 +23,11 @@ export class FanoutUseCaseImpl implements FanoutUseCase {
   }
 
   private async pullRequests(input: Parameters<FanoutUseCase["execute"]>[0]): Promise<number[]> {
-    if (input.event !== "ci-completed") return this.dependencies.listOpenPullRequests();
+    if (input.event !== "ci-completed" && input.event !== "ci-requested") {
+      return this.dependencies.listOpenPullRequests();
+    }
 
     const { numbers, ci } = await this.dependencies.associatedPullRequests(input.sha, input.repositoryId);
-    return hasPendingCi(ci, this.dependencies.appId) ? [] : numbers;
+    return input.event === "ci-completed" && hasPendingCi(ci, this.dependencies.appId) ? [] : numbers;
   }
 }

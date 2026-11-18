@@ -20,6 +20,8 @@ const pr = {
     },
   },
   headRefOid: "head",
+  isCrossRepository: false,
+  headRepository: { databaseId: 1 },
   changedFiles: 1,
   author: { __typename: "User", databaseId: 1, login: "alice" },
   commits: {

@@ -1,6 +1,7 @@
 import { mergeCheckbox } from "../../domain/merge-request.js";
 import { decideMerge } from "../../domain/merge.js";
 import { approvedReviewers } from "../../domain/reviews.js";
+import { isContentOnlyAllowed } from "../../domain/workflow.js";
 import { errorResult } from "../error-result.js";
 
 import type { PublishDependencies } from "./dependencies.js";
@@ -42,7 +43,9 @@ export class PublishUseCaseImpl implements PublishUseCase {
     const result = await this.comment(ref, decision);
 
     await this.dependencies.finishCheck({ ...ref, result, id: checkId });
-    return this.merge(ref, result);
+    const merged = await this.merge(ref, result);
+    if (evaluated.pr) await this.dependencies.workflow.execute(evaluated.pr, merged);
+    return merged;
   }
 
   private async evaluate(ref: Reference): Promise<Evaluation> {
@@ -61,7 +64,7 @@ export class PublishUseCaseImpl implements PublishUseCase {
 
   private async approve(ref: Reference, evaluated: Evaluation): Promise<Approval> {
     const { pr, result } = evaluated;
-    if (result.status !== "allowed" || !pr || result.facts?.otherPaths.length !== 0) {
+    if (!pr || !isContentOnlyAllowed(result)) {
       return { result, approved: false };
     }
 

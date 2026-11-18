@@ -40,6 +40,18 @@ const suiteSchema = v.object({
     app: v.object({ id: githubId }),
   }),
 });
+const workflowSchema = v.object({
+  ...common,
+  repository: v.object({ full_name: v.string(), id: githubId }),
+  action: v.string(),
+  workflow_run: v.object({
+    path: v.string(),
+    event: v.string(),
+    head_sha: sha,
+    conclusion: v.optional(v.nullable(v.string())),
+    head_repository: v.nullable(v.object({ id: githubId })),
+  }),
+});
 const statusSchema = v.object({
   ...common,
   repository: v.object({ full_name: v.string(), id: githubId }),
@@ -149,6 +161,30 @@ const toSuiteMessage = (
   };
 };
 
+const toWorkflowMessage = (payload: unknown, deliveryId: string, installationId: number): MessageResult => {
+  const parsed = v.safeParse(workflowSchema, payload);
+  if (!parsed.success) return { kind: "invalid" };
+
+  const data = parsed.output;
+  if (
+    (data.action !== "requested" &&
+      !(data.action === "completed" && data.workflow_run.conclusion === "action_required")) ||
+    data.workflow_run.path !== ".github/workflows/ci.yml" ||
+    data.workflow_run.event !== "pull_request" ||
+    data.workflow_run.head_repository?.id === data.repository.id
+  ) {
+    return { kind: "ignored" };
+  }
+
+  return {
+    event: "ci-requested",
+    deliveryId,
+    installationId,
+    repositoryId: data.repository.id,
+    sha: data.workflow_run.head_sha,
+  };
+};
+
 const toStatusMessage = (payload: unknown, deliveryId: string, installationId: number): MessageResult => {
   const parsed = v.safeParse(statusSchema, payload);
   if (!parsed.success) return { kind: "invalid" };
@@ -180,6 +216,7 @@ const toMessage = (
   const installationId = commonPayload.output.installation.id;
   if (event === "push") return toPushMessage(payload, deliveryId, installationId);
   if (event === "check_suite") return toSuiteMessage(payload, deliveryId, installationId, getAppId);
+  if (event === "workflow_run") return toWorkflowMessage(payload, deliveryId, installationId);
   if (event === "status") return toStatusMessage(payload, deliveryId, installationId);
   if (event === "pull_request") return toPullRequestMessage(payload, deliveryId, installationId);
   return toReviewMessage(payload, deliveryId, installationId, getBotUserId);
@@ -209,6 +246,7 @@ export const createWebhookHandler =
         "pull_request_review",
         "check_suite",
         "status",
+        "workflow_run",
         "membership",
         "organization",
         "team",

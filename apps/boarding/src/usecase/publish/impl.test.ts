@@ -14,12 +14,16 @@ const pr: PullRequestData = {
   files: [{ path: "authors/alice/a.md" }],
   commits: [],
   reviews: [],
+  isCrossRepository: false,
+  headRepositoryId: 1,
   baseRoots: ["alice"],
 };
 const facts = { authorRoots: ["alice"], otherPaths: [], invalidCommits: [] };
 const setup = () => {
   const evaluate = vi.fn().mockResolvedValue({ status: "allowed", reason: "AUTHORIZED", facts });
+  const workflowExecute = vi.fn().mockResolvedValue(undefined);
   const dependencies: PublishDependencies = {
+    workflow: { execute: workflowExecute },
     botUserId: 10,
     appId: 20,
     bodyVersions: vi.fn().mockImplementation(({ body }: { body: string }) => Promise.resolve([{ body, editorId: 1 }])),
@@ -33,10 +37,19 @@ const setup = () => {
     approve: vi.fn().mockResolvedValue(undefined),
     formatComment: vi.fn().mockReturnValue("comment"),
   };
-  return { evaluate, dependencies, usecase: new PublishUseCaseImpl(dependencies) };
+  return { evaluate, workflowExecute, dependencies, usecase: new PublishUseCaseImpl(dependencies) };
 };
 
 describe("PublishUseCaseImpl", () => {
+  it("Check 確定後に評価結果を Workflow の処理に渡す", async () => {
+    const { usecase, dependencies, workflowExecute } = setup();
+    await usecase.execute({ number: 1 });
+    expect(workflowExecute).toHaveBeenCalledWith(pr, expect.objectContaining({ status: "allowed" }));
+    expect(vi.mocked(dependencies.finishCheck).mock.invocationCallOrder[0]).toBeLessThan(
+      workflowExecute.mock.invocationCallOrder[0] ?? 0
+    );
+  });
+
   it.each([
     ["MERGED", "main"],
     ["CLOSED", "main"],
@@ -306,41 +319,15 @@ describe("PublishUseCaseImpl", () => {
     expect(dependencies.approve).toHaveBeenCalledTimes(1);
   });
 
-  it("authors 以外を含む PR は Approve しない", async () => {
-    const { usecase, dependencies, evaluate } = setup();
-    vi.mocked(dependencies.pullRequest).mockResolvedValue({ ...pr, files: [{ path: "scripts/x" }] });
-    evaluate.mockResolvedValue({
-      status: "allowed",
-      reason: "AUTHORIZED",
-      facts: { ...facts, otherPaths: ["scripts/x"] },
-    });
-    await usecase.execute({ number: 1 });
-    expect(dependencies.approve).not.toHaveBeenCalled();
-  });
-
-  it("著者の変更と設定が混在する認可済み PR は Approve しない", async () => {
-    const { usecase, dependencies, evaluate } = setup();
-    evaluate.mockResolvedValue({
-      status: "allowed",
-      reason: "AUTHORIZED",
-      facts: { ...facts, otherPaths: ["scripts/x"] },
-    });
-    vi.mocked(dependencies.pullRequest).mockResolvedValue({
-      ...pr,
-      files: [{ path: "authors/alice/a.md" }, { path: "scripts/x" }],
-    });
-    await expect(usecase.execute({ number: 1 })).resolves.toMatchObject({ status: "allowed", reason: "AUTHORIZED" });
-    expect(dependencies.approve).not.toHaveBeenCalled();
-  });
-
   it("評価情報の取得失敗を Check とコメントに出す", async () => {
-    const { usecase, dependencies } = setup();
+    const { usecase, dependencies, workflowExecute } = setup();
     vi.mocked(dependencies.pullRequest).mockRejectedValue(new BoardingError("SUBREQUEST_LIMIT", "limit"));
     await expect(usecase.execute({ number: 1 })).resolves.toEqual({ status: "error", reason: "SUBREQUEST_LIMIT" });
     expect(dependencies.finishCheck).toHaveBeenLastCalledWith(
       expect.objectContaining({ result: { status: "error", reason: "SUBREQUEST_LIMIT" } })
     );
     expect(dependencies.approve).not.toHaveBeenCalled();
+    expect(workflowExecute).not.toHaveBeenCalled();
   });
 
   it("コメントの書き込みに失敗すると成功 Check を記録しない", async () => {

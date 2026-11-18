@@ -29,6 +29,62 @@ const setup = () => {
 };
 
 describe("createWebhookHandler", () => {
+  it.each([
+    ["requested", null, ".github/workflows/ci.yml", "pull_request", 202],
+    ["completed", "action_required", ".github/workflows/ci.yml", "pull_request", 202],
+    ["completed", "success", ".github/workflows/ci.yml", "pull_request", 200],
+    ["completed", "failure", ".github/workflows/ci.yml", "pull_request", 200],
+    ["completed", null, ".github/workflows/ci.yml", "pull_request", 200],
+    ["in_progress", "action_required", ".github/workflows/ci.yml", "pull_request", 200],
+    ["requested", null, ".github/workflows/other.yml", "pull_request", 200],
+    ["requested", null, ".github/workflows/ci.yml", "push", 200],
+    ["completed", "action_required", ".github/workflows/other.yml", "pull_request", 200],
+    ["completed", "action_required", ".github/workflows/ci.yml", "push", 200],
+  ])("Workflow Run のイベントを選別する: %s %s %s %s", async (action, conclusion, path, event, status) => {
+    const { send, enqueue } = setup();
+    const sha = "a".repeat(40);
+    const response = await send("workflow_run", {
+      ...common,
+      repository: { ...common.repository, id: 99 },
+      action,
+      workflow_run: { path, event, conclusion, head_sha: sha, head_repository: { id: 100 }, pull_requests: [] },
+    });
+    expect(response.status).toBe(status);
+    if (status === 202) {
+      expect(enqueue).toHaveBeenCalledWith({
+        event: "ci-requested",
+        deliveryId: "delivery",
+        installationId: 1,
+        repositoryId: 99,
+        sha,
+      });
+    } else {
+      expect(enqueue).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each([
+    [99, 200],
+    [100, 202],
+    [null, 202],
+  ] as const)("head repository %s の Workflow Run を判定する", async (id, status) => {
+    const { send, enqueue } = setup();
+    const response = await send("workflow_run", {
+      ...common,
+      repository: { ...common.repository, id: 99 },
+      action: "requested",
+      workflow_run: {
+        path: ".github/workflows/ci.yml",
+        event: "pull_request",
+        conclusion: null,
+        head_sha: "a".repeat(40),
+        head_repository: id === null ? null : { id },
+      },
+    });
+    expect(response.status).toBe(status);
+    expect(enqueue).toHaveBeenCalledTimes(status === 202 ? 1 : 0);
+  });
+
   it.each(["opened", "reopened", "synchronize", "ready_for_review", "converted_to_draft", "edited"])(
     "対象の PR イベントを Queue に投入する: %s",
     async (action) => {

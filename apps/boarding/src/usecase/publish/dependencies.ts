@@ -1,9 +1,11 @@
 import type { BodyVersion } from "../../domain/merge-request.js";
 import type { PullRequestData } from "../evaluate/dependencies.js";
 import type { EvaluateUseCase, EvaluationResult } from "../evaluate/interface.js";
+import type { WorkflowUseCase } from "../workflow/interface.js";
 
 export interface PublishDependencies {
   evaluate: EvaluateUseCase;
+  workflow: WorkflowUseCase;
   botUserId: number;
   appId: number;
   bodyVersions: (input: { number: number; body: string; authorId: number }) => Promise<BodyVersion[] | null>;

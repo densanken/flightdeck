@@ -10,7 +10,7 @@ export const boardingMessageSchema = v.variant("event", [
   v.object({ ...common, event: v.literal("evaluate"), number: githubId }),
   v.object({
     ...common,
-    event: v.literal("ci-completed"),
+    event: v.picklist(["ci-completed", "ci-requested"]),
     sha: v.pipe(v.string(), v.regex(/^[0-9a-f]{40}$/i)),
     repositoryId: githubId,
   }),

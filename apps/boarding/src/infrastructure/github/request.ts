@@ -31,12 +31,17 @@ export class GitHubRequest {
     return new GitHubRequest(this.fetcher, this.budget, limit);
   }
 
+  canSpend(count: number): boolean {
+    return this.budget.requests + count <= this.limit;
+  }
+
   async call(input: {
     method: "GET" | "POST" | "PATCH" | "PUT";
     path: string;
     token: string;
     body?: unknown;
     allowNotFound?: boolean | undefined;
+    allowEmpty?: boolean | undefined;
   }): Promise<unknown> {
     if (this.budget.requests >= this.limit) {
       throw new BoardingError("SUBREQUEST_LIMIT", "GitHub request budget exceeded");
@@ -76,7 +81,10 @@ export class GitHubRequest {
 
     const stream = response.body as ReadableStream<Uint8Array> | null;
     const reader = stream?.getReader();
-    if (!reader) throw new BoardingError("INVALID_RESPONSE", "GitHub response body is missing");
+    if (!reader) {
+      if (input.allowEmpty) return undefined;
+      throw new BoardingError("INVALID_RESPONSE", "GitHub response body is missing");
+    }
 
     const chunks: Uint8Array[] = [];
     let length = 0;
@@ -106,6 +114,8 @@ export class GitHubRequest {
       bytes.set(chunk, offset);
       offset += chunk.byteLength;
     }
+
+    if (input.allowEmpty && bytes.length === 0) return undefined;
 
     try {
       return JSON.parse(new TextDecoder().decode(bytes)) as unknown;

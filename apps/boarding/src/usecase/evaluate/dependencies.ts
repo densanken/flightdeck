@@ -10,6 +10,8 @@ export interface PullRequestData {
   baseBranch: string;
   baseSha: string;
   headSha: string;
+  isCrossRepository: boolean;
+  headRepositoryId: number | null;
   author: Person & { isBot?: boolean | undefined };
   files: ChangedFile[];
   commits: CommitIdentity[];

@@ -5,7 +5,7 @@ export interface FanoutUseCase {
       | {
           deliveryId: string;
           installationId: number;
-          event: "ci-completed";
+          event: "ci-completed" | "ci-requested";
           sha: string;
           repositoryId: number;
         }

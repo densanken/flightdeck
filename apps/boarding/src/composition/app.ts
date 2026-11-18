@@ -15,11 +15,13 @@ import { GitHubMemberships } from "../infrastructure/github/memberships.js";
 import { GitHubMerge } from "../infrastructure/github/merge.js";
 import { GitHubOpenPullRequests } from "../infrastructure/github/pull-requests.js";
 import { GitHubRequest } from "../infrastructure/github/request.js";
+import { GitHubWorkflow } from "../infrastructure/github/workflow.js";
 import { createBatchEnqueue } from "../infrastructure/queue/enqueue.js";
 import { authorizationComment } from "../message/authorization.js";
 import { EvaluateUseCaseImpl } from "../usecase/evaluate/impl.js";
 import { FanoutUseCaseImpl } from "../usecase/fanout/impl.js";
 import { PublishUseCaseImpl } from "../usecase/publish/impl.js";
+import { WorkflowUseCaseImpl } from "../usecase/workflow/impl.js";
 import { createLogger } from "../util/logger.js";
 
 import type { Env } from "../env.js";
@@ -88,11 +90,16 @@ export const composeMessageConsumer = (env: Env) =>
         botUserId: getBotUserId(env),
         verify: (number, baseSha, headSha) => publication.verify(number, baseSha, headSha),
       });
+      const workflow = new GitHubWorkflow({ request, getToken, logger: createLogger() });
       const merge = new GitHubMerge({ request, getToken, logger: createLogger() });
       return {
         publish: new PublishUseCaseImpl({
           botUserId: getBotUserId(env),
           appId,
+          workflow: new WorkflowUseCaseImpl({
+            list: (sha) => workflow.list(sha),
+            approve: (runs) => workflow.approve(runs),
+          }),
           bodyVersions: (input) => history.versions(input),
           merge: (input) => merge.write(input),
           approve: (input) => approve.write(input),

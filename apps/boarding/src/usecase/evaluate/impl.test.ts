@@ -28,6 +28,8 @@ const pr: PullRequestData = {
   files: [{ path: "authors/alice/post.md" }],
   commits: [{ sha: "head", authorId: 1, committerId: 1, committerLogin: "alice", signature: null }],
   reviews: [],
+  isCrossRepository: false,
+  headRepositoryId: 1,
   baseRoots: ["alice"],
 };
 const meta = (editors: string[] | null): RootFiles => ({

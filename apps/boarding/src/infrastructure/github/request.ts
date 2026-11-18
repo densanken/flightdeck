@@ -8,6 +8,12 @@ const API_ORIGIN = "https://api.github.com";
 
 export type Fetcher = (input: string, init: RequestInit) => Promise<Response>;
 
+export class GitHubHttpError extends BoardingError {
+  constructor(readonly status: number) {
+    super("API_ERROR", `GitHub returned ${String(status)}`);
+  }
+}
+
 export class GitHubRequest {
   private readonly budget: { requests: number };
   private readonly limit: number;
@@ -26,7 +32,7 @@ export class GitHubRequest {
   }
 
   async call(input: {
-    method: "GET" | "POST" | "PATCH";
+    method: "GET" | "POST" | "PATCH" | "PUT";
     path: string;
     token: string;
     body?: unknown;
@@ -59,7 +65,7 @@ export class GitHubRequest {
 
     if (!response.ok) {
       await response.body?.cancel().catch(() => undefined);
-      throw new BoardingError("API_ERROR", `GitHub returned ${String(response.status)}`);
+      throw new GitHubHttpError(response.status);
     }
 
     const contentLength = response.headers.get("content-length");

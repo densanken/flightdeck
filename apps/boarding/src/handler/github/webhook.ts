@@ -6,6 +6,7 @@ import type { BoardingMessage } from "../../message/webhook.js";
 export interface WebhookHandlerDependencies {
   getWebhookSecret: () => string;
   getBotUserId: () => number;
+  getAppId: () => number;
   verifySignature: (input: { rawBody: Uint8Array; signatureHeader: string; secret: string }) => Promise<boolean>;
   enqueue: (message: BoardingMessage) => Promise<void>;
   logEnqueueFailure: (deliveryId: string) => void;
@@ -29,6 +30,22 @@ const organizationActions: Record<string, ReadonlySet<string>> = {
   team: new Set(["created", "deleted", "edited"]),
 };
 const pushSchema = v.object({ ...common, ref: v.string(), deleted: v.boolean() });
+const sha = v.pipe(v.string(), v.regex(/^[0-9a-f]{40}$/i));
+const suiteSchema = v.object({
+  ...common,
+  repository: v.object({ full_name: v.string(), id: githubId }),
+  action: v.string(),
+  check_suite: v.object({
+    head_sha: sha,
+    app: v.object({ id: githubId }),
+  }),
+});
+const statusSchema = v.object({
+  ...common,
+  repository: v.object({ full_name: v.string(), id: githubId }),
+  sha,
+  state: v.picklist(["pending", "success", "failure", "error"]),
+});
 const prSchema = v.object({
   ...common,
   action: v.string(),
@@ -111,7 +128,48 @@ const toReviewMessage = (
   return { event: "evaluate", deliveryId, installationId, number: parsed.output.pull_request.number };
 };
 
-const toMessage = (event: string, payload: unknown, deliveryId: string, getBotUserId: () => number): MessageResult => {
+const toSuiteMessage = (
+  payload: unknown,
+  deliveryId: string,
+  installationId: number,
+  getAppId: () => number
+): MessageResult => {
+  const parsed = v.safeParse(suiteSchema, payload);
+  if (!parsed.success) return { kind: "invalid" };
+
+  const data = parsed.output;
+  if (data.action !== "completed" || data.check_suite.app.id === getAppId()) return { kind: "ignored" };
+
+  return {
+    event: "ci-completed",
+    deliveryId,
+    installationId,
+    repositoryId: data.repository.id,
+    sha: data.check_suite.head_sha,
+  };
+};
+
+const toStatusMessage = (payload: unknown, deliveryId: string, installationId: number): MessageResult => {
+  const parsed = v.safeParse(statusSchema, payload);
+  if (!parsed.success) return { kind: "invalid" };
+  if (parsed.output.state === "pending") return { kind: "ignored" };
+
+  return {
+    event: "ci-completed",
+    deliveryId,
+    installationId,
+    repositoryId: parsed.output.repository.id,
+    sha: parsed.output.sha,
+  };
+};
+
+const toMessage = (
+  event: string,
+  payload: unknown,
+  deliveryId: string,
+  getBotUserId: () => number,
+  getAppId: () => number
+): MessageResult => {
   if (Object.hasOwn(organizationActions, event)) return toOrganizationMessage(event, payload, deliveryId);
 
   const commonPayload = v.safeParse(eventSchema, payload);
@@ -121,6 +179,8 @@ const toMessage = (event: string, payload: unknown, deliveryId: string, getBotUs
 
   const installationId = commonPayload.output.installation.id;
   if (event === "push") return toPushMessage(payload, deliveryId, installationId);
+  if (event === "check_suite") return toSuiteMessage(payload, deliveryId, installationId, getAppId);
+  if (event === "status") return toStatusMessage(payload, deliveryId, installationId);
   if (event === "pull_request") return toPullRequestMessage(payload, deliveryId, installationId);
   return toReviewMessage(payload, deliveryId, installationId, getBotUserId);
 };
@@ -142,7 +202,18 @@ export const createWebhookHandler =
     if (!verified) return json(401, { ok: false, code: "INVALID_SIGNATURE" });
 
     if (event === "ping") return json(200, { ok: true });
-    if (!["push", "pull_request", "pull_request_review", "membership", "organization", "team"].includes(event)) {
+    if (
+      ![
+        "push",
+        "pull_request",
+        "pull_request_review",
+        "check_suite",
+        "status",
+        "membership",
+        "organization",
+        "team",
+      ].includes(event)
+    ) {
       return json(200, { ok: true, ignored: true });
     }
 
@@ -153,7 +224,7 @@ export const createWebhookHandler =
       return json(400, { ok: false, code: "INVALID_PAYLOAD" });
     }
 
-    const result = toMessage(event, payload, deliveryId, dependencies.getBotUserId);
+    const result = toMessage(event, payload, deliveryId, dependencies.getBotUserId, dependencies.getAppId);
 
     if ("kind" in result) {
       return result.kind === "invalid"

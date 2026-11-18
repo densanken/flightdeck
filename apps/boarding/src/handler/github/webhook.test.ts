@@ -11,6 +11,7 @@ const setup = () => {
   const handler = createWebhookHandler({
     getWebhookSecret: () => "secret",
     getBotUserId: () => 10,
+    getAppId: () => 20,
     verifySignature,
     enqueue,
     logEnqueueFailure: vi.fn(),
@@ -42,6 +43,70 @@ describe("createWebhookHandler", () => {
     expect(
       (await send("pull_request", { ...pr, action: "edited", pull_request: { base: { ref: "other" } } })).status
     ).toBe(200);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it.each([{ pullRequests: [] }, { pullRequests: [{ number: 3 }] }])(
+    "Check Suite の PR 一覧 $pullRequests によらず SHA を投入する",
+    async ({ pullRequests }) => {
+      const { send, enqueue } = setup();
+      const sha = "a".repeat(40);
+      const repository = { ...common.repository, id: 99 };
+      expect(
+        (
+          await send("check_suite", {
+            ...common,
+            repository,
+            action: "completed",
+            check_suite: { head_sha: sha, app: { id: 21 }, pull_requests: pullRequests },
+          })
+        ).status
+      ).toBe(202);
+      expect(enqueue).toHaveBeenCalledWith({
+        event: "ci-completed",
+        deliveryId: "delivery",
+        installationId: 1,
+        repositoryId: 99,
+        sha,
+      });
+    }
+  );
+
+  it("自分の Check Suite を無視する", async () => {
+    const { send, enqueue } = setup();
+    const repository = { ...common.repository, id: 99 };
+    expect(
+      (
+        await send("check_suite", {
+          ...common,
+          repository,
+          action: "completed",
+          check_suite: { head_sha: "a".repeat(40), app: { id: 20 }, pull_requests: [] },
+        })
+      ).status
+    ).toBe(200);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it.each(["success", "failure", "error"])("%s の Status を SHA とともに投入する", async (state) => {
+    const { send, enqueue } = setup();
+    const sha = "b".repeat(40);
+    expect((await send("status", { ...common, repository: { ...common.repository, id: 99 }, sha, state })).status).toBe(
+      202
+    );
+    expect(enqueue).toHaveBeenCalledWith({
+      event: "ci-completed",
+      deliveryId: "delivery",
+      installationId: 1,
+      repositoryId: 99,
+      sha,
+    });
+  });
+
+  it("pending の Status を無視する", async () => {
+    const { send, enqueue } = setup();
+    const payload = { ...common, repository: { ...common.repository, id: 99 }, sha: "b".repeat(40), state: "pending" };
+    expect((await send("status", payload)).status).toBe(200);
     expect(enqueue).not.toHaveBeenCalled();
   });
 

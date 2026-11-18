@@ -5,13 +5,16 @@ import { createMessageConsumer } from "./consume.js";
 const logger = { log: vi.fn() };
 
 describe("createMessageConsumer", () => {
-  it("評価結果がエラーなら再試行する", async () => {
+  it.each([
+    ["評価エラー", { status: "error", reason: "API_ERROR" }],
+    ["Merge の競合", { status: "error", reason: "API_ERROR", mergeOutcome: "changed" }],
+  ] as const)("%s なら ACK せず再試行する", async (_label, result) => {
     const ack = vi.fn();
     const retry = vi.fn();
     const consume = createMessageConsumer({
       logger,
       createUseCases: () => ({
-        publish: { execute: () => Promise.resolve({ status: "error", reason: "API_ERROR" }) },
+        publish: { execute: () => Promise.resolve(result) },
         fanout: { execute: () => Promise.resolve() },
       }),
     });

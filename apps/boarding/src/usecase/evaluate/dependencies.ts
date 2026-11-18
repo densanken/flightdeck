@@ -1,10 +1,12 @@
 import type { CommitIdentity } from "../../domain/commit-identity.js";
 import type { Membership, Person } from "../../domain/editors.js";
+import type { MergeData } from "../../domain/merge.js";
 import type { ChangedFile } from "../../domain/paths.js";
 import type { Review } from "../../domain/reviews.js";
 
 export interface PullRequestData {
   state: string;
+  mergeData: MergeData;
   baseBranch: string;
   baseSha: string;
   headSha: string;

@@ -1,3 +1,4 @@
+import type { MergeDecision } from "../domain/merge.js";
 import type { EvaluationResult } from "../usecase/evaluate/interface.js";
 
 const code = (value: string): string => `\`${value.replace(/[\r\n`]/g, " ")}\``;
@@ -26,6 +27,30 @@ const guidance: Record<EvaluationResult["reason"], string> = {
   YAML_SIZE_LIMIT:
     "meta / profile の YAML を各ファイル 16 KiB 以下、変更対象の解析合計を 64 KiB 以下に整理して push してください。",
   SUBREQUEST_LIMIT: "変更や確認対象を減らして PR を分割し、再度 push してください。",
+};
+
+const invalidMerge: Record<Extract<MergeDecision, { request: "invalid" }>["reason"], string> = {
+  INVALID_CHECKBOX: "チェック欄の形式が不正です",
+  HISTORY_UNAVAILABLE: "編集履歴から本文と編集者を完全に確認できません",
+  NOT_AUTHOR: "PR 作成者によるチェックを確認できません",
+};
+
+const invalidMergeGuidance: Record<Extract<MergeDecision, { request: "invalid" }>["reason"], string> = {
+  INVALID_CHECKBOX:
+    "本文のチェック欄をテンプレートの 1 行（`- [ ] すべてのチェックが成功したら自動マージする`）だけにしてからチェックしてください。",
+  HISTORY_UNAVAILABLE:
+    "PR 作成者がチェックを外して入れ直してください。編集履歴を確認できない状態が続く場合は管理者に相談してください。",
+  NOT_AUTHOR: "PR 作成者がチェックを外して入れ直してください。",
+};
+
+const mergeWaiting: Record<NonNullable<Extract<MergeDecision, { request: "accepted" }>["waiting"]>, string> = {
+  DRAFT: "Draft の解除",
+  AUTHORIZATION: "認可",
+  AUTHORS_ONLY: "著者コンテンツのみの変更",
+  APP_APPROVAL: "App の Approve",
+  CI_UNAVAILABLE: "CI の結果の取得",
+  CI_PENDING: "CI の完了",
+  CI_FAILED: "失敗した CI の修正",
 };
 
 export const authorizationComment = (result: EvaluationResult): string => {
@@ -91,6 +116,21 @@ export const authorizationComment = (result: EvaluationResult): string => {
           `- ${code(commit.sha)}: ${commit.authorEmail && /^[^\s@]+@users\.noreply\.github\.com$/i.test(commit.authorEmail) ? code(commit.authorEmail) : "メールアドレスは非表示"}`
       )
     );
+  }
+
+  if (result.merge) {
+    const merge = result.merge;
+    lines.push("### 自動マージ");
+
+    if (merge.request === "none") lines.push("Merge 依頼: なし");
+    if (merge.request === "invalid") {
+      lines.push(`Merge 依頼: 無効（${invalidMerge[merge.reason]}）`, invalidMergeGuidance[merge.reason]);
+    }
+    if (merge.request === "accepted") {
+      lines.push(
+        `Merge 依頼: 受理${merge.waiting ? ` / 待機: ${mergeWaiting[merge.waiting]}` : " / Merge を実行します"}`
+      );
+    }
   }
 
   return lines.join("\n\n");

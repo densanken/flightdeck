@@ -1,5 +1,6 @@
 import * as v from "valibot";
 
+import { readCi, statusCheckRollup } from "./ci.js";
 import { BoardingError } from "../../errors.js";
 
 import type { GitHubRequest } from "./request.js";
@@ -8,12 +9,14 @@ import type { PullRequestData, RootFiles } from "../../usecase/evaluate/dependen
 const person = v.object({ databaseId: v.pipe(v.number(), v.safeInteger(), v.minValue(1)), login: v.string() });
 const actor = v.nullable(v.object({ user: v.nullable(person), email: v.optional(v.nullable(v.string())) }));
 const pageInfo = v.object({ hasNextPage: v.boolean(), endCursor: v.nullable(v.string()) });
-const query = `query Evaluation($number: Int!, $commits: String, $reviews: String, $includeTree: Boolean!) {
+const query = `query Evaluation($number: Int!, $commits: String, $reviews: String, $first: Boolean!) {
   repository(owner: "densanken", name: "blog-contents") {
     pullRequest(number: $number) {
-      state baseRefName headRefOid changedFiles
+      state baseRefName headRefOid changedFiles isDraft body lastEditedAt
+      headCommit: commits(last: 1) @include(if: $first) { nodes { commit { oid ${statusCheckRollup} } } }
+      potentialMergeCommit @include(if: $first) { oid ${statusCheckRollup} }
       baseRef { target { oid ... on Commit {
-        file(path: "authors") @include(if: $includeTree) { type object { __typename ... on Tree { entries { name type } } } }
+        file(path: "authors") @include(if: $first) { type object { __typename ... on Tree { entries { name type } } } }
       } } }
       author { __typename ... on User { databaseId login } ... on Bot { databaseId login } }
       commits(first: 100, after: $commits) { totalCount pageInfo { hasNextPage endCursor } nodes { commit {
@@ -30,6 +33,11 @@ const responseSchema = v.object({
   repository: v.object({
     pullRequest: v.object({
       state: v.string(),
+      isDraft: v.boolean(),
+      body: v.string(),
+      lastEditedAt: v.nullable(v.string()),
+      headCommit: v.optional(v.unknown()),
+      potentialMergeCommit: v.optional(v.unknown()),
       baseRefName: v.string(),
       baseRef: v.object({
         target: v.object({
@@ -85,7 +93,8 @@ const responseSchema = v.object({
   }),
 });
 
-type ReviewNodes = v.InferOutput<typeof responseSchema>["repository"]["pullRequest"]["reviews"]["nodes"];
+type PullRequestResponse = v.InferOutput<typeof responseSchema>["repository"]["pullRequest"];
+type ReviewNodes = PullRequestResponse["reviews"]["nodes"];
 
 const mapReviews = (reviews: ReviewNodes): PullRequestData["reviews"] =>
   reviews.flatMap((review) => {
@@ -102,6 +111,38 @@ const mapReviews = (reviews: ReviewNodes): PullRequestData["reviews"] =>
       },
     ];
   });
+
+const ciCommitSchema = v.object({
+  oid: v.string(),
+  statusCheckRollup: v.unknown(),
+});
+const ciSchema = v.object({
+  headCommit: v.object({ nodes: v.array(v.object({ commit: ciCommitSchema })) }),
+  potentialMergeCommit: v.nullable(ciCommitSchema),
+});
+
+const ciResult = (pr: PullRequestResponse): PullRequestData["mergeData"]["ci"] => {
+  const parsed = v.safeParse(ciSchema, pr);
+  if (!parsed.success) return null;
+
+  const head = parsed.output.headCommit.nodes[0]?.commit;
+  if (parsed.output.headCommit.nodes.length !== 1 || head?.oid !== pr.headRefOid) return null;
+
+  const commits = [head, parsed.output.potentialMergeCommit];
+  const results = commits.flatMap((commit) => (commit ? [readCi(commit.statusCheckRollup)] : []));
+  if (results.some((result) => result === null)) return null;
+
+  return {
+    checks: results.flatMap((result) => result?.checks ?? []),
+    statuses: results.flatMap((result) => result?.statuses ?? []),
+  };
+};
+
+const mergeData = (pr: PullRequestResponse): PullRequestData["mergeData"] => ({
+  draft: pr.isDraft,
+  body: pr.body,
+  ci: ciResult(pr),
+});
 
 const compareSchema = v.object({
   permalink_url: v.string(),
@@ -197,31 +238,32 @@ export class GitHubGatewayImpl {
       number,
       commits: null,
       reviews: null,
-      includeTree: true,
+      first: true,
     });
 
     const parsed = v.safeParse(responseSchema, data);
     if (!parsed.success) throw new BoardingError("INVALID_RESPONSE", "GitHub pull request response is invalid");
 
     const { pullRequest: pr } = parsed.output.repository;
-    if (pr.baseRef.target.file === undefined)
+    if (pr.baseRef.target.file === undefined) {
       throw new BoardingError("INVALID_RESPONSE", "GitHub authors tree is unavailable");
+    }
 
     const baseRoots = (pr.baseRef.target.file?.object.entries ?? [])
       .filter((entry) => entry.type === "tree")
       .map((entry) => entry.name);
     const { commits, reviews } = await this.loadPages(number, token, pr);
 
-    const response = await this.input.request.call({
+    const comparison = await this.input.request.call({
       method: "GET",
       path: `/repos/densanken/blog-contents/compare/${encodeURIComponent(pr.baseRef.target.oid)}...${encodeURIComponent(pr.headRefOid)}?per_page=1&page=1`,
       token,
     });
-
-    const files = parseComparison(response, pr.baseRef.target.oid, pr.headRefOid, pr.changedFiles);
+    const files = parseComparison(comparison, pr.baseRef.target.oid, pr.headRefOid, pr.changedFiles);
 
     return {
       state: pr.state,
+      mergeData: mergeData(pr),
       baseBranch: pr.baseRefName,
       baseSha: pr.baseRef.target.oid,
       headSha: pr.headRefOid,
@@ -240,11 +282,7 @@ export class GitHubGatewayImpl {
     };
   }
 
-  private async loadPages(
-    number: number,
-    token: string,
-    pr: v.InferOutput<typeof responseSchema>["repository"]["pullRequest"]
-  ) {
+  private async loadPages(number: number, token: string, pr: PullRequestResponse) {
     const commits = [...pr.commits.nodes];
     const reviews = [...pr.reviews.nodes];
     let commitPage = pr.commits.pageInfo;
@@ -270,7 +308,7 @@ export class GitHubGatewayImpl {
         number,
         commits: commitCursor,
         reviews: reviewCursor,
-        includeTree: false,
+        first: false,
       });
 
       const next = v.safeParse(responseSchema, nextData);
@@ -281,6 +319,9 @@ export class GitHubGatewayImpl {
         current.baseRef.target.oid !== pr.baseRef.target.oid ||
         current.headRefOid !== pr.headRefOid ||
         current.changedFiles !== pr.changedFiles ||
+        current.body !== pr.body ||
+        current.lastEditedAt !== pr.lastEditedAt ||
+        current.isDraft !== pr.isDraft ||
         current.commits.totalCount !== pr.commits.totalCount
       ) {
         throw new BoardingError("API_ERROR", "Pull request changed during pagination");

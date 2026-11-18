@@ -26,6 +26,41 @@ const facts = {
 };
 
 describe("authorizationComment", () => {
+  it("Merge 依頼の待機条件を表示する", () => {
+    expect(
+      authorizationComment({
+        status: "allowed",
+        reason: "AUTHORIZED",
+        merge: { request: "accepted", waiting: "CI_PENDING" },
+      })
+    ).toContain("CI の完了");
+  });
+
+  it.each([
+    ["HISTORY_UNAVAILABLE", true],
+    ["NOT_AUTHOR", false],
+  ] as const)("%s の場合は理由に応じて案内する", (reason, consult) => {
+    const body = authorizationComment({
+      status: "allowed",
+      reason: "AUTHORIZED",
+      merge: { request: "invalid", reason },
+    });
+    expect(body).toContain("PR 作成者がチェックを外して入れ直してください");
+    expect(body.includes("管理者に相談してください")).toBe(consult);
+  });
+
+  it("壊れたチェック欄をテンプレートの 1 行に直すよう案内する", () => {
+    const body = authorizationComment({
+      status: "allowed",
+      reason: "AUTHORIZED",
+      merge: { request: "invalid", reason: "INVALID_CHECKBOX" },
+    });
+    expect(body).toContain("`- [ ] すべてのチェックが成功したら自動マージする`");
+    expect(body).toContain("だけにしてからチェック");
+    expect(body).not.toContain("チェックを外して入れ直して");
+    expect(body).not.toContain("管理者に相談");
+  });
+
   it("Org を照会していない人は未確認と表示する", () => {
     const body = authorizationComment({
       status: "allowed",

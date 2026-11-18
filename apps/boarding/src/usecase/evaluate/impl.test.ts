@@ -19,6 +19,7 @@ const review = (person: typeof bob) => ({
   commitSha: "head",
 });
 const pr: PullRequestData = {
+  mergeData: { draft: false, body: "", ci: null },
   state: "OPEN",
   baseBranch: "main",
   baseSha: "base",

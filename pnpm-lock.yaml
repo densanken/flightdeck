@@ -269,6 +269,9 @@ importers:
       '@flightdeck/logger':
         specifier: workspace:*
         version: link:../../packages/logger
+      '@flightdeck/rules':
+        specifier: workspace:*
+        version: link:../../packages/rules
       '@flightdeck/validation':
         specifier: workspace:*
         version: link:../../packages/validation

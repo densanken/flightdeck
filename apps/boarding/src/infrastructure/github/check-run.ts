@@ -1,11 +1,11 @@
 import * as v from "valibot";
 
+import { authorizationCheckName } from "../../domain/merge.js";
 import { BoardingError } from "../../errors.js";
 
 import type { GitHubRequest } from "./request.js";
 import type { EvaluationResult } from "../../usecase/evaluate/interface.js";
 
-const checkName = "boarding/authorization";
 const responseSchema = v.object({
   total_count: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
   check_runs: v.array(
@@ -51,7 +51,7 @@ export class GitHubCheckRun {
     const runs: v.InferOutput<typeof responseSchema>["check_runs"] = [];
 
     for (let page = 1; ; page += 1) {
-      const path = `/repos/densanken/blog-contents/commits/${encodeURIComponent(headSha)}/check-runs?check_name=boarding%2Fauthorization&filter=all&app_id=${String(this.input.appId)}&per_page=100&page=${String(page)}`;
+      const path = `/repos/densanken/blog-contents/commits/${encodeURIComponent(headSha)}/check-runs?check_name=${encodeURIComponent(authorizationCheckName)}&filter=all&app_id=${String(this.input.appId)}&per_page=100&page=${String(page)}`;
       const parsed = v.safeParse(responseSchema, await this.input.request.call({ method: "GET", path, token }));
       if (!parsed.success) throw new BoardingError("INVALID_RESPONSE", "GitHub check runs are invalid");
       if (parsed.output.total_count > 200) throw new BoardingError("SUBREQUEST_LIMIT", "Too many check runs");
@@ -64,7 +64,9 @@ export class GitHubCheckRun {
     }
 
     return runs
-      .filter((run) => run.name === checkName && run.head_sha === headSha && run.app?.id === this.input.appId)
+      .filter(
+        (run) => run.name === authorizationCheckName && run.head_sha === headSha && run.app?.id === this.input.appId
+      )
       .sort((a, b) => b.id - a.id)[0]?.id;
   }
 
@@ -94,14 +96,14 @@ export class GitHubCheckRun {
       token,
       body:
         id !== undefined
-          ? { name: checkName, ...state, output }
-          : { name: checkName, head_sha: headSha, ...state, output },
+          ? { name: authorizationCheckName, ...state, output }
+          : { name: authorizationCheckName, head_sha: headSha, ...state, output },
     });
 
     const checked = v.safeParse(
       v.object({
         id: v.pipe(v.number(), v.safeInteger(), v.minValue(1)),
-        name: v.literal(checkName),
+        name: v.literal(authorizationCheckName),
         head_sha: v.string(),
         status: v.string(),
         conclusion: v.nullable(v.string()),

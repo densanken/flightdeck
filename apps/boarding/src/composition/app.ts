@@ -10,7 +10,9 @@ import { GitHubInstallationTokenProvider } from "../infrastructure/github/auth.j
 import { GitHubCheckRun } from "../infrastructure/github/check-run.js";
 import { GitHubComment } from "../infrastructure/github/comment.js";
 import { GitHubGatewayImpl } from "../infrastructure/github/evaluation.js";
+import { GitHubBodyHistory } from "../infrastructure/github/history.js";
 import { GitHubMemberships } from "../infrastructure/github/memberships.js";
+import { GitHubMerge } from "../infrastructure/github/merge.js";
 import { GitHubOpenPullRequests } from "../infrastructure/github/pull-requests.js";
 import { GitHubRequest } from "../infrastructure/github/request.js";
 import { createBatchEnqueue } from "../infrastructure/queue/enqueue.js";
@@ -28,6 +30,7 @@ export const composeApp = () =>
       createWebhookHandler({
         getWebhookSecret: () => getWebhookSecret(env),
         getBotUserId: () => getBotUserId(env),
+        getAppId: () => getGitHubAppId(env),
         verifySignature: verifyGitHubWebhookSignature,
         enqueue: async (message) => {
           await env.GITHUB_WEBHOOK_QUEUE.send(message);
@@ -53,6 +56,7 @@ export const composeMessageConsumer = (env: Env) =>
       const getToken = () => tokens.getToken();
       const evaluation = new GitHubGatewayImpl({ request: evaluationRequest, getToken });
       const publication = new GitHubGatewayImpl({ request, getToken });
+      const history = new GitHubBodyHistory({ request, getToken });
       const memberships = new GitHubMemberships({ request: evaluationRequest, getToken });
       const open = new GitHubOpenPullRequests({ request, getToken });
       const evaluate = new EvaluateUseCaseImpl({
@@ -84,9 +88,13 @@ export const composeMessageConsumer = (env: Env) =>
         botUserId: getBotUserId(env),
         verify: (number, baseSha, headSha) => publication.verify(number, baseSha, headSha),
       });
+      const merge = new GitHubMerge({ request, getToken, logger: createLogger() });
       return {
         publish: new PublishUseCaseImpl({
           botUserId: getBotUserId(env),
+          appId,
+          bodyVersions: (input) => history.versions(input),
+          merge: (input) => merge.write(input),
           approve: (input) => approve.write(input),
           comment: (input) => comment.write(input),
           formatComment: authorizationComment,
@@ -97,8 +105,10 @@ export const composeMessageConsumer = (env: Env) =>
           finishCheck: (input) => check.finish(input),
         }),
         fanout: new FanoutUseCaseImpl({
+          appId,
           verifyInstallation: () => tokens.verifyInstallation(),
           listOpenPullRequests: () => open.list(),
+          associatedPullRequests: (sha, repositoryId) => open.associated(sha, repositoryId),
           enqueue: createBatchEnqueue(env.GITHUB_WEBHOOK_QUEUE),
         }),
       };

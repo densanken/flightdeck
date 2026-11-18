@@ -33,6 +33,7 @@ export const createMessageConsumer =
           number: queued.number,
           result: result.status,
           reason: result.reason,
+          mergeOutcome: result.mergeOutcome,
         });
         if (result.status === "error") throw new Error(result.reason);
       } else {

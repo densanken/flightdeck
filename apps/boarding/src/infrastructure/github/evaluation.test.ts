@@ -6,6 +6,11 @@ import { GitHubRequest } from "./request.js";
 const pageInfo = { hasNextPage: false, endCursor: null };
 const pr = {
   state: "OPEN",
+  isDraft: false,
+  body: "",
+  lastEditedAt: null,
+  headCommit: { nodes: [{ commit: { oid: "head", statusCheckRollup: null } }] },
+  potentialMergeCommit: null,
   baseRefName: "main",
   baseRefOid: "stale-base",
   baseRef: {
@@ -41,6 +46,66 @@ const compare = (files: unknown[], base = "base", head = "head") =>
   });
 
 describe("GitHubGatewayImpl", () => {
+  it("head とマージコミットの Check と Status を合わせる", async () => {
+    const check = {
+      __typename: "CheckRun",
+      name: "ci",
+      status: "COMPLETED",
+      conclusion: "SUCCESS",
+      checkSuite: { app: { databaseId: 2, slug: "github-actions" } },
+    };
+    const commit = (oid: string, nodes: unknown[]) => ({
+      oid,
+      statusCheckRollup: { contexts: { totalCount: nodes.length, nodes } },
+    });
+    const value = {
+      ...pr,
+      headCommit: { nodes: [{ commit: commit("head", [check]) }] },
+      potentialMergeCommit: commit("merge", [{ __typename: "StatusContext", context: "other", state: "SUCCESS" }]),
+    };
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(json({ repository: { pullRequest: value } }))
+      .mockResolvedValueOnce(compare([{ filename: "authors/alice/post.md", status: "modified" }]));
+    const gateway = new GitHubGatewayImpl({
+      request: new GitHubRequest(fetcher),
+      getToken: () => Promise.resolve("token"),
+    });
+    const data = (await gateway.pullRequest(1)).mergeData;
+    expect(data.ci).not.toBeNull();
+    expect(data.ci?.checks[0]?.app?.slug).toBe("github-actions");
+    expect(data.ci?.statuses).toEqual([{ context: "other", state: "success" }]);
+  });
+
+  it.each([
+    ["head の情報が取得できない", { headCommit: null }],
+    ["head が存在しない", { headCommit: { nodes: [] } }],
+    ["head の SHA が一致しない", { headCommit: { nodes: [{ commit: { oid: "other", statusCheckRollup: null } }] } }],
+    [
+      "head の Check の件数が一致しない",
+      {
+        headCommit: {
+          nodes: [{ commit: { oid: "head", statusCheckRollup: { contexts: { totalCount: 1, nodes: [] } } } }],
+        },
+      },
+    ],
+    [
+      "マージコミットの Check の件数が一致しない",
+      { potentialMergeCommit: { oid: "merge", statusCheckRollup: { contexts: { totalCount: 1, nodes: [] } } } },
+    ],
+  ])("%s場合は CI を不完全とする", async (_label, change) => {
+    const value = { ...pr, ...change };
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(json({ repository: { pullRequest: value } }))
+      .mockResolvedValueOnce(compare([{ filename: "authors/alice/post.md", status: "modified" }]));
+    const gateway = new GitHubGatewayImpl({
+      request: new GitHubRequest(fetcher),
+      getToken: () => Promise.resolve("token"),
+    });
+    expect((await gateway.pullRequest(1)).mergeData.ci).toBeNull();
+  });
+
   it("PR、コミット、旧パスを含む差分と base のルートを取得する", async () => {
     const fetcher = vi
       .fn()
@@ -74,10 +139,12 @@ describe("GitHubGatewayImpl", () => {
     expect(fetcher.mock.calls[1]?.[0]).toContain("/compare/base...head");
   });
 
-  it("ページ送りでは base のツリーを再取得しない", async () => {
+  it("ページ送りでは base のツリーと CI を再取得しない", async () => {
     const first = { ...pr, commits: { ...pr.commits, totalCount: 2, pageInfo: { hasNextPage: true, endCursor: "c" } } };
     const second = {
       ...pr,
+      headCommit: undefined,
+      potentialMergeCommit: undefined,
       baseRef: { target: { oid: "base" } },
       commits: { ...pr.commits, totalCount: 2 },
     };
@@ -91,14 +158,19 @@ describe("GitHubGatewayImpl", () => {
       getToken: () => Promise.resolve("token"),
     });
 
-    expect((await gateway.pullRequest(2)).baseRoots).toEqual(["alice"]);
-    const firstVariables = (
-      JSON.parse(fetcher.mock.calls[0]?.[1].body as string) as { variables: { includeTree: boolean } }
-    ).variables;
-    const secondVariables = (
-      JSON.parse(fetcher.mock.calls[1]?.[1].body as string) as { variables: { includeTree: boolean } }
-    ).variables;
-    expect([firstVariables.includeTree, secondVariables.includeTree]).toEqual([true, false]);
+    const result = await gateway.pullRequest(2);
+    expect(result.baseRoots).toEqual(["alice"]);
+    expect(result.mergeData.ci).toEqual({ checks: [], statuses: [] });
+
+    const firstVariables = (JSON.parse(fetcher.mock.calls[0]?.[1].body as string) as { variables: { first: boolean } })
+      .variables;
+    const secondVariables = (JSON.parse(fetcher.mock.calls[1]?.[1].body as string) as { variables: { first: boolean } })
+      .variables;
+    expect([firstVariables.first, secondVariables.first]).toEqual([true, false]);
+    const query = (JSON.parse(fetcher.mock.calls[0]?.[1].body as string) as { query: string }).query;
+    expect(query).not.toContain("userContentEdits");
+    expect(query).toContain("headCommit: commits(last: 1) @include(if: $first)");
+    expect(query).toContain("potentialMergeCommit @include(if: $first)");
   });
 
   it("main が更新されたら古い base の書き込みを拒否する", async () => {

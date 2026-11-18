@@ -8,6 +8,7 @@ import type { PullRequestData } from "../evaluate/dependencies.js";
 
 const current = { state: "OPEN", baseBranch: "main", baseSha: "base", headSha: "head" };
 const pr: PullRequestData = {
+  mergeData: { draft: false, body: "", ci: null },
   ...current,
   author: { id: 1, login: "alice" },
   files: [{ path: "authors/alice/a.md" }],
@@ -20,6 +21,9 @@ const setup = () => {
   const evaluate = vi.fn().mockResolvedValue({ status: "allowed", reason: "AUTHORIZED", facts });
   const dependencies: PublishDependencies = {
     botUserId: 10,
+    appId: 20,
+    bodyVersions: vi.fn().mockImplementation(({ body }: { body: string }) => Promise.resolve([{ body, editorId: 1 }])),
+    merge: vi.fn().mockResolvedValue("merged"),
     current: vi.fn().mockResolvedValue(current),
     pullRequest: vi.fn().mockResolvedValue(pr),
     evaluate: { execute: evaluate },
@@ -33,14 +37,199 @@ const setup = () => {
 };
 
 describe("PublishUseCaseImpl", () => {
+  it.each([
+    ["MERGED", "main"],
+    ["CLOSED", "main"],
+    ["OPEN", "other"],
+  ])("状態 %s、base %s の PR は処理しない", async (state, baseBranch) => {
+    const { usecase, dependencies } = setup();
+    vi.mocked(dependencies.current).mockResolvedValue({ ...current, state, baseBranch });
+
+    await expect(usecase.execute({ number: 1 })).resolves.toMatchObject({ status: "not_applicable" });
+    expect(dependencies.startCheck).not.toHaveBeenCalled();
+    expect(dependencies.approve).not.toHaveBeenCalled();
+    expect(dependencies.comment).not.toHaveBeenCalled();
+    expect(dependencies.merge).not.toHaveBeenCalled();
+    expect(dependencies.bodyVersions).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "- [ ] すべてのチェックが成功したら自動マージする",
+    "- [o] すべてのチェックが成功したら自動マージする",
+    "本文のみ",
+  ])("チェック済みでない本文では編集履歴を取得しない", async (body) => {
+    const { usecase, dependencies } = setup();
+    vi.mocked(dependencies.pullRequest).mockResolvedValue({ ...pr, mergeData: { ...pr.mergeData, body } });
+
+    await usecase.execute({ number: 1 });
+    expect(dependencies.bodyVersions).not.toHaveBeenCalled();
+  });
+
+  it("チェック済みなら評価した本文と作成者で編集履歴を取得する", async () => {
+    const { usecase, dependencies } = setup();
+    const body = "- [x] すべてのチェックが成功したら自動マージする";
+    vi.mocked(dependencies.pullRequest).mockResolvedValue({ ...pr, mergeData: { ...pr.mergeData, body } });
+
+    await usecase.execute({ number: 1 });
+    expect(dependencies.bodyVersions).toHaveBeenCalledWith({ number: 1, body, authorId: 1 });
+  });
+
+  it("履歴の取得に失敗しても認可を維持し依頼を無効にする", async () => {
+    const { usecase, dependencies } = setup();
+    const body = "- [x] すべてのチェックが成功したら自動マージする";
+    vi.mocked(dependencies.pullRequest).mockResolvedValue({ ...pr, mergeData: { ...pr.mergeData, body } });
+    vi.mocked(dependencies.bodyVersions).mockRejectedValue(new Error("too large"));
+
+    await expect(usecase.execute({ number: 1 })).resolves.toMatchObject({
+      status: "allowed",
+      merge: { request: "invalid", reason: "HISTORY_UNAVAILABLE" },
+    });
+    expect(vi.mocked(dependencies.finishCheck).mock.calls[0]?.[0].result.status).toBe("allowed");
+    expect(dependencies.merge).not.toHaveBeenCalled();
+  });
+
+  it("認可 Check の成功を確定してから評価した SHA で Merge する", async () => {
+    const { usecase, dependencies } = setup();
+    const body = "- [x] すべてのチェックが成功したら自動マージする";
+    const value: PullRequestData = {
+      ...pr,
+      reviews: [
+        {
+          reviewerId: 10,
+          login: "app[bot]",
+          isBot: true,
+          state: "APPROVED",
+          submittedAt: "2026-01-01T00:00:00Z",
+          commitSha: "head",
+        },
+      ],
+      mergeData: {
+        draft: false,
+        body,
+        ci: {
+          checks: [{ name: "ci", status: "completed", conclusion: "success", app: { id: 3, slug: "github-actions" } }],
+          statuses: [],
+        },
+      },
+    };
+    vi.mocked(dependencies.pullRequest).mockResolvedValue(value);
+    await usecase.execute({ number: 1 });
+    expect(dependencies.merge).toHaveBeenCalledWith({
+      number: 1,
+      headSha: "head",
+    });
+    expect(vi.mocked(dependencies.finishCheck).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(dependencies.merge).mock.invocationCallOrder[0] ?? 0
+    );
+  });
+
+  it("今回の Approve が成功すれば Merge し、結果を返す", async () => {
+    const { usecase, dependencies } = setup();
+    const body = "- [x] すべてのチェックが成功したら自動マージする";
+    vi.mocked(dependencies.pullRequest).mockResolvedValue({
+      ...pr,
+      mergeData: {
+        draft: false,
+        body,
+        ci: {
+          checks: [{ name: "ci", status: "completed", conclusion: "success", app: { id: 3, slug: "github-actions" } }],
+          statuses: [],
+        },
+      },
+    });
+    vi.mocked(dependencies.merge).mockResolvedValue("rejected");
+
+    await expect(usecase.execute({ number: 1 })).resolves.toMatchObject({
+      status: "allowed",
+      mergeOutcome: "rejected",
+    });
+    expect(dependencies.approve).toHaveBeenCalledOnce();
+    expect(dependencies.merge).toHaveBeenCalledWith({ number: 1, headSha: "head" });
+  });
+
+  it("Merge の競合は再評価可能なエラーとして返す", async () => {
+    const { usecase, dependencies } = setup();
+    const body = "- [x] すべてのチェックが成功したら自動マージする";
+    vi.mocked(dependencies.pullRequest).mockResolvedValue({
+      ...pr,
+      mergeData: {
+        draft: false,
+        body,
+        ci: {
+          checks: [{ name: "ci", status: "completed", conclusion: "success", app: { id: 3, slug: "github-actions" } }],
+          statuses: [],
+        },
+      },
+    });
+    vi.mocked(dependencies.merge).mockResolvedValue("changed");
+
+    await expect(usecase.execute({ number: 1 })).resolves.toMatchObject({
+      status: "error",
+      reason: "API_ERROR",
+      mergeOutcome: "changed",
+    });
+    expect(dependencies.merge).toHaveBeenCalledWith({ number: 1, headSha: "head" });
+  });
+
+  it("今回の Approve が失敗すれば Merge しない", async () => {
+    const { usecase, dependencies } = setup();
+    const body = "- [x] すべてのチェックが成功したら自動マージする";
+    vi.mocked(dependencies.pullRequest).mockResolvedValue({
+      ...pr,
+      mergeData: {
+        draft: false,
+        body,
+        ci: {
+          checks: [{ name: "ci", status: "completed", conclusion: "success", app: { id: 3, slug: "github-actions" } }],
+          statuses: [],
+        },
+      },
+    });
+    vi.mocked(dependencies.approve).mockRejectedValue(new Error("failed"));
+
+    await expect(usecase.execute({ number: 1 })).resolves.toMatchObject({ status: "error" });
+    expect(dependencies.approve).toHaveBeenCalledOnce();
+    expect(dependencies.merge).not.toHaveBeenCalled();
+  });
+
+  it("認可待機なら Merge を実行しない", async () => {
+    const { usecase, dependencies, evaluate } = setup();
+    const body = "- [x] すべてのチェックが成功したら自動マージする";
+    vi.mocked(dependencies.pullRequest).mockResolvedValue({
+      ...pr,
+      mergeData: {
+        draft: false,
+        body,
+        ci: {
+          checks: [{ name: "ci", status: "completed", conclusion: "success", app: { id: 3, slug: "github-actions" } }],
+          statuses: [],
+        },
+      },
+    });
+    evaluate.mockResolvedValue({ status: "waiting", reason: "EDITOR_APPROVAL_MISSING", facts });
+
+    await expect(usecase.execute({ number: 1 })).resolves.toMatchObject({
+      merge: { request: "accepted", waiting: "AUTHORIZATION" },
+    });
+    expect(dependencies.merge).not.toHaveBeenCalled();
+  });
+
   it("評価中に Check を保留し認可成功後に Approve と成功を記録する", async () => {
     const { usecase, dependencies, evaluate } = setup();
-    await expect(usecase.execute({ number: 1 })).resolves.toEqual({ status: "allowed", reason: "AUTHORIZED", facts });
+    await expect(usecase.execute({ number: 1 })).resolves.toEqual({
+      status: "allowed",
+      reason: "AUTHORIZED",
+      facts,
+      merge: { request: "none" },
+    });
     expect(evaluate).toHaveBeenCalledWith(pr);
     expect(dependencies.startCheck).toHaveBeenCalledWith({ number: 1, baseSha: "base", headSha: "head" });
     expect(dependencies.approve).toHaveBeenCalledOnce();
     expect(dependencies.finishCheck).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 42, result: { status: "allowed", reason: "AUTHORIZED", facts } })
+      expect.objectContaining({
+        id: 42,
+        result: { status: "allowed", reason: "AUTHORIZED", facts, merge: { request: "none" } },
+      })
     );
     const startOrder = vi.mocked(dependencies.startCheck).mock.invocationCallOrder[0] ?? 0;
     const approveOrder = vi.mocked(dependencies.approve).mock.invocationCallOrder[0] ?? 0;
@@ -94,6 +283,7 @@ describe("PublishUseCaseImpl", () => {
     await expect(usecase.execute({ number: 1 })).resolves.toEqual({
       status: "rejected",
       reason: "AUTHOR_ROOT_CASE_CONFLICT",
+      merge: { request: "none" },
     });
     expect(dependencies.approve).not.toHaveBeenCalled();
   });

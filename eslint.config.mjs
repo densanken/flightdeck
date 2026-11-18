@@ -50,53 +50,54 @@ export default [
           basePath: import.meta.dirname,
           zones: [
             {
-              target: "./apps/{takeoff,preflight,dispatch,clearance,autopilot}/src/handler/**/!(*.test).ts",
+              target: "./apps/{takeoff,preflight,dispatch,clearance,autopilot,boarding}/src/handler/**/!(*.test).ts",
               from: [
-                "./apps/{takeoff,preflight,dispatch,clearance,autopilot}/src/composition/**/*",
-                "./apps/{takeoff,preflight,dispatch,clearance,autopilot}/src/infrastructure/**/*",
+                "./apps/{takeoff,preflight,dispatch,clearance,autopilot,boarding}/src/composition/**/*",
+                "./apps/{takeoff,preflight,dispatch,clearance,autopilot,boarding}/src/infrastructure/**/*",
               ],
               message: "Handlers must receive outer-layer implementations from the composition root.",
             },
             {
-              target: "./apps/{takeoff,preflight,dispatch,clearance,autopilot}/src/handler/**/!(*.test).ts",
-              from: "./apps/{takeoff,preflight,dispatch,clearance,autopilot}/src/usecase/**/impl.{ts,js}",
+              target: "./apps/{takeoff,preflight,dispatch,clearance,autopilot,boarding}/src/handler/**/!(*.test).ts",
+              from: "./apps/{takeoff,preflight,dispatch,clearance,autopilot,boarding}/src/usecase/**/impl.{ts,js}",
               message: "Handlers may depend on use case interfaces, but not use case implementations.",
             },
             {
-              target: "./apps/{takeoff,preflight,dispatch,clearance,autopilot}/src/domain/**/*",
+              target: "./apps/{takeoff,preflight,dispatch,clearance,autopilot,boarding}/src/domain/**/*",
               from: [
-                "./apps/{takeoff,preflight,dispatch,clearance,autopilot}/src/{app,config,env,main}.ts",
-                "./apps/{takeoff,preflight,dispatch,clearance,autopilot}/src/{composition,handler,infrastructure,message,repository,usecase}/**/*",
+                "./apps/{takeoff,preflight,dispatch,clearance,autopilot,boarding}/src/{app,config,env,main}.ts",
+                "./apps/{takeoff,preflight,dispatch,clearance,autopilot,boarding}/src/{composition,handler,infrastructure,message,repository,usecase}/**/*",
               ],
               message: "Domain modules must not depend on outer application layers.",
             },
             {
-              target: "./apps/{takeoff,preflight,dispatch,clearance,autopilot}/src/{infrastructure,repository}/**/*",
+              target:
+                "./apps/{takeoff,preflight,dispatch,clearance,autopilot,boarding}/src/{infrastructure,repository}/**/*",
               from: [
-                "./apps/{takeoff,preflight,dispatch,clearance,autopilot}/src/{app,main}.ts",
-                "./apps/{takeoff,preflight,dispatch,clearance,autopilot}/src/{composition,handler}/**/*",
-                "./apps/{takeoff,preflight,dispatch,clearance,autopilot}/src/usecase/**/impl.{ts,js}",
+                "./apps/{takeoff,preflight,dispatch,clearance,autopilot,boarding}/src/{app,main}.ts",
+                "./apps/{takeoff,preflight,dispatch,clearance,autopilot,boarding}/src/{composition,handler}/**/*",
+                "./apps/{takeoff,preflight,dispatch,clearance,autopilot,boarding}/src/usecase/**/impl.{ts,js}",
               ],
               message: "Adapters must not depend on delivery, composition, entry points, or use case implementations.",
             },
             {
-              target: "./apps/{takeoff,preflight,dispatch,clearance,autopilot}/src/handler/**/!(*.test).ts",
-              from: "./apps/{takeoff,preflight,dispatch,clearance,autopilot}/src/repository/**/*",
+              target: "./apps/{takeoff,preflight,dispatch,clearance,autopilot,boarding}/src/handler/**/!(*.test).ts",
+              from: "./apps/{takeoff,preflight,dispatch,clearance,autopilot,boarding}/src/repository/**/*",
               except: [
-                `${import.meta.dirname}/apps/{takeoff,preflight,dispatch,clearance,autopilot}/src/repository/**/interface.{ts,js}`,
+                `${import.meta.dirname}/apps/{takeoff,preflight,dispatch,clearance,autopilot,boarding}/src/repository/**/interface.{ts,js}`,
               ],
               message: "Handlers may depend on repository ports, but not repository implementations.",
             },
             {
-              target: "./apps/{takeoff,preflight,dispatch,clearance,autopilot}/src/repository/**/*",
-              from: "./apps/{takeoff,preflight,dispatch,clearance,autopilot}/src/usecase/**/*",
+              target: "./apps/{takeoff,preflight,dispatch,clearance,autopilot,boarding}/src/repository/**/*",
+              from: "./apps/{takeoff,preflight,dispatch,clearance,autopilot,boarding}/src/usecase/**/*",
               message: "Repository modules must not depend on use cases.",
             },
             {
-              target: "./apps/{takeoff,preflight,dispatch,clearance,autopilot}/src/usecase/**/*",
+              target: "./apps/{takeoff,preflight,dispatch,clearance,autopilot,boarding}/src/usecase/**/*",
               from: [
-                "./apps/{takeoff,preflight,dispatch,clearance,autopilot}/src/{app,config,env,main}.ts",
-                "./apps/{takeoff,preflight,dispatch,clearance,autopilot}/src/{composition,handler,infrastructure}/**/*",
+                "./apps/{takeoff,preflight,dispatch,clearance,autopilot,boarding}/src/{app,config,env,main}.ts",
+                "./apps/{takeoff,preflight,dispatch,clearance,autopilot,boarding}/src/{composition,handler,infrastructure}/**/*",
               ],
               message: "Use cases must depend on application ports and values, not outer-layer implementations.",
             },
@@ -110,27 +111,32 @@ export default [
             },
             {
               target: "./apps/preflight",
-              from: ["./apps/takeoff", "./apps/dispatch", "./apps/clearance", "./apps/autopilot"],
+              from: ["./apps/takeoff", "./apps/dispatch", "./apps/clearance", "./apps/autopilot", "./apps/boarding"],
               message: "Applications must not import other application implementation modules.",
             },
             {
               target: "./apps/takeoff",
-              from: ["./apps/preflight", "./apps/dispatch", "./apps/clearance", "./apps/autopilot"],
+              from: ["./apps/preflight", "./apps/dispatch", "./apps/clearance", "./apps/autopilot", "./apps/boarding"],
               message: "Applications must not import other application implementation modules.",
             },
             {
               target: "./apps/dispatch",
-              from: ["./apps/preflight", "./apps/takeoff", "./apps/clearance", "./apps/autopilot"],
+              from: ["./apps/preflight", "./apps/takeoff", "./apps/clearance", "./apps/autopilot", "./apps/boarding"],
               message: "Applications must not import other application implementation modules.",
             },
             {
               target: "./apps/clearance",
-              from: ["./apps/preflight", "./apps/takeoff", "./apps/dispatch", "./apps/autopilot"],
+              from: ["./apps/preflight", "./apps/takeoff", "./apps/dispatch", "./apps/autopilot", "./apps/boarding"],
               message: "Applications must not import other application implementation modules.",
             },
             {
               target: "./apps/autopilot",
-              from: ["./apps/preflight", "./apps/takeoff", "./apps/dispatch", "./apps/clearance"],
+              from: ["./apps/preflight", "./apps/takeoff", "./apps/dispatch", "./apps/clearance", "./apps/boarding"],
+              message: "Applications must not import other application implementation modules.",
+            },
+            {
+              target: "./apps/boarding",
+              from: ["./apps/preflight", "./apps/takeoff", "./apps/dispatch", "./apps/clearance", "./apps/autopilot"],
               message: "Applications must not import other application implementation modules.",
             },
             {
@@ -181,7 +187,7 @@ export default [
     },
   },
   {
-    files: ["apps/{takeoff,preflight,dispatch,clearance,autopilot}/src/usecase/**/*.ts"],
+    files: ["apps/{takeoff,preflight,dispatch,clearance,autopilot,boarding}/src/usecase/**/*.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -273,7 +279,7 @@ export default [
     },
   },
   {
-    files: ["apps/{takeoff,preflight,dispatch,clearance,autopilot}/src/util/**/*.ts"],
+    files: ["apps/{takeoff,preflight,dispatch,clearance,autopilot,boarding}/src/util/**/*.ts"],
     rules: {
       "no-restricted-imports": [
         "error",

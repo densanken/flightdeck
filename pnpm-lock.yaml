@@ -258,6 +258,34 @@ importers:
         specifier: workspace:*
         version: link:../../packages/private-key-env
 
+  apps/boarding:
+    dependencies:
+      '@flightdeck/github-app-jwt':
+        specifier: workspace:*
+        version: link:../../packages/github-app-jwt
+      '@flightdeck/github-webhook-signature':
+        specifier: workspace:*
+        version: link:../../packages/github-webhook-signature
+      '@flightdeck/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
+      '@flightdeck/validation':
+        specifier: workspace:*
+        version: link:../../packages/validation
+      hono:
+        specifier: ^4.13.8
+        version: 4.13.18
+      valibot:
+        specifier: ^1.5.0
+        version: 1.5.0(typescript@6.0.3)
+      yaml:
+        specifier: ^2.8.0
+        version: 2.9.1
+    devDependencies:
+      '@flightdeck/private-key-env':
+        specifier: workspace:*
+        version: link:../../packages/private-key-env
+
   apps/clearance:
     dependencies:
       '@flightdeck/github-policy':

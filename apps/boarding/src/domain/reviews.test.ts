@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { approvedReviewers } from "./reviews.js";
+import { approvedPeople, approvedReviewers } from "./reviews.js";
 
 import type { Review } from "./reviews.js";
 
@@ -65,5 +65,17 @@ describe("approvedReviewers", () => {
         1
       )
     ).toEqual([4]);
+  });
+});
+
+describe("有効な Reviewer", () => {
+  it("作成者と Bot を除き ID ごとに一度だけ返す", () => {
+    const reviews = [
+      { ...review({ reviewerId: 1 }), login: "author" },
+      { ...review({ reviewerId: 2 }), login: "alice" },
+      { ...review({ reviewerId: 3 }), login: "bot", isBot: true },
+      { ...review({ reviewerId: 2, state: "COMMENTED" }), login: "alice" },
+    ];
+    expect(approvedPeople(reviews, "head", 1)).toEqual([{ id: 2, login: "alice" }]);
   });
 });

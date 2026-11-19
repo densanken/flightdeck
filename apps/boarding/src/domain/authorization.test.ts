@@ -118,3 +118,50 @@ describe("authorizeRoot", () => {
     expect(authorizeRoot({ ...input, consents: [consent(alice, 1, false, true)] }).status).toBe("allowed");
   });
 });
+
+describe("管理モードの同意", () => {
+  it.each(["intervention", "offboarding"] as const)(
+    "%s は削除対象の同意を省略しても追加対象の同意を要求する",
+    (mode) => {
+      const input = root({ before: [alice], after: [bob, team], mode });
+      expect(authorizeRoot(input).reason).toBe("TEAM_MAINTAINER_REQUIRED");
+      expect(authorizeRoot({ ...input, consents: [consent(bob, 2), consent(team, 3)] }).reason).toBe(
+        "TEAM_MAINTAINER_REQUIRED"
+      );
+      expect(authorizeRoot({ ...input, consents: [consent(bob, 2), consent(team, 3, true)] }).status).toBe("allowed");
+      expect(authorizeRoot({ ...input, after: [] }).reason).toBe("INVALID_EDITORS");
+    }
+  );
+
+  it("Offboarding で残る Editor がいる後任追加は残る Editor の同意を要求する", () => {
+    const input = root({
+      before: [alice, bob],
+      after: [bob, team],
+      mode: "offboarding",
+      consents: [consent(team, 3, true)],
+    });
+    expect(authorizeRoot(input)).toMatchObject({
+      status: "waiting",
+      reason: "EDITOR_APPROVAL_MISSING",
+      details: { missing: { kind: "one", editors: ["bob"] } },
+    });
+    expect(authorizeRoot({ ...input, consents: [...input.consents, consent(alice, 1)] }).status).toBe("waiting");
+    expect(authorizeRoot({ ...input, consents: [...input.consents, consent(bob, 2)] }).status).toBe("allowed");
+  });
+
+  it("Intervention は website の特別認可を省略しない", () => {
+    const input = root({ mode: "intervention", websiteAddedOrChanged: true });
+    expect(authorizeRoot(input).reason).toBe("WEBSITE_MEMBER_CONSENT_MISSING");
+    expect(authorizeRoot({ ...input, consents: [consent(alice, 2, false, true)] }).status).toBe("allowed");
+  });
+
+  it("Intervention でも新規登録の作成者を確認する", () => {
+    expect(authorizeRoot(root({ mode: "intervention", before: null, after: [alice], consents: [] })).reason).toBe(
+      "INITIAL_AUTHOR_NOT_EDITOR"
+    );
+    expect(
+      authorizeRoot(root({ mode: "intervention", before: null, after: [alice, bob], consents: [consent(alice, 1)] }))
+        .status
+    ).toBe("allowed");
+  });
+});

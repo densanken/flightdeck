@@ -26,6 +26,12 @@ export interface RootFiles {
   profileYml: string | null;
 }
 
+export interface RootFilesPair {
+  root: string;
+  before: RootFiles;
+  after: RootFiles;
+}
+
 export interface EvaluateGateway {
   files: (
     baseSha: string,
@@ -33,8 +39,8 @@ export interface EvaluateGateway {
     roots: string[],
     profileRoots: string[],
     metaRoots: string[]
-  ) => Promise<{ root: string; before: RootFiles; after: RootFiles }[]>;
-  validateEditors: (editors: string[], teams: string[]) => Promise<void>;
+  ) => Promise<RootFilesPair[]>;
+  validateEditors: (editors: string[], teams: string[]) => Promise<Person[]>;
   teamMemberships: (people: Person[], teams: string[]) => Promise<Membership[]>;
   orgMembership: (person: Person) => Promise<"admin" | "member" | null>;
 }

@@ -61,11 +61,64 @@ describe("authorizationComment", () => {
     expect(body).not.toContain("管理者に相談");
   });
 
+  it.each(["INTERVENTION_QUORUM_MISSING", "OFFBOARDING_APPROVAL_MISSING"] as const)(
+    "%s では承認者の案内を表示する",
+    (reason) => {
+      const body = authorizationComment({ status: "waiting", reason });
+      expect(body).toContain("Approve を依頼してください");
+      expect(body).not.toContain("対象著者を確認してください");
+    }
+  );
+
+  it("コミットがない場合は本人確認が一致したと表示しない", () => {
+    const body = authorizationComment({
+      status: "rejected",
+      reason: "COMMIT_IDENTITY_MISMATCH",
+      facts: { authorRoots: [], otherPaths: [], invalidCommits: [] },
+    });
+    expect(body).toContain("コミットの本人確認: コミットがありません");
+    expect(body).not.toContain("コミットの本人確認: 一致");
+  });
+
+  it("モードを確認できなかった場合は通常認可と表示しない", () => {
+    expect(authorizationComment({ status: "error", reason: "API_ERROR" })).toContain("モード: 確認できませんでした");
+    expect(authorizationComment({ status: "error", reason: "API_ERROR", management: { mode: "none" } })).toContain(
+      "モード: 通常の認可"
+    );
+  });
+
+  it("管理対象と承認者が未確認の場合はなしと区別する", () => {
+    const body = authorizationComment({
+      status: "rejected",
+      reason: "OFFBOARDING_INVALID_CHANGES",
+      management: { mode: "offboarding" },
+    });
+    expect(body).toContain("管理モードの対象: 確認できませんでした");
+    expect(body).toContain("管理モードの承認者: 確認できませんでした");
+  });
+
+  it("管理対象と承認者の domain 値を表示する", () => {
+    const body = authorizationComment({
+      status: "allowed",
+      reason: "AUTHORIZED",
+      management: {
+        mode: "offboarding",
+        targets: [
+          { type: "user", login: "bob" },
+          { type: "team", slug: "blog" },
+        ],
+        approvers: [{ person: { id: 2, login: "carol" }, orgRole: "admin", teams: {} }],
+      },
+    });
+    expect(body).toContain("`bob`, `team:blog`");
+    expect(body).toContain("`carol` (Owner)");
+  });
+
   it("Org を照会していない人は未確認と表示する", () => {
     const body = authorizationComment({
       status: "allowed",
       reason: "AUTHORIZED",
-      details: { memberships: [{ login: "alice", orgRole: undefined, teams: {} }] },
+      details: { memberships: [{ person: { id: 1, login: "alice" }, orgRole: undefined, teams: {} }] },
     });
     expect(body).toContain("Org 未確認");
   });

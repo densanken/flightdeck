@@ -1,5 +1,7 @@
 import * as v from "valibot";
 
+import { BoardingError } from "../../errors.js";
+
 import type { GitHubRequest } from "./request.js";
 import type { BodyVersion } from "../../domain/merge-request.js";
 
@@ -40,6 +42,8 @@ export class GitHubBodyHistory {
   constructor(private readonly input: { request: GitHubRequest; getToken: () => Promise<string> }) {}
 
   async versions(input: { number: number; body: string; authorId: number }): Promise<BodyVersion[] | null> {
+    if (!this.input.request.canSpend(1)) throw new BoardingError("SUBREQUEST_LIMIT", "GitHub request budget exceeded");
+
     const data = await this.input.request.graphql(await this.input.getToken(), query, { number: input.number });
     const parsed = v.safeParse(responseSchema, data);
     if (!parsed.success) return null;

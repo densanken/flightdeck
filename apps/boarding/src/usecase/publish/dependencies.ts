@@ -8,6 +8,7 @@ export interface PublishDependencies {
   workflow: WorkflowUseCase;
   botUserId: number;
   appId: number;
+  managementBodyVersions: (input: { number: number; body: string; authorId: number }) => Promise<BodyVersion[] | null>;
   bodyVersions: (input: { number: number; body: string; authorId: number }) => Promise<BodyVersion[] | null>;
   merge: (input: { number: number; headSha: string }) => Promise<"merged" | "changed" | "rejected">;
   current: (number: number) => Promise<{ state: string; baseBranch: string; baseSha: string; headSha: string }>;

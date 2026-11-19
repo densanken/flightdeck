@@ -1,13 +1,19 @@
 import { editorKey, editorName } from "./editors.js";
 
 import type { Consent, Editor } from "./editors.js";
+import type { ManagementApprovalReason, ManagementMode } from "./management.js";
+import type { OffboardingTargetReason } from "./offboarding.js";
 
 export type AuthorizationResult = (
   | { status: "allowed"; reason: "AUTHORIZED" }
   | { status: "not_applicable"; reason: "NO_CONTENT_CHANGES" }
   | {
       status: "waiting";
-      reason: "EDITOR_APPROVAL_MISSING" | "TEAM_MAINTAINER_REQUIRED" | "WEBSITE_MEMBER_CONSENT_MISSING";
+      reason:
+        | "EDITOR_APPROVAL_MISSING"
+        | "TEAM_MAINTAINER_REQUIRED"
+        | "WEBSITE_MEMBER_CONSENT_MISSING"
+        | ManagementApprovalReason;
     }
   | {
       status: "rejected";
@@ -17,7 +23,8 @@ export type AuthorizationResult = (
         | "INITIAL_AUTHOR_NOT_EDITOR"
         | "NON_CONTENT_CHANGE_FORBIDDEN"
         | "AUTHOR_ROOT_CASE_CONFLICT"
-        | "COMMIT_IDENTITY_MISMATCH";
+        | "COMMIT_IDENTITY_MISMATCH"
+        | OffboardingTargetReason;
     }
 ) & {
   details?:
@@ -33,61 +40,91 @@ export interface RootAuthorization {
   authorId: number;
   consents: Consent[];
   websiteAddedOrChanged: boolean;
+  mode?: ManagementMode | undefined;
 }
 
+const hasConsent = (
+  editor: Editor,
+  consents: Consent[],
+  options: { maintainer?: boolean; actorId?: number; orgMember?: boolean }
+): boolean =>
+  consents.some(
+    (consent) =>
+      editorKey(consent.editor) === editorKey(editor) &&
+      (options.actorId === undefined || consent.actorId === options.actorId) &&
+      (!options.maintainer || editor.type === "user" || consent.maintainer) &&
+      (!options.orgMember || consent.orgMember)
+  );
+
+const previousConsentResult = (
+  before: Editor[],
+  next: Set<string>,
+  change: { added: Editor[]; removed: Editor[] },
+  consents: Consent[],
+  mode: ManagementMode | undefined
+): AuthorizationResult | undefined => {
+  const previousEditors = mode === "offboarding" ? before.filter((editor) => next.has(editorKey(editor))) : before;
+  const required =
+    mode === "offboarding"
+      ? change.added.length > 0 && previousEditors.length > 0
+      : mode !== "intervention" && (change.added.length > 0 || change.removed.length === 0);
+
+  if (!required || previousEditors.some((editor) => hasConsent(editor, consents, {}))) return undefined;
+
+  return {
+    status: "waiting",
+    reason: "EDITOR_APPROVAL_MISSING",
+    details: { missing: { kind: "one", editors: previousEditors.map(editorName) } },
+  };
+};
+
+const editorChangeResult = (
+  before: Editor[],
+  after: Editor[],
+  consents: Consent[],
+  mode: ManagementMode | undefined
+): AuthorizationResult | undefined => {
+  const previous = new Set(before.map(editorKey));
+  const next = new Set(after.map(editorKey));
+  const added = after.filter((editor) => !previous.has(editorKey(editor)));
+  const removed = before.filter((editor) => !next.has(editorKey(editor)));
+  const missingChange = [...added, ...(mode ? [] : removed)].filter(
+    (editor) => !hasConsent(editor, consents, { maintainer: true })
+  );
+
+  if (missingChange.length > 0) {
+    return {
+      status: "waiting",
+      reason: missingChange.some((editor) => editor.type === "team")
+        ? "TEAM_MAINTAINER_REQUIRED"
+        : "EDITOR_APPROVAL_MISSING",
+      details: { missing: { kind: "all", editors: missingChange.map(editorName) } },
+    };
+  }
+
+  return previousConsentResult(before, next, { added, removed }, consents, mode);
+};
+
 export const authorizeRoot = (input: RootAuthorization): AuthorizationResult => {
-  const { before, after, authorId, consents, websiteAddedOrChanged } = input;
+  const { before, after, authorId, consents, websiteAddedOrChanged, mode } = input;
   const unique = (editors: Editor[]): boolean => new Set(editors.map(editorKey)).size === editors.length;
 
   if (after.length === 0 || !unique(after) || (before !== null && (before.length === 0 || !unique(before)))) {
     return { status: "rejected", reason: "INVALID_EDITORS" };
   }
 
-  const hasConsent = (
-    editor: Editor,
-    options: { maintainer?: boolean; actorId?: number; orgMember?: boolean } = {}
-  ): boolean =>
-    consents.some(
-      (consent) =>
-        editorKey(consent.editor) === editorKey(editor) &&
-        (options.actorId === undefined || consent.actorId === options.actorId) &&
-        (!options.maintainer || editor.type === "user" || consent.maintainer) &&
-        (!options.orgMember || consent.orgMember)
-    );
-
   if (before === null) {
-    if (!after.some((editor) => hasConsent(editor, { actorId: authorId }))) {
+    if (!after.some((editor) => hasConsent(editor, consents, { actorId: authorId }))) {
       return { status: "rejected", reason: "INITIAL_AUTHOR_NOT_EDITOR" };
     }
   } else {
-    const previous = new Set(before.map(editorKey));
-    const next = new Set(after.map(editorKey));
-    const added = after.filter((editor) => !previous.has(editorKey(editor)));
-    const removed = before.filter((editor) => !next.has(editorKey(editor)));
-    const missingChange = [...added, ...removed].filter((editor) => !hasConsent(editor, { maintainer: true }));
-
-    if (missingChange.length > 0) {
-      return {
-        status: "waiting",
-        reason: missingChange.some((editor) => editor.type === "team")
-          ? "TEAM_MAINTAINER_REQUIRED"
-          : "EDITOR_APPROVAL_MISSING",
-        details: { missing: { kind: "all", editors: missingChange.map(editorName) } },
-      };
-    }
-
-    if ((added.length > 0 || removed.length === 0) && !before.some((editor) => hasConsent(editor))) {
-      return {
-        status: "waiting",
-        reason: "EDITOR_APPROVAL_MISSING",
-        details: { missing: { kind: "one", editors: before.map(editorName) } },
-      };
-    }
+    const result = editorChangeResult(before, after, consents, mode);
+    if (result) return result;
   }
 
   if (websiteAddedOrChanged) {
     const editors = before ?? after;
-    if (!editors.some((editor) => hasConsent(editor, { orgMember: true }))) {
+    if (!editors.some((editor) => hasConsent(editor, consents, { orgMember: true }))) {
       return {
         status: "waiting",
         reason: "WEBSITE_MEMBER_CONSENT_MISSING",

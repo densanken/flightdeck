@@ -6,6 +6,7 @@ import { BoardingError } from "../../errors.js";
 
 import type { EvaluateGateway, PullRequestData, RootFiles } from "./dependencies.js";
 import type { Editor, Membership } from "../../domain/editors.js";
+import type { ManagementRequest } from "../../domain/management.js";
 
 const blank: RootFiles = { metaYaml: null, metaYml: null, profileYaml: null, profileYml: null };
 const author = { id: 1, login: "alice" };
@@ -59,6 +60,7 @@ const setup = (
     pr?: PullRequestData;
     files?: Record<string, { before: RootFiles; after: RootFiles }>;
     members?: Membership[];
+    readMetaKeys?: (files: RootFiles) => string[] | null;
   } = {}
 ) => {
   const value = options.pr ?? pr;
@@ -71,7 +73,15 @@ const setup = (
           .map(([root, pair]) => ({ root, ...pair }))
       )
     ),
-    validateEditors: vi.fn().mockResolvedValue(undefined),
+    validateEditors: vi
+      .fn()
+      .mockImplementation((users: string[]) =>
+        Promise.resolve(
+          users
+            .map((login) => members.find((member) => member.person.login.toLowerCase() === login.toLowerCase())?.person)
+            .filter(Boolean)
+        )
+      ),
     teamMemberships: vi
       .fn()
       .mockImplementation((people: { id: number }[]) =>
@@ -93,8 +103,14 @@ const setup = (
     gateway,
     parseEditors,
     parseWebsite,
-    run: (snapshot: PullRequestData = value) =>
-      new EvaluateUseCaseImpl({ gateway, readEditors: parseEditors, readWebsite: parseWebsite }).execute(snapshot),
+    run: (snapshot: PullRequestData = value, request: ManagementRequest = { mode: "none" }) =>
+      new EvaluateUseCaseImpl({
+        gateway,
+        readEditors: parseEditors,
+        readWebsite: parseWebsite,
+        readMetaKeys:
+          options.readMetaKeys ?? ((files) => (files.metaYaml === null && files.metaYml === null ? null : ["editors"])),
+      }).execute(snapshot, request),
   };
 };
 
@@ -675,5 +691,192 @@ describe("EvaluateUseCaseImpl", () => {
     expect((await setup({ pr: value, members: [{ person: author, orgRole: null, teams: {} }] }).run()).reason).toBe(
       "NON_CONTENT_CHANGE_FORBIDDEN"
     );
+  });
+});
+
+describe("管理モードの評価", () => {
+  const offboarding = { mode: "offboarding", reason: undefined } as const;
+  const intervention = { mode: "intervention", reason: undefined } as const;
+  const owner = { person: carol, orgRole: "admin", teams: {} } as Membership;
+  const external = { person: bob, orgRole: null, teams: {} } as Membership;
+  const base = { ...pr, files: [{ path: "authors/alice/meta.yaml" }], reviews: [review(carol)] };
+
+  it("外部 Editor を Owner の承認で削除し、所属照会を再利用する", async () => {
+    const { run, gateway } = setup({
+      pr: base,
+      members: [authorMembership, external, owner],
+      files: { alice: pair(["alice", "bob"], ["alice"]) },
+    });
+    const result = await run(base, offboarding);
+    expect(result).toMatchObject({
+      status: "allowed",
+      management: {
+        mode: "offboarding",
+        targets: [{ type: "user", login: "bob" }],
+        approvers: [{ person: carol, orgRole: "admin" }],
+      },
+    });
+    expect(gateway.orgMembership).toHaveBeenCalledTimes(3);
+  });
+
+  it("削除対象が Reviewer でも所属確認を重複しない", async () => {
+    const snapshot = { ...base, reviews: [review(bob), review(carol)] };
+    const { run, gateway } = setup({
+      pr: snapshot,
+      members: [authorMembership, external, owner],
+      files: { alice: pair(["alice", "bob"], ["alice"]) },
+    });
+    expect(await run(snapshot, offboarding)).toMatchObject({ status: "allowed" });
+    expect(gateway.orgMembership).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([null, ["editors", "extra"]])("meta のキーが不正なら Offboarding を拒否する", async (keys) => {
+    const { run } = setup({
+      pr: base,
+      members: [authorMembership, external, owner],
+      files: { alice: pair(["alice", "bob"], ["alice"]) },
+      readMetaKeys: () => keys,
+    });
+    expect(await run(base, offboarding)).toMatchObject({ status: "rejected", reason: "OFFBOARDING_INVALID_CHANGES" });
+  });
+
+  it("キーが不正でも作成者が非 Member なら通常の認可で評価する", async () => {
+    const { run, gateway } = setup({
+      pr: base,
+      members: [{ ...authorMembership, orgRole: null }, external, owner],
+      files: { alice: pair(["bob"], ["alice"]) },
+      readMetaKeys: () => ["editors", "extra"],
+    });
+    expect(await run(base, offboarding)).toMatchObject({
+      status: "waiting",
+      reason: "EDITOR_APPROVAL_MISSING",
+      management: { mode: "none", reason: "NOT_MEMBER" },
+    });
+    expect(gateway.orgMembership).toHaveBeenCalledTimes(1);
+  });
+
+  it("削除対象の Org 所属を取得できなければエラーにする", async () => {
+    const { run, gateway } = setup({
+      pr: base,
+      members: [authorMembership, external, owner],
+      files: { alice: pair(["alice", "bob"], ["alice"]) },
+    });
+    vi.mocked(gateway.orgMembership).mockImplementation((person) =>
+      person.id === bob.id ? Promise.reject(new Error("unavailable")) : Promise.resolve("member")
+    );
+    const result = await run(base, offboarding);
+    expect(result).toMatchObject({ status: "error", reason: "API_ERROR" });
+    expect(result.reason).not.toBe("OFFBOARDING_INVALID_TARGET");
+  });
+
+  it("対象が Org Member の場合は拒否する", async () => {
+    const { run } = setup({
+      pr: base,
+      members: [authorMembership, { ...external, orgRole: "member" }, owner],
+      files: { alice: pair(["alice", "bob"], ["alice"]) },
+    });
+    expect(await run(base, offboarding)).toMatchObject({ status: "rejected", reason: "OFFBOARDING_INVALID_TARGET" });
+  });
+
+  it("Owner の有効な承認がなければ待機する", async () => {
+    const snapshot = { ...base, reviews: [{ ...review(carol), commitSha: "old" }] };
+    const { run } = setup({
+      pr: snapshot,
+      members: [authorMembership, external, owner],
+      files: { alice: pair(["alice", "bob"], ["alice"]) },
+    });
+    expect(await run(snapshot, offboarding)).toMatchObject({
+      status: "waiting",
+      reason: "OFFBOARDING_APPROVAL_MISSING",
+    });
+  });
+
+  it("最後の Editor の削除を拒否する", async () => {
+    const { run } = setup({
+      pr: base,
+      members: [authorMembership, external, owner],
+      files: { alice: pair(["bob"], []) },
+    });
+    expect(await run(base, offboarding)).toMatchObject({ status: "rejected", reason: "INVALID_EDITORS" });
+  });
+
+  it("ファイルの混在を拒否する", async () => {
+    const snapshot = { ...base, files: [...base.files, { path: "authors/alice/post.md" }] };
+    const { run } = setup({
+      pr: snapshot,
+      members: [authorMembership, external, owner],
+      files: { alice: pair(["alice", "bob"], ["alice"]) },
+    });
+    expect(await run(snapshot, offboarding)).toMatchObject({
+      status: "rejected",
+      reason: "OFFBOARDING_INVALID_CHANGES",
+    });
+  });
+
+  it("所属未確認の管理申請は早期エラーに有効なモードを付けない", async () => {
+    const { run, gateway } = setup({ pr: base });
+    const mismatch = { ...base, commits: [] };
+    const collision = { ...base, files: [{ path: "authors/Alice/meta.yaml" }] };
+    expect(await run(mismatch, intervention)).toMatchObject({
+      reason: "COMMIT_IDENTITY_MISMATCH",
+      management: undefined,
+    });
+    expect(await run(collision, intervention)).toMatchObject({
+      reason: "AUTHOR_ROOT_CASE_CONFLICT",
+      management: undefined,
+    });
+    vi.mocked(gateway.orgMembership).mockRejectedValue(new Error("unavailable"));
+    expect(await run(base, intervention)).toMatchObject({ status: "error", management: undefined });
+  });
+
+  it("早期エラーでも無効な申請の理由を残す", async () => {
+    const { run } = setup({ pr: base });
+    expect(await run({ ...base, commits: [] }, { mode: "none", reason: "HISTORY_UNAVAILABLE" })).toMatchObject({
+      reason: "COMMIT_IDENTITY_MISMATCH",
+      management: { mode: "none", reason: "HISTORY_UNAVAILABLE" },
+    });
+  });
+
+  it("作成者の所属を判定できなければエラーにする", async () => {
+    const { run, gateway } = setup({ pr: base });
+    vi.mocked(gateway.orgMembership).mockRejectedValue(new Error("unavailable"));
+    expect(await run(base, intervention)).toMatchObject({ status: "error", reason: "API_ERROR" });
+  });
+
+  it("作成者が非 Member の場合は通常の認可で評価する", async () => {
+    const { run } = setup({
+      pr: base,
+      members: [{ ...authorMembership, orgRole: null }, external, owner],
+      files: { alice: pair(["bob"], ["alice"]) },
+    });
+    expect(await run(base, offboarding)).toMatchObject({
+      status: "waiting",
+      reason: "EDITOR_APPROVAL_MISSING",
+      management: { reason: "NOT_MEMBER", mode: "none" },
+    });
+  });
+
+  it("Intervention は重複を除く Owner と Member 3 人で成立する", async () => {
+    const reviewers: Membership[] = [
+      owner,
+      { person: { id: 4, login: "dave" }, orgRole: "member", teams: {} },
+      { person: { id: 5, login: "erin" }, orgRole: "member", teams: {} },
+      { person: { id: 6, login: "frank" }, orgRole: "member", teams: {} },
+    ];
+    const snapshot = { ...pr, reviews: reviewers.map((member) => review(member.person)) };
+    const { run } = setup({
+      pr: snapshot,
+      members: [authorMembership, ...reviewers],
+      files: { alice: pair(["bob"], ["bob"]) },
+    });
+    expect(await run(snapshot, intervention)).toMatchObject({
+      status: "allowed",
+      management: { mode: "intervention" },
+    });
+    const insufficient = { ...snapshot, reviews: [...snapshot.reviews.slice(0, 3), ...snapshot.reviews.slice(0, 1)] };
+    expect(await run(insufficient, intervention)).toMatchObject({
+      status: "waiting",
+      reason: "INTERVENTION_QUORUM_MISSING",
+    });
   });
 });

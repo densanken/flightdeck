@@ -1,6 +1,6 @@
 import { evaluateCi } from "@flightdeck/rules";
 
-import { mergeCheckbox, mergeRequested } from "./merge-request.js";
+import { mergeCheckbox, mergeLabel, mergeRequested } from "./merge-request.js";
 
 import type { BodyVersion } from "./merge-request.js";
 import type { CheckRun, CommitStatus } from "@flightdeck/rules";
@@ -59,12 +59,12 @@ export const decideMerge = (input: {
   appId: number;
 }): MergeDecision => {
   const data = input.data;
-  const checkbox = mergeCheckbox(data.body);
+  const checkbox = mergeCheckbox(data.body, mergeLabel);
 
   if (checkbox === "unchecked") return { request: "none" };
   if (checkbox === "invalid") return { request: "invalid", reason: "INVALID_CHECKBOX" };
   if (!input.versions) return { request: "invalid", reason: "HISTORY_UNAVAILABLE" };
-  if (!mergeRequested(input.versions, input.authorId)) {
+  if (!mergeRequested(input.versions, input.authorId, mergeLabel)) {
     return { request: "invalid", reason: "NOT_AUTHOR" };
   }
 

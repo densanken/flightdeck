@@ -33,7 +33,8 @@ const membershipTeamSelections = (slugs: string[], people: Person[]): string =>
     })
     .join("\n");
 
-const validateEditorResponse = (data: unknown, users: string[], slugs: string[]): void => {
+const validateEditorResponse = (data: unknown, users: string[], slugs: string[]): Person[] => {
+  const people: Person[] = [];
   const parsed = v.safeParse(v.object({ organization: v.record(v.string(), v.unknown()) }), data);
   const top = v.safeParse(v.record(v.string(), v.unknown()), data);
   if (!parsed.success || !top.success) throw new BoardingError("INVALID_RESPONSE", "GitHub editor response is invalid");
@@ -43,6 +44,7 @@ const validateEditorResponse = (data: unknown, users: string[], slugs: string[])
     if (!resolved.success || resolved.output.login.toLowerCase() !== login) {
       throw new BoardingError("INVALID_METADATA", "GitHub editor does not exist");
     }
+    people.push({ id: resolved.output.databaseId, login: resolved.output.login });
   }
 
   for (const [index] of slugs.entries()) {
@@ -53,6 +55,7 @@ const validateEditorResponse = (data: unknown, users: string[], slugs: string[])
     if (!team.success) throw new BoardingError("INVALID_RESPONSE", "GitHub team is unavailable");
     if (team.output.privacy !== "VISIBLE") throw new BoardingError("INVALID_METADATA", "GitHub team is not visible");
   }
+  return people;
 };
 
 const parseTeamMemberships = (data: unknown, people: Person[], logins: string[], slugs: string[]): Membership[] => {
@@ -103,10 +106,10 @@ const parseTeamMemberships = (data: unknown, people: Person[], logins: string[],
 export class GitHubMemberships {
   constructor(private readonly input: { request: GitHubRequest; getToken: () => Promise<string> }) {}
 
-  async validateEditors(editors: string[], teams: string[]): Promise<void> {
+  async validateEditors(editors: string[], teams: string[]): Promise<Person[]> {
     const users = [...new Set(editors.map((login) => login.toLowerCase()))];
     const slugs = [...new Set(teams.map((slug) => slug.toLowerCase()))];
-    if (users.length === 0 && slugs.length === 0) return;
+    if (users.length === 0 && slugs.length === 0) return [];
 
     const userQueries = userSelections(users);
     const teamQueries = editorTeamSelections(slugs);
@@ -116,7 +119,7 @@ export class GitHubMemberships {
       {},
       users.map((_, index) => `u${String(index)}`)
     );
-    validateEditorResponse(data, users, slugs);
+    return validateEditorResponse(data, users, slugs);
   }
 
   async teamMemberships(people: Person[], teams: string[]): Promise<Membership[]> {

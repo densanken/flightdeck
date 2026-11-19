@@ -134,6 +134,20 @@ describe("GitHubMemberships", () => {
     await expect(gateway.orgMembership({ id: 1, login: "alice" })).rejects.toMatchObject({ code: "API_ERROR" });
   });
 
+  it("Editor の実在確認と同じ応答から User ID を返す", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({ data: { u0: { databaseId: 1, login: "Alice" }, organization: { login: "densanken" } } })
+      );
+    const gateway = new GitHubMemberships({
+      request: new GitHubRequest(fetcher),
+      getToken: () => Promise.resolve("token"),
+    });
+    await expect(gateway.validateEditors(["alice"], [])).resolves.toEqual([{ id: 1, login: "Alice" }]);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
   it("存在しない個人 Editor は修正可能な設定エラーにする", async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(
       Response.json({

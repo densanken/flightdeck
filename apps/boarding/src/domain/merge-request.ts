@@ -1,8 +1,8 @@
 type CheckboxState = "unchecked" | "checked" | "invalid";
 
-const label = "すべてのチェックが成功したら自動マージする";
+export const mergeLabel = "すべてのチェックが成功したら自動マージする";
 
-export const mergeCheckbox = (body: string): CheckboxState => {
+export const mergeCheckbox = (body: string, label: string): CheckboxState => {
   const candidates = body
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -22,14 +22,14 @@ export interface BodyVersion {
   editorId: number;
 }
 
-export const mergeRequested = (versions: BodyVersion[], authorId: number): boolean => {
+export const mergeRequested = (versions: BodyVersion[], authorId: number, label: string): boolean => {
   const current = versions.at(-1);
-  if (!current || mergeCheckbox(current.body) !== "checked") return false;
+  if (!current || mergeCheckbox(current.body, label) !== "checked") return false;
 
   const transition = versions.findLastIndex(
     (version, index) =>
-      mergeCheckbox(version.body) === "checked" &&
-      (index === 0 || mergeCheckbox(versions[index - 1]?.body ?? "") !== "checked")
+      mergeCheckbox(version.body, label) === "checked" &&
+      (index === 0 || mergeCheckbox(versions[index - 1]?.body ?? "", label) !== "checked")
   );
 
   return versions[transition]?.editorId === authorId;

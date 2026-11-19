@@ -1,4 +1,4 @@
-import { mergeCheckbox } from "../../domain/merge-request.js";
+import { managementRequest, needsBodyHistory, needsManagementHistory } from "../../domain/management.js";
 import { decideMerge } from "../../domain/merge.js";
 import { approvedReviewers } from "../../domain/reviews.js";
 import { isContentOnlyAllowed } from "../../domain/workflow.js";
@@ -24,6 +24,7 @@ interface Approval {
 interface Evaluation {
   pr: PullRequestData | undefined;
   result: EvaluationResult;
+  versions: BodyVersion[] | null;
 }
 
 export class PublishUseCaseImpl implements PublishUseCase {
@@ -39,7 +40,7 @@ export class PublishUseCaseImpl implements PublishUseCase {
     const checkId = await this.dependencies.startCheck(ref);
     const evaluated = await this.evaluate(ref);
     const approved = await this.approve(ref, evaluated);
-    const decision = await this.mergeDecision(ref.number, evaluated.pr, approved);
+    const decision = await this.mergeDecision(ref.number, evaluated.pr, evaluated.versions, approved);
     const result = await this.comment(ref, decision);
 
     await this.dependencies.finishCheck({ ...ref, result, id: checkId });
@@ -53,12 +54,17 @@ export class PublishUseCaseImpl implements PublishUseCase {
       const pr = await this.dependencies.pullRequest(ref.number);
 
       if (pr.headSha !== ref.headSha || pr.baseSha !== ref.baseSha || pr.state !== "OPEN" || pr.baseBranch !== "main") {
-        return { pr: undefined, result: { status: "error", reason: "API_ERROR" } };
+        return { pr: undefined, versions: null, result: { status: "error", reason: "API_ERROR" } };
       }
 
-      return { pr, result: await this.dependencies.evaluate.execute(pr) };
+      const versions = needsManagementHistory(pr.mergeData.body)
+        ? await this.bodyVersions(ref.number, pr, this.dependencies.managementBodyVersions)
+        : null;
+      const request = managementRequest(pr.mergeData.body, versions, pr.author.id);
+      const result = await this.dependencies.evaluate.execute(pr, request);
+      return { pr, versions, result };
     } catch (error) {
-      return { pr: undefined, result: errorResult(error) };
+      return { pr: undefined, versions: null, result: errorResult(error) };
     }
   }
 
@@ -82,17 +88,20 @@ export class PublishUseCaseImpl implements PublishUseCase {
   private async mergeDecision(
     number: number,
     pr: PullRequestData | undefined,
+    versions: BodyVersion[] | null,
     approval: Approval
   ): Promise<EvaluationResult> {
     const { result, approved } = approval;
     if (!pr) return result;
 
-    const versions = await this.bodyVersions(number, pr);
+    const history = needsManagementHistory(pr.mergeData.body)
+      ? versions
+      : await this.bodyVersions(number, pr, this.dependencies.bodyVersions);
     return {
       ...result,
       merge: decideMerge({
         data: pr.mergeData,
-        versions,
+        versions: history,
         authorId: pr.author.id,
         allowed: result.status === "allowed",
         authorRoots: result.facts?.authorRoots ?? [],
@@ -103,11 +112,15 @@ export class PublishUseCaseImpl implements PublishUseCase {
     };
   }
 
-  private async bodyVersions(number: number, pr: PullRequestData): Promise<BodyVersion[] | null> {
-    if (mergeCheckbox(pr.mergeData.body) !== "checked") return null;
+  private async bodyVersions(
+    number: number,
+    pr: PullRequestData,
+    load: PublishDependencies["bodyVersions"]
+  ): Promise<BodyVersion[] | null> {
+    if (!needsBodyHistory(pr.mergeData.body)) return null;
 
     try {
-      return await this.dependencies.bodyVersions({ number, body: pr.mergeData.body, authorId: pr.author.id });
+      return await load({ number, body: pr.mergeData.body, authorId: pr.author.id });
     } catch {
       return null;
     }

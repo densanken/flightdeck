@@ -29,6 +29,25 @@ const setup = (value: unknown) => {
 const input = { number: 1, body: "現在", authorId: 1 };
 
 describe("GitHubBodyHistory", () => {
+  it("評価用の予算を 23 回消費したら履歴とトークンの通信を行わない", async () => {
+    const fetcher = vi.fn().mockImplementation(() => Promise.resolve(Response.json({})));
+    const request = new GitHubRequest(fetcher);
+    const evaluationRequest = request.withLimit(23);
+    for (const _index of Array.from({ length: 23 })) {
+      await request.call({ method: "GET", path: "/test", token: "token" });
+    }
+    const getToken = vi.fn().mockImplementation(async () => {
+      await request.call({ method: "GET", path: "/token", token: "token" });
+      return "token";
+    });
+    const gateway = new GitHubBodyHistory({ request: evaluationRequest, getToken });
+    await expect(gateway.versions(input)).rejects.toMatchObject({ code: "SUBREQUEST_LIMIT" });
+    expect(getToken).not.toHaveBeenCalled();
+    expect(fetcher).toHaveBeenCalledTimes(23);
+    await request.call({ method: "GET", path: "/write", token: "token" });
+    expect(fetcher).toHaveBeenCalledTimes(24);
+  });
+
   it("編集がなければ現在の本文を PR 作成者の版とする", async () => {
     const { gateway } = setup({ ...pr, lastEditedAt: null, userContentEdits: { totalCount: 0, pageInfo, nodes: [] } });
     await expect(gateway.versions(input)).resolves.toEqual([{ body: "現在", editorId: 1 }]);

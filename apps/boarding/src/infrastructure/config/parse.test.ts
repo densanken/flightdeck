@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { readEditors, readWebsite } from "./parse.js";
+import { readEditors, readMetaKeys, readWebsite } from "./parse.js";
 
 import type { RootFiles } from "../../usecase/evaluate/dependencies.js";
 
@@ -39,5 +39,32 @@ describe("readWebsite", () => {
 
   it("website の値を読む", () => {
     expect(readWebsite({ ...empty, profileYaml: 'website: "https://example.com"' })).toBe("https://example.com");
+  });
+});
+
+describe("meta のトップレベルのキー", () => {
+  it("通常のオブジェクトからキーを返す", () => {
+    expect(readMetaKeys({ ...empty, metaYaml: "editors: [alice]" })).toEqual(["editors"]);
+    expect(readMetaKeys({ ...empty, metaYml: "editors: [bob]\nextra: value" })).toEqual(["editors", "extra"]);
+  });
+
+  it.each(["!!set {foo: null}", "!!omap [{foo: bar}]", "[alice]", "null"])(
+    "通常のオブジェクトではない %s はキーを返さない",
+    (text) => {
+      expect(readMetaKeys({ ...empty, metaYaml: text })).toBeNull();
+    }
+  );
+
+  it("meta がなければキーを返さない", () => {
+    expect(readMetaKeys(empty)).toBeNull();
+  });
+
+  it("通常の meta と profile の読み込みに影響しない", () => {
+    expect(readEditors({ ...empty, metaYaml: "editors: [alice]\nextra: !!set {foo: null}" })).toEqual([
+      { type: "user", login: "alice" },
+    ]);
+    expect(readWebsite({ ...empty, profileYaml: "website: https://example.com\nextra: !!set {foo: null}" })).toBe(
+      "https://example.com"
+    );
   });
 });

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { PublishUseCaseImpl } from "./impl.js";
+import { interventionLabel } from "../../domain/management.js";
+import { mergeLabel } from "../../domain/merge-request.js";
 import { BoardingError } from "../../errors.js";
 
 import type { PublishDependencies } from "./dependencies.js";
@@ -26,6 +28,9 @@ const setup = () => {
     workflow: { execute: workflowExecute },
     botUserId: 10,
     appId: 20,
+    managementBodyVersions: vi
+      .fn()
+      .mockImplementation(({ body }: { body: string }) => Promise.resolve([{ body, editorId: 1 }])),
     bodyVersions: vi.fn().mockImplementation(({ body }: { body: string }) => Promise.resolve([{ body, editorId: 1 }])),
     merge: vi.fn().mockResolvedValue("merged"),
     current: vi.fn().mockResolvedValue(current),
@@ -85,6 +90,53 @@ describe("PublishUseCaseImpl", () => {
 
     await usecase.execute({ number: 1 });
     expect(dependencies.bodyVersions).toHaveBeenCalledWith({ number: 1, body, authorId: 1 });
+  });
+
+  it("Merge 依頼だけの場合は認可の評価後に履歴を取得する", async () => {
+    const { usecase, dependencies, evaluate } = setup();
+    const body = `- [x] ${mergeLabel}`;
+    vi.mocked(dependencies.pullRequest).mockResolvedValue({ ...pr, mergeData: { ...pr.mergeData, body } });
+    await usecase.execute({ number: 1 });
+    expect(evaluate.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(dependencies.bodyVersions).mock.invocationCallOrder[0] ?? 0
+    );
+  });
+
+  it("管理モードと Merge のチェックがあっても履歴を一度だけ共有する", async () => {
+    const { usecase, dependencies, evaluate } = setup();
+    const body = `- [x] ${interventionLabel}\n- [x] ${mergeLabel}`;
+    vi.mocked(dependencies.pullRequest).mockResolvedValue({ ...pr, mergeData: { ...pr.mergeData, body } });
+    await usecase.execute({ number: 1 });
+    expect(dependencies.managementBodyVersions).toHaveBeenCalledOnce();
+    expect(dependencies.bodyVersions).not.toHaveBeenCalled();
+    expect(evaluate).toHaveBeenCalledWith(expect.anything(), { mode: "intervention" });
+  });
+
+  it("管理モードの履歴取得に失敗しても Merge 用に再取得しない", async () => {
+    const { usecase, dependencies } = setup();
+    const body = `- [x] ${interventionLabel}\n- [x] ${mergeLabel}`;
+    vi.mocked(dependencies.pullRequest).mockResolvedValue({ ...pr, mergeData: { ...pr.mergeData, body } });
+    vi.mocked(dependencies.managementBodyVersions).mockRejectedValue(new Error("unavailable"));
+    const result = await usecase.execute({ number: 1 });
+    expect(dependencies.managementBodyVersions).toHaveBeenCalledOnce();
+    expect(dependencies.bodyVersions).not.toHaveBeenCalled();
+    expect(result.merge).toMatchObject({ request: "invalid", reason: "HISTORY_UNAVAILABLE" });
+  });
+
+  it("管理モードの履歴取得に失敗すると通常の認可に戻す", async () => {
+    const { usecase, dependencies, evaluate } = setup();
+    const body = `- [x] ${interventionLabel}`;
+    vi.mocked(dependencies.pullRequest).mockResolvedValue({ ...pr, mergeData: { ...pr.mergeData, body } });
+    vi.mocked(dependencies.managementBodyVersions).mockRejectedValue(new Error("unavailable"));
+    evaluate.mockResolvedValueOnce({
+      status: "allowed",
+      reason: "AUTHORIZED",
+      facts,
+      management: { mode: "none", reason: "HISTORY_UNAVAILABLE" },
+    });
+    const result = await usecase.execute({ number: 1 });
+    expect(evaluate).toHaveBeenCalledWith(expect.anything(), { mode: "none", reason: "HISTORY_UNAVAILABLE" });
+    expect(result.management).toMatchObject({ reason: "HISTORY_UNAVAILABLE" });
   });
 
   it("履歴の取得に失敗しても認可を維持し依頼を無効にする", async () => {
@@ -235,7 +287,7 @@ describe("PublishUseCaseImpl", () => {
       facts,
       merge: { request: "none" },
     });
-    expect(evaluate).toHaveBeenCalledWith(pr);
+    expect(evaluate).toHaveBeenCalledWith(pr, { mode: "none" });
     expect(dependencies.startCheck).toHaveBeenCalledWith({ number: 1, baseSha: "base", headSha: "head" });
     expect(dependencies.approve).toHaveBeenCalledOnce();
     expect(dependencies.finishCheck).toHaveBeenCalledWith(

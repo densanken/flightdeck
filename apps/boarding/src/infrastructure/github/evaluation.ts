@@ -4,7 +4,7 @@ import { readCi, statusCheckRollup } from "./ci.js";
 import { BoardingError } from "../../errors.js";
 
 import type { GitHubRequest } from "./request.js";
-import type { PullRequestData, RootFiles } from "../../usecase/evaluate/dependencies.js";
+import type { PullRequestData, RootFiles, RootFilesPair } from "../../usecase/evaluate/dependencies.js";
 
 const person = v.object({ databaseId: v.pipe(v.number(), v.safeInteger(), v.minValue(1)), login: v.string() });
 const actor = v.nullable(v.object({ user: v.nullable(person), email: v.optional(v.nullable(v.string())) }));
@@ -384,7 +384,7 @@ export class GitHubGatewayImpl {
     roots: string[],
     profileRoots: string[],
     metaRoots: string[]
-  ): Promise<{ root: string; before: RootFiles; after: RootFiles }[]> {
+  ): Promise<RootFilesPair[]> {
     const expressions = fileExpressions(baseSha, headSha, roots, profileRoots, metaRoots);
     if (expressions.length === 0) return [];
 

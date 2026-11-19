@@ -1,3 +1,5 @@
+import type { Person } from "./editors.js";
+
 export interface Review {
   reviewerId: number;
   state: "APPROVED" | "CHANGES_REQUESTED" | "DISMISSED" | "COMMENTED" | "PENDING";
@@ -30,4 +32,19 @@ export const approvedReviewers = (reviews: Review[], headSha: string, authorId: 
       (review) => !invalidDates.has(review.reviewerId) && review.state === "APPROVED" && review.commitSha === headSha
     )
     .map((review) => review.reviewerId);
+};
+
+export const approvedPeople = (
+  reviews: (Review & { login: string; isBot?: boolean | undefined })[],
+  headSha: string,
+  authorId: number
+): Person[] => {
+  const approved = new Set(approvedReviewers(reviews, headSha, authorId));
+  return [
+    ...new Map(
+      reviews
+        .filter((review) => !review.isBot && approved.has(review.reviewerId))
+        .map((review) => [review.reviewerId, { id: review.reviewerId, login: review.login }])
+    ).values(),
+  ];
 };

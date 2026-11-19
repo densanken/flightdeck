@@ -1,12 +1,26 @@
+import { editorName } from "../domain/editors.js";
+
+import type { ManagementReason, ManagementRequest } from "../domain/management.js";
 import type { MergeDecision } from "../domain/merge.js";
 import type { EvaluationResult } from "../usecase/evaluate/interface.js";
 
 const code = (value: string): string => `\`${value.replace(/[\r\n`]/g, " ")}\``;
 
+const modeLabels: Record<ManagementRequest["mode"], string> = {
+  none: "通常の認可",
+  intervention: "Intervention",
+  offboarding: "Offboarding",
+};
+
 const guidance: Record<EvaluationResult["reason"], string> = {
   AUTHORIZED: "必要な同意を確認しました。",
   NO_CONTENT_CHANGES: "著者のコンテンツに対する認可は不要です。設定の変更は通常のレビューを受けてください。",
   EVALUATING: "認可を確認しています。",
+  INTERVENTION_QUORUM_MISSING:
+    "PR 作成者以外の Org Owner 1 人以上と、別の Org Member 3 人以上に Approve を依頼してください。",
+  OFFBOARDING_APPROVAL_MISSING: "PR 作成者以外の Org Owner に Approve を依頼してください。",
+  OFFBOARDING_INVALID_CHANGES: "Offboarding は meta の editors の変更だけに分けてください。",
+  OFFBOARDING_INVALID_TARGET: "削除対象は Org に所属しない個人 Editor に限ります。",
   EDITOR_APPROVAL_MISSING: "対象の Editor に現在のコミットをレビューし、Approve するよう依頼してください。",
   TEAM_MAINTAINER_REQUIRED: "追加または削除する Team の Maintainer に現在のコミットの Approve を依頼してください。",
   WEBSITE_MEMBER_CONSENT_MISSING:
@@ -43,6 +57,19 @@ const invalidMergeGuidance: Record<Extract<MergeDecision, { request: "invalid" }
   NOT_AUTHOR: "PR 作成者がチェックを外して入れ直してください。",
 };
 
+const managementReasons: Record<ManagementReason, string> = {
+  INVALID_CHECKBOX: "チェック欄の形式が不正です",
+  HISTORY_UNAVAILABLE: "編集履歴を確認できません",
+  NOT_AUTHOR: "PR 作成者によるチェックを確認できません",
+  CONFLICT: "両方のモードは同時に申請できません",
+  NOT_MEMBER: "PR 作成者が Org Member ではありません",
+};
+
+const managementWaitingReasons = new Set<EvaluationResult["reason"]>([
+  "INTERVENTION_QUORUM_MISSING",
+  "OFFBOARDING_APPROVAL_MISSING",
+]);
+
 const mergeWaiting: Record<NonNullable<Extract<MergeDecision, { request: "accepted" }>["waiting"]>, string> = {
   DRAFT: "Draft の解除",
   AUTHORIZATION: "認可",
@@ -53,6 +80,22 @@ const mergeWaiting: Record<NonNullable<Extract<MergeDecision, { request: "accept
   CI_FAILED: "失敗した CI の修正",
 };
 
+const managementLines = (management: EvaluationResult["management"]): string[] => {
+  if (!management) return [];
+  if (management.mode === "none") {
+    return management.reason ? [`管理モードの申請: 無効（${managementReasons[management.reason]}）`] : [];
+  }
+
+  const targets = management.targets?.map((editor) => code(editorName(editor)));
+  const approvers = management.approvers?.map(
+    (approver) => `${code(approver.person.login)} (${approver.orgRole === "admin" ? "Owner" : "Member"})`
+  );
+  return [
+    `管理モードの対象: ${targets === undefined ? "確認できませんでした" : targets.length ? targets.join(", ") : "なし"}`,
+    `管理モードの承認者: ${approvers === undefined ? "確認できませんでした" : approvers.length ? approvers.join(", ") : "なし"}`,
+  ];
+};
+
 export const authorizationComment = (result: EvaluationResult): string => {
   const { authorRoots = [], otherPaths = [], invalidCommits: bad = [] } = result.facts ?? {};
   const unlinked = bad.filter((commit) => commit.authorId === null);
@@ -60,11 +103,13 @@ export const authorizationComment = (result: EvaluationResult): string => {
     "<!-- boarding:authorization -->",
     "## 認可結果",
     `状態: ${code(result.status)} / ${code(result.reason)}`,
-    "モード: 通常の認可",
+    `モード: ${result.management ? modeLabels[result.management.mode] : "確認できませんでした"}`,
     `対象著者: ${result.facts ? (authorRoots.length ? authorRoots.map(code).join(", ") : "なし") : "取得できませんでした"}`,
-    `コミットの本人確認: ${result.facts ? (bad.length === 0 ? "一致" : "確認できないコミットがあります") : "取得できませんでした"}`,
+    `コミットの本人確認: ${result.facts ? (bad.length === 0 ? (result.reason === "COMMIT_IDENTITY_MISMATCH" ? "コミットがありません" : "一致") : "確認できないコミットがあります") : "取得できませんでした"}`,
     guidance[result.reason],
   ];
+
+  lines.push(...managementLines(result.management));
 
   if (result.details?.memberships) {
     lines.push("### Org / Team の判定");
@@ -73,14 +118,14 @@ export const authorizationComment = (result: EvaluationResult): string => {
         const teams = Object.entries(membership.teams)
           .map(([slug, role]) => `${code(slug)}: ${role ?? "所属なし"}`)
           .join(", ");
-        return `- ${code(membership.login)}: Org ${membership.orgRole === undefined ? "未確認" : (membership.orgRole ?? "所属なし")}${teams ? ` / Team ${teams}` : ""}`;
+        return `- ${code(membership.person.login)}: Org ${membership.orgRole === undefined ? "未確認" : (membership.orgRole ?? "所属なし")}${teams ? ` / Team ${teams}` : ""}`;
       })
     );
   } else {
     lines.push("Org / Team の判定: この評価では確認できませんでした。");
   }
 
-  if (result.status === "waiting") {
+  if (result.status === "waiting" && !managementWaitingReasons.has(result.reason)) {
     lines.push(`不足している同意: ${result.details?.root ? code(result.details.root) : "対象著者を確認してください"}`);
     const missing = result.details?.missing;
     if (missing) {

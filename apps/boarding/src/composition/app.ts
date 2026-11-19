@@ -4,7 +4,7 @@ import { createApp } from "../app.js";
 import { getBotUserId, getGitHubAppCredentials, getGitHubAppId, getWebhookSecret } from "../env.js";
 import { createMessageConsumer } from "../handler/github/consume.js";
 import { createWebhookHandler } from "../handler/github/webhook.js";
-import { readEditors, readWebsite } from "../infrastructure/config/parse.js";
+import { readEditors, readMetaKeys, readWebsite } from "../infrastructure/config/parse.js";
 import { GitHubApprove } from "../infrastructure/github/approve.js";
 import { GitHubInstallationTokenProvider } from "../infrastructure/github/auth.js";
 import { GitHubCheckRun } from "../infrastructure/github/check-run.js";
@@ -59,6 +59,7 @@ export const composeMessageConsumer = (env: Env) =>
       const evaluation = new GitHubGatewayImpl({ request: evaluationRequest, getToken });
       const publication = new GitHubGatewayImpl({ request, getToken });
       const history = new GitHubBodyHistory({ request, getToken });
+      const managementHistory = new GitHubBodyHistory({ request: evaluationRequest, getToken });
       const memberships = new GitHubMemberships({ request: evaluationRequest, getToken });
       const open = new GitHubOpenPullRequests({ request, getToken });
       const evaluate = new EvaluateUseCaseImpl({
@@ -69,6 +70,7 @@ export const composeMessageConsumer = (env: Env) =>
           orgMembership: memberships.orgMembership.bind(memberships),
         },
         readEditors,
+        readMetaKeys,
         readWebsite,
       });
       const appId = getGitHubAppId(env);
@@ -101,6 +103,7 @@ export const composeMessageConsumer = (env: Env) =>
             approve: (runs) => workflow.approve(runs),
           }),
           bodyVersions: (input) => history.versions(input),
+          managementBodyVersions: (input) => managementHistory.versions(input),
           merge: (input) => merge.write(input),
           approve: (input) => approve.write(input),
           comment: (input) => comment.write(input),

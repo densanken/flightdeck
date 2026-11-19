@@ -67,3 +67,13 @@ export const readWebsite = (files: RootFiles): string | null => {
     throw error;
   }
 };
+
+export const readMetaKeys = (files: RootFiles): string[] | null => {
+  const text = select(files.metaYaml, files.metaYml);
+  if (text === null) return null;
+
+  const data = parse(text);
+  if (typeof data !== "object" || data === null || Object.getPrototypeOf(data) !== Object.prototype) return null;
+
+  return Object.keys(data);
+};

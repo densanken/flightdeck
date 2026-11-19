@@ -25,8 +25,7 @@ import { GitHubOpenPullRequests } from "../infrastructure/github/pull-requests.j
 import { GitHubRequest } from "../infrastructure/github/request.js";
 import { GitHubWorkflow } from "../infrastructure/github/workflow.js";
 import { createBatchEnqueue } from "../infrastructure/queue/enqueue.js";
-import { authorizationComment, closedComment } from "../message/authorization.js";
-import { checkOutput } from "../message/check-run.js";
+import { authorizationComment, checkOutput, closedComment } from "../message/authorization.js";
 import { mergedNotification, openedNotification } from "../message/notification.js";
 import { EvaluateUseCaseImpl } from "../usecase/evaluate/impl.js";
 import { FanoutUseCaseImpl } from "../usecase/fanout/impl.js";

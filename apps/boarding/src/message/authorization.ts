@@ -1,12 +1,11 @@
 import { listWithinLimit } from "./list.js";
 import { reasonLabels, statusLabels } from "./status.js";
-import { consentLabels } from "../domain/consent.js";
 import { editorName } from "../domain/editors.js";
-import { mergeLabel } from "../domain/merge-request.js";
+import { consentLabels, mergeLabel } from "../domain/merge-request.js";
 
-import type { ConsentStatus } from "../domain/consent.js";
 import type { Editor } from "../domain/editors.js";
 import type { ManagementMode, ManagementReason } from "../domain/management.js";
+import type { ConsentStatus } from "../domain/merge-request.js";
 import type { MergeDecision } from "../domain/merge.js";
 import type { EvaluationResult } from "../usecase/evaluate/interface.js";
 
@@ -440,3 +439,16 @@ export const closedComment = (merged: boolean): string =>
     "> [!NOTE]",
     merged ? "> この PR はマージされました。" : "> この PR は閉じられました。再び開くともう一度確認を行います。",
   ].join("\n");
+
+export interface CheckOutput {
+  title: string;
+  summary: string;
+}
+
+export const checkOutput = (result: EvaluationResult): CheckOutput => ({
+  title: reasonLabels[result.reason],
+  summary:
+    result.reason === "EVALUATING"
+      ? `${guidance[result.reason]}完了までしばらくお待ちください。`
+      : `${guidance[result.reason]}詳しくは PR の管理コメントを確認してください。`,
+});

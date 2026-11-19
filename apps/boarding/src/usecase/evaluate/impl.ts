@@ -1,6 +1,6 @@
-import { authorizeRoot } from "../../domain/authorization.js";
-import { invalidCommitIdentities } from "../../domain/commit-identity.js";
+import { authorizeRoot, invalidCommitIdentities } from "../../domain/authorization.js";
 import {
+  approvedPeople,
   buildConsents,
   changedRoots,
   isOrgMember,
@@ -8,25 +8,29 @@ import {
   uniqueEditors,
   websiteCandidate,
 } from "../../domain/editors.js";
-import { managementApproval, memberRequest } from "../../domain/management.js";
 import {
+  managementApproval,
+  memberRequest,
   offboardingChangeViolation,
   offboardingTargetViolation,
   removedEditors,
   rootManagementMode,
-} from "../../domain/offboarding.js";
+} from "../../domain/management.js";
 import { classifyPaths, collidingAuthorRoots } from "../../domain/paths.js";
-import { approvedPeople } from "../../domain/reviews.js";
 import { BoardingError } from "../../errors.js";
 import { errorResult } from "../error-result.js";
 
 import type { EvaluateGateway, PullRequestData, RootFiles, RootFilesPair } from "./dependencies.js";
 import type { EvaluateUseCase, EvaluationResult } from "./interface.js";
 import type { AuthorizationResult } from "../../domain/authorization.js";
-import type { ConsentStatus } from "../../domain/consent.js";
 import type { AuthorRoot, Editor, Membership, Person } from "../../domain/editors.js";
-import type { ManagementApprovalReason, ManagementRequest } from "../../domain/management.js";
-import type { MetaKeys, OffboardingTargetReason } from "../../domain/offboarding.js";
+import type {
+  ManagementApprovalReason,
+  ManagementRequest,
+  MetaKeys,
+  OffboardingTargetReason,
+} from "../../domain/management.js";
+import type { ConsentStatus } from "../../domain/merge-request.js";
 
 interface RootChanges {
   profile: string[];

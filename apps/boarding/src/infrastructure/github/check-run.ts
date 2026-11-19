@@ -4,7 +4,7 @@ import { authorizationCheckName } from "../../domain/merge.js";
 import { BoardingError } from "../../errors.js";
 
 import type { GitHubRequest } from "./request.js";
-import type { CheckOutput } from "../../message/check-run.js";
+import type { CheckOutput } from "../../message/authorization.js";
 import type { EvaluationResult } from "../../usecase/evaluate/interface.js";
 
 type CheckState = { status: "in_progress" } | { status: "completed"; conclusion: string };

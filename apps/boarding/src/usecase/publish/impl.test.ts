@@ -1,9 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { PublishUseCaseImpl } from "./impl.js";
-import { consentLabels } from "../../domain/consent.js";
 import { interventionLabel } from "../../domain/management.js";
-import { mergeLabel } from "../../domain/merge-request.js";
+import { consentLabels, mergeLabel } from "../../domain/merge-request.js";
 import { BoardingError } from "../../errors.js";
 
 import type { PublishDependencies } from "./dependencies.js";

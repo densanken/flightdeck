@@ -1,8 +1,8 @@
-import { consentStatus, needsConsentHistory } from "../../domain/consent.js";
+import { approvedReviewers } from "../../domain/editors.js";
 import { managementRequest, needsBodyHistory, needsManagementHistory } from "../../domain/management.js";
+import { consentStatus, needsConsentHistory } from "../../domain/merge-request.js";
 import { decideMerge } from "../../domain/merge.js";
 import { newAuthorRoots } from "../../domain/paths.js";
-import { approvedReviewers } from "../../domain/reviews.js";
 import { isContentOnlyAllowed } from "../../domain/workflow.js";
 import { errorResult } from "../error-result.js";
 

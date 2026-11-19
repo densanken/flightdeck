@@ -1,9 +1,8 @@
 import type { PullRequestData } from "./dependencies.js";
-import type { AuthorizationResult } from "../../domain/authorization.js";
-import type { CommitIdentity } from "../../domain/commit-identity.js";
-import type { ConsentStatus } from "../../domain/consent.js";
+import type { AuthorizationResult, CommitIdentity } from "../../domain/authorization.js";
 import type { Editor } from "../../domain/editors.js";
 import type { ManagementRequest } from "../../domain/management.js";
+import type { ConsentStatus } from "../../domain/merge-request.js";
 import type { MergeDecision } from "../../domain/merge.js";
 
 export type EvaluationResult = (

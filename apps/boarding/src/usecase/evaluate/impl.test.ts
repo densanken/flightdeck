@@ -5,9 +5,9 @@ import * as authorization from "../../domain/authorization.js";
 import { BoardingError } from "../../errors.js";
 
 import type { EvaluateGateway, PullRequestData, RootFiles } from "./dependencies.js";
-import type { ConsentStatus } from "../../domain/consent.js";
 import type { Editor, Membership } from "../../domain/editors.js";
 import type { ManagementRequest } from "../../domain/management.js";
+import type { ConsentStatus } from "../../domain/merge-request.js";
 
 const blank: RootFiles = { metaYaml: null, metaYml: null, profileYaml: null, profileYml: null };
 const author = { id: 1, login: "alice" };

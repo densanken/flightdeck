@@ -13,8 +13,21 @@ export class DiscordSender {
   async send(payload: DiscordPayload): Promise<void> {
     if (await this.sendBot(payload)) return;
 
-    const url = this.input.webhookUrl();
-    if (url) await this.post(url, {}, payload, "webhook");
+    await this.sendWebhook(payload);
+  }
+
+  // application が持たない Webhook は with_components=true を付けないと components を送れない
+  private async sendWebhook(payload: DiscordPayload): Promise<void> {
+    const base = this.input.webhookUrl();
+    if (!base) return;
+
+    try {
+      const url = new URL(base);
+      url.searchParams.set("with_components", "true");
+      await this.post(url.toString(), {}, payload, "webhook");
+    } catch {
+      this.input.logger.log("error", { event: "notification_failed", route: "webhook" });
+    }
   }
 
   private async sendBot(payload: DiscordPayload): Promise<boolean> {

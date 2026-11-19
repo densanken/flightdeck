@@ -1,6 +1,7 @@
 import type { PullRequestData } from "./dependencies.js";
 import type { AuthorizationResult } from "../../domain/authorization.js";
 import type { CommitIdentity } from "../../domain/commit-identity.js";
+import type { ConsentStatus } from "../../domain/consent.js";
 import type { Editor } from "../../domain/editors.js";
 import type { ManagementRequest } from "../../domain/management.js";
 import type { MergeDecision } from "../../domain/merge.js";
@@ -16,6 +17,7 @@ export type EvaluationResult = (
         targets?: Editor[] | undefined;
       })
     | undefined;
+  consent?: ConsentStatus | undefined;
   merge?: MergeDecision | undefined;
   mergeOutcome?: "merged" | "changed" | "rejected" | undefined;
   facts?: { authorRoots: string[]; otherPaths: string[]; invalidCommits: CommitIdentity[] } | undefined;
@@ -27,5 +29,5 @@ export type EvaluationResult = (
 };
 
 export interface EvaluateUseCase {
-  execute(input: PullRequestData, request: ManagementRequest): Promise<EvaluationResult>;
+  execute(input: PullRequestData, request: ManagementRequest, consent: ConsentStatus): Promise<EvaluationResult>;
 }

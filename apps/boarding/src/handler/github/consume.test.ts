@@ -47,11 +47,11 @@ describe("createMessageConsumer", () => {
     expect(ack).toHaveBeenCalledOnce();
   });
 
-  it.each([true, false])("Merge 通知処理の成功 %s に応じて ACK または再試行する", async (success) => {
+  it.each([true, false])("closed の処理の成功 %s に応じて ACK または再試行する", async (success) => {
     const ack = vi.fn();
     const retry = vi.fn();
     const execute = success ? vi.fn().mockResolvedValue(undefined) : vi.fn().mockRejectedValue(new Error("failed"));
-    const body = { event: "merged", number: 2, installationId: 1, deliveryId: "d" };
+    const body = { event: "closed", number: 2, merged: true, installationId: 1, deliveryId: "d" };
     const consume = createMessageConsumer({
       logger,
       createUseCases: () => ({

@@ -8,8 +8,8 @@ import type { BodyVersion } from "../../domain/merge-request.js";
 const query = `query BodyHistory($number: Int!) {
   repository(owner: "densanken", name: "blog-contents") {
     pullRequest(number: $number) {
-      body createdAt lastEditedAt
-      userContentEdits(first: 100) { totalCount pageInfo { hasNextPage } nodes { diff editedAt deletedAt editor { __typename ... on User { databaseId } } } }
+      body lastEditedAt
+      userContentEdits(first: 100) { totalCount pageInfo { hasNextPage } nodes { diff deletedAt editor { __typename ... on User { databaseId } } } }
     }
   }
 }`;
@@ -18,7 +18,6 @@ const responseSchema = v.object({
   repository: v.object({
     pullRequest: v.object({
       body: v.string(),
-      createdAt: v.string(),
       lastEditedAt: v.nullable(v.string()),
       userContentEdits: v.nullable(
         v.object({
@@ -33,7 +32,6 @@ const responseSchema = v.object({
 
 const bodyVersionSchema = v.object({
   diff: v.string(),
-  editedAt: v.string(),
   deletedAt: v.nullable(v.string()),
   editor: v.object({ __typename: v.literal("User"), databaseId: v.pipe(v.number(), v.safeInteger(), v.minValue(1)) }),
 });
@@ -67,13 +65,9 @@ export class GitHubBodyHistory {
 
     const oldest = versions.output.at(-1);
     const newest = versions.output[0];
-    if (
-      oldest?.editedAt !== pr.createdAt ||
-      oldest.editor.databaseId !== input.authorId ||
-      newest?.diff !== input.body
-    ) {
-      return null;
-    }
+    // 履歴の件数とページで全版がそろうことは確かめているため、作成時刻との一致は求めない
+    // 作成時の本文は PR 作成者が書くので、最古の版の編集者が PR 作成者であることだけを確かめる
+    if (oldest?.editor.databaseId !== input.authorId || newest?.diff !== input.body) return null;
 
     return versions.output.toReversed().map((version) => ({ body: version.diff, editorId: version.editor.databaseId }));
   }

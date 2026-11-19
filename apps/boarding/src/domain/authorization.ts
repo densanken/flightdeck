@@ -13,6 +13,7 @@ export type AuthorizationResult = (
         | "EDITOR_APPROVAL_MISSING"
         | "TEAM_MAINTAINER_REQUIRED"
         | "WEBSITE_MEMBER_CONSENT_MISSING"
+        | "CONSENT_MISSING"
         | ManagementApprovalReason;
     }
   | {

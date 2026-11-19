@@ -19,15 +19,40 @@ const setup = () => {
     }),
     files: vi.fn().mockResolvedValue([{ root: "new", before: blank, after: { ...blank, metaYaml: "meta" } }]),
     readEditors: vi.fn().mockReturnValue([{ type: "user", login: "alice" }]),
+    closeComment: vi.fn().mockResolvedValue(undefined),
     notifyMerged: vi.fn().mockResolvedValue(undefined),
   };
   return { dependencies, usecase: new NotificationUseCaseImpl(dependencies) };
 };
 
 describe("登録完了の通知", () => {
+  it("Merge 済みなら、コメントを更新してから通知する", async () => {
+    const { dependencies, usecase } = setup();
+    await usecase.execute({ number: 3, merged: true });
+    expect(dependencies.closeComment).toHaveBeenCalledWith({ number: 3, merged: true });
+    expect(vi.mocked(dependencies.closeComment).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(dependencies.pullRequest).mock.invocationCallOrder[0] ?? 0
+    );
+  });
+
+  it("Merge せずに閉じた場合は、コメントだけを更新する", async () => {
+    const { dependencies, usecase } = setup();
+    await usecase.execute({ number: 3, merged: false });
+    expect(dependencies.closeComment).toHaveBeenCalledWith({ number: 3, merged: false });
+    expect(dependencies.pullRequest).not.toHaveBeenCalled();
+    expect(dependencies.notifyMerged).not.toHaveBeenCalled();
+  });
+
+  it("コメントの更新に失敗したら通知の取得に進まない", async () => {
+    const { dependencies, usecase } = setup();
+    vi.mocked(dependencies.closeComment).mockRejectedValue(new Error("failed"));
+    await expect(usecase.execute({ number: 3, merged: true })).rejects.toThrow("failed");
+    expect(dependencies.pullRequest).not.toHaveBeenCalled();
+  });
+
   it("新しいメタデータの Editor を取得して通知する", async () => {
     const { dependencies, usecase } = setup();
-    await usecase.execute({ number: 3 });
+    await usecase.execute({ number: 3, merged: true });
     expect(dependencies.files).toHaveBeenCalledWith("base", "head", ["new"]);
     expect(dependencies.notifyMerged).toHaveBeenCalledWith({
       number: 3,
@@ -40,7 +65,7 @@ describe("登録完了の通知", () => {
     vi.mocked(dependencies.readEditors).mockImplementation(() => {
       throw new Error();
     });
-    await usecase.execute({ number: 3 });
+    await usecase.execute({ number: 3, merged: true });
     expect(dependencies.notifyMerged).toHaveBeenCalledWith({ number: 3, roots: [{ name: "new", editors: null }] });
   });
 
@@ -54,7 +79,7 @@ describe("登録完了の通知", () => {
         baseRoots: ["existing"],
         files: [file],
       });
-      await usecase.execute({ number: 3 });
+      await usecase.execute({ number: 3, merged: true });
       expect(dependencies.files).not.toHaveBeenCalled();
       expect(dependencies.notifyMerged).not.toHaveBeenCalled();
     }

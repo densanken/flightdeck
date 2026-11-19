@@ -100,19 +100,21 @@ describe("createWebhookHandler", () => {
     }
   );
 
-  it.each([true, false])("Merge された closed だけを通知用 Queue に投入する: %s", async (merged) => {
+  it.each([true, false])("closed を Merge 済みかどうかとともに Queue に投入する: %s", async (merged) => {
     const { send, enqueue } = setup();
     const response = await send("pull_request", {
       ...pr,
       action: "closed",
       pull_request: { ...pr.pull_request, merged },
     });
-    expect(response.status).toBe(merged ? 202 : 200);
-    if (merged) {
-      expect(enqueue).toHaveBeenCalledWith({ event: "merged", deliveryId: "delivery", installationId: 1, number: 3 });
-    } else {
-      expect(enqueue).not.toHaveBeenCalled();
-    }
+    expect(response.status).toBe(202);
+    expect(enqueue).toHaveBeenCalledWith({
+      event: "closed",
+      deliveryId: "delivery",
+      installationId: 1,
+      number: 3,
+      merged,
+    });
   });
 
   it("main 以外への edited を無視する", async () => {

@@ -25,12 +25,37 @@ export class GitHubComment {
 
   async write(input: { number: number; baseSha: string; headSha: string; body: string }): Promise<void> {
     const token = await this.input.getToken();
+    const id = await this.findManaged(token, input.number);
+    const path =
+      id === undefined
+        ? `/repos/densanken/blog-contents/issues/${String(input.number)}/comments`
+        : `/repos/densanken/blog-contents/issues/comments/${String(id)}`;
+    await this.input.verify(input.number, input.baseSha, input.headSha);
+
+    await this.send(token, { method: id === undefined ? "POST" : "PATCH", path, id, body: input.body });
+  }
+
+  // 閉じた PR が対象のため、Open の確認はしない。管理コメントがなければ作らない
+  async updateExisting(input: { number: number; body: string }): Promise<void> {
+    const token = await this.input.getToken();
+    const id = await this.findManaged(token, input.number);
+    if (id === undefined) return;
+
+    await this.send(token, {
+      method: "PATCH",
+      path: `/repos/densanken/blog-contents/issues/comments/${String(id)}`,
+      id,
+      body: input.body,
+    });
+  }
+
+  private async findManaged(token: string, number: number): Promise<number | undefined> {
     const found: number[] = [];
 
     for (let page = 1; ; page += 1) {
       const data = await this.input.request.call({
         method: "GET",
-        path: `/repos/densanken/blog-contents/issues/${String(input.number)}/comments?per_page=100&page=${String(page)}`,
+        path: `/repos/densanken/blog-contents/issues/${String(number)}/comments?per_page=100&page=${String(page)}`,
         token,
       });
 
@@ -49,16 +74,16 @@ export class GitHubComment {
 
     if (found.length > 1) throw new BoardingError("INVALID_RESPONSE", "Multiple managed comments exist");
 
-    const id = found[0];
-    const path =
-      id === undefined
-        ? `/repos/densanken/blog-contents/issues/${String(input.number)}/comments`
-        : `/repos/densanken/blog-contents/issues/comments/${String(id)}`;
-    await this.input.verify(input.number, input.baseSha, input.headSha);
+    return found[0];
+  }
 
+  private async send(
+    token: string,
+    input: { method: "POST" | "PATCH"; path: string; id: number | undefined; body: string }
+  ): Promise<void> {
     const updated = await this.input.request.call({
-      method: id === undefined ? "POST" : "PATCH",
-      path,
+      method: input.method,
+      path: input.path,
       token,
       body: { body: input.body },
     });
@@ -73,7 +98,7 @@ export class GitHubComment {
     );
     if (
       !checked.success ||
-      (id !== undefined && checked.output.id !== id) ||
+      (input.id !== undefined && checked.output.id !== input.id) ||
       checked.output.body !== input.body ||
       checked.output.user.id !== this.input.botUserId
     ) {

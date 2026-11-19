@@ -7,6 +7,19 @@ import type { GitHubRequest } from "./request.js";
 import type { CheckOutput } from "../../message/check-run.js";
 import type { EvaluationResult } from "../../usecase/evaluate/interface.js";
 
+type CheckState = { status: "in_progress" } | { status: "completed"; conclusion: string };
+
+// App の Check Run は pending にできないため、評価中だけ in_progress にし、Approve 待ちは action_required で完了させる
+const checkState = (result: EvaluationResult): CheckState => {
+  if (result.reason === "EVALUATING") return { status: "in_progress" };
+  if (result.status === "waiting") return { status: "completed", conclusion: "action_required" };
+  if (result.status === "allowed" || result.status === "not_applicable") {
+    return { status: "completed", conclusion: "success" };
+  }
+
+  return { status: "completed", conclusion: "failure" };
+};
+
 export class GitHubCheckRun {
   constructor(
     private readonly input: {
@@ -25,7 +38,7 @@ export class GitHubCheckRun {
     output: CheckOutput;
   }): Promise<number> {
     const token = await this.input.getToken();
-    return this.write(token, input.headSha, input.result, input.output);
+    return this.write(token, input, input.result, input.output);
   }
 
   async finish(input: {
@@ -38,23 +51,24 @@ export class GitHubCheckRun {
   }): Promise<void> {
     const token = await this.input.getToken();
     await this.input.verify(input.number, input.baseSha, input.headSha);
-    await this.write(token, input.headSha, input.result, input.output, input.id);
+    await this.write(token, input, input.result, input.output, input.id);
   }
 
   private async write(
     token: string,
-    headSha: string,
+    { number, headSha }: { number: number; headSha: string },
     result: EvaluationResult,
     output: CheckOutput,
     id?: number
   ): Promise<number> {
-    const state =
-      result.status === "waiting"
-        ? { status: "in_progress" }
-        : {
-            status: "completed",
-            conclusion: result.status === "allowed" || result.status === "not_applicable" ? "success" : "failure",
-          };
+    const state = checkState(result);
+    // action_required は details_url が必須のため、常に PR を指す
+    const fields = {
+      name: authorizationCheckName,
+      details_url: `https://github.com/densanken/blog-contents/pull/${String(number)}`,
+      ...state,
+      output,
+    };
 
     const endpoint =
       id !== undefined
@@ -65,10 +79,7 @@ export class GitHubCheckRun {
       method: id !== undefined ? "PATCH" : "POST",
       path: endpoint,
       token,
-      body:
-        id !== undefined
-          ? { name: authorizationCheckName, ...state, output }
-          : { name: authorizationCheckName, head_sha: headSha, ...state, output },
+      body: id !== undefined ? fields : { ...fields, head_sha: headSha },
     });
 
     const checked = v.safeParse(

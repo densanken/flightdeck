@@ -5,6 +5,7 @@ import * as authorization from "../../domain/authorization.js";
 import { BoardingError } from "../../errors.js";
 
 import type { EvaluateGateway, PullRequestData, RootFiles } from "./dependencies.js";
+import type { ConsentStatus } from "../../domain/consent.js";
 import type { Editor, Membership } from "../../domain/editors.js";
 import type { ManagementRequest } from "../../domain/management.js";
 
@@ -103,14 +104,18 @@ const setup = (
     gateway,
     parseEditors,
     parseWebsite,
-    run: (snapshot: PullRequestData = value, request: ManagementRequest = { mode: "none" }) =>
+    run: (
+      snapshot: PullRequestData = value,
+      request: ManagementRequest = { mode: "none" },
+      consent: ConsentStatus = { state: "agreed" }
+    ) =>
       new EvaluateUseCaseImpl({
         gateway,
         readEditors: parseEditors,
         readWebsite: parseWebsite,
         readMetaKeys:
           options.readMetaKeys ?? ((files) => (files.metaYaml === null && files.metaYml === null ? null : ["editors"])),
-      }).execute(snapshot, request),
+      }).execute(snapshot, request, consent),
   };
 };
 
@@ -453,6 +458,51 @@ describe("EvaluateUseCaseImpl", () => {
     const { gateway, run } = setup();
     await expect(run()).resolves.toMatchObject({ status: "allowed" });
     expect(gateway.validateEditors).toHaveBeenCalledOnce();
+  });
+
+  it.each<ConsentStatus>([
+    { state: "unchecked", missing: ["項目"] },
+    { state: "invalid" },
+    { state: "history_unavailable" },
+    { state: "not_author" },
+  ])("本来 allowed になる PR は確認事項が %o だと CONSENT_MISSING で待機にする", async (consent) => {
+    const { run } = setup();
+    expect(await run(pr, { mode: "none" }, consent)).toMatchObject({
+      status: "waiting",
+      reason: "CONSENT_MISSING",
+      consent,
+    });
+  });
+
+  it("確認事項のチェックがそろっていれば allowed のまま結果にチェックの状態を含める", async () => {
+    const { run } = setup();
+    expect(await run()).toMatchObject({ status: "allowed", reason: "AUTHORIZED", consent: { state: "agreed" } });
+  });
+
+  it("確認事項のチェックがそろっていなくても rejected の理由を優先する", async () => {
+    const badCommit = { sha: "head", authorId: 2, committerId: 1, committerLogin: "alice", signature: null };
+    const { run } = setup();
+    expect(await run({ ...pr, commits: [badCommit] }, { mode: "none" }, { state: "invalid" })).toMatchObject({
+      status: "rejected",
+      reason: "COMMIT_IDENTITY_MISMATCH",
+      consent: { state: "invalid" },
+    });
+  });
+
+  it("確認事項のチェックがそろっていなくても Editor の Approve 待ちの理由を優先する", async () => {
+    const { run } = setup({ files: { alice: pair(["bob"], ["bob"]) } });
+    expect(await run(pr, { mode: "none" }, { state: "unchecked", missing: ["項目"] })).toMatchObject({
+      status: "waiting",
+      reason: "EDITOR_APPROVAL_MISSING",
+    });
+  });
+
+  it("確認事項のチェックがそろっていなくても authors/ を変更しない PR は not_applicable のままにする", async () => {
+    const { run } = setup();
+    expect(await run({ ...pr, files: [] }, { mode: "none" }, { state: "invalid" })).toMatchObject({
+      status: "not_applicable",
+      reason: "NO_CONTENT_CHANGES",
+    });
   });
 
   it("base に小文字の著者が追加された後の大文字の新規登録を拒否する", async () => {

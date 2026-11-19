@@ -13,5 +13,6 @@ export interface NotificationDependencies {
   pullRequest: (number: number) => Promise<MergedPullRequest>;
   files: (baseSha: string, headSha: string, roots: string[]) => Promise<RootFilesPair[]>;
   readEditors: (files: RootFiles) => Editor[] | null;
+  closeComment: (input: { number: number; merged: boolean }) => Promise<void>;
   notifyMerged: (input: { number: number; roots: NewAuthorRoot[] }) => Promise<void>;
 }

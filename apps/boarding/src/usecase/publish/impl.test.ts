@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { PublishUseCaseImpl } from "./impl.js";
+import { consentLabels } from "../../domain/consent.js";
 import { interventionLabel } from "../../domain/management.js";
 import { mergeLabel } from "../../domain/merge-request.js";
 import { BoardingError } from "../../errors.js";
@@ -104,7 +105,7 @@ describe("PublishUseCaseImpl", () => {
     expect(dependencies.notifyOpened).toHaveBeenCalledWith(
       expect.objectContaining({ roots: [{ name: "alice", editors: null }] })
     );
-    expect(evaluate).toHaveBeenCalledWith(expect.anything(), { mode: "none" });
+    expect(evaluate).toHaveBeenCalledWith(expect.anything(), { mode: "none" }, expect.anything());
   });
 
   it("Workflow の処理後に評価結果を通知する", async () => {
@@ -193,7 +194,80 @@ describe("PublishUseCaseImpl", () => {
     await usecase.execute({ number: 1 });
     expect(dependencies.managementBodyVersions).toHaveBeenCalledOnce();
     expect(dependencies.bodyVersions).not.toHaveBeenCalled();
-    expect(evaluate).toHaveBeenCalledWith(expect.anything(), { mode: "intervention" });
+    expect(evaluate).toHaveBeenCalledWith(expect.anything(), { mode: "intervention" }, expect.anything());
+  });
+
+  describe("確認事項", () => {
+    const consented = consentLabels.map((label) => `- [x] ${label}`).join("\n");
+    const prWith = (body: string): PullRequestData => ({ ...pr, mergeData: { ...pr.mergeData, body } });
+
+    it("チェックがなければ履歴を取得せず、未チェックの項目を評価に渡す", async () => {
+      const { usecase, dependencies, evaluate } = setup();
+      await usecase.execute({ number: 1 });
+      expect(dependencies.managementBodyVersions).not.toHaveBeenCalled();
+      expect(dependencies.bodyVersions).not.toHaveBeenCalled();
+      expect(evaluate).toHaveBeenCalledWith(
+        expect.anything(),
+        { mode: "none" },
+        { state: "unchecked", missing: consentLabels }
+      );
+    });
+
+    it("チェックがあれば評価の前に履歴を一度だけ取得し、チェック済みとして評価に渡す", async () => {
+      const { usecase, dependencies, evaluate } = setup();
+      vi.mocked(dependencies.pullRequest).mockResolvedValue(prWith(consented));
+      await usecase.execute({ number: 1 });
+      expect(dependencies.managementBodyVersions).toHaveBeenCalledOnce();
+      expect(dependencies.bodyVersions).not.toHaveBeenCalled();
+      expect(evaluate).toHaveBeenCalledWith(expect.anything(), { mode: "none" }, { state: "agreed" });
+      expect(evaluate.mock.invocationCallOrder[0]).toBeGreaterThan(
+        vi.mocked(dependencies.managementBodyVersions).mock.invocationCallOrder[0] ?? Infinity
+      );
+    });
+
+    it("Merge と管理モードのチェックがあっても同じ履歴を使い、取得は一度だけにする", async () => {
+      const { usecase, dependencies, evaluate } = setup();
+      vi.mocked(dependencies.pullRequest).mockResolvedValue(
+        prWith(`${consented}\n- [x] ${interventionLabel}\n- [x] ${mergeLabel}`)
+      );
+      const result = await usecase.execute({ number: 1 });
+      expect(dependencies.managementBodyVersions).toHaveBeenCalledOnce();
+      expect(dependencies.bodyVersions).not.toHaveBeenCalled();
+      expect(evaluate).toHaveBeenCalledWith(expect.anything(), { mode: "intervention" }, { state: "agreed" });
+      expect(result.merge).toMatchObject({ request: "accepted" });
+    });
+
+    it("履歴を取得できなければチェックを確認できないものとして評価に渡す", async () => {
+      const { usecase, dependencies, evaluate } = setup();
+      vi.mocked(dependencies.pullRequest).mockResolvedValue(prWith(consented));
+      vi.mocked(dependencies.managementBodyVersions).mockRejectedValue(new Error("unavailable"));
+      await usecase.execute({ number: 1 });
+      expect(dependencies.managementBodyVersions).toHaveBeenCalledOnce();
+      expect(evaluate).toHaveBeenCalledWith(expect.anything(), { mode: "none" }, { state: "history_unavailable" });
+    });
+
+    it("本人以外がチェックした履歴は not_author として評価に渡す", async () => {
+      const { usecase, dependencies, evaluate } = setup();
+      vi.mocked(dependencies.pullRequest).mockResolvedValue(prWith(consented));
+      vi.mocked(dependencies.managementBodyVersions).mockResolvedValue([{ body: consented, editorId: 2 }]);
+      await usecase.execute({ number: 1 });
+      expect(evaluate).toHaveBeenCalledWith(expect.anything(), { mode: "none" }, { state: "not_author" });
+    });
+
+    it("CONSENT_MISSING の PR は Approve も Merge もせず、待機の Check にする", async () => {
+      const { usecase, dependencies, evaluate } = setup();
+      vi.mocked(dependencies.pullRequest).mockResolvedValue(prWith(`- [x] ${mergeLabel}`));
+      evaluate.mockResolvedValue({ status: "waiting", reason: "CONSENT_MISSING", facts });
+      const result = await usecase.execute({ number: 1 });
+      expect(result).toMatchObject({ status: "waiting", reason: "CONSENT_MISSING" });
+      expect(result.merge).toMatchObject({ request: "accepted", waiting: "AUTHORIZATION" });
+      expect(dependencies.approve).not.toHaveBeenCalled();
+      expect(dependencies.merge).not.toHaveBeenCalled();
+      expect(vi.mocked(dependencies.finishCheck).mock.calls[0]?.[0].result).toMatchObject({
+        status: "waiting",
+        reason: "CONSENT_MISSING",
+      });
+    });
   });
 
   it("管理モードの履歴取得に失敗しても Merge 用に再取得しない", async () => {
@@ -219,7 +293,11 @@ describe("PublishUseCaseImpl", () => {
       management: { mode: "none", reason: "HISTORY_UNAVAILABLE" },
     });
     const result = await usecase.execute({ number: 1 });
-    expect(evaluate).toHaveBeenCalledWith(expect.anything(), { mode: "none", reason: "HISTORY_UNAVAILABLE" });
+    expect(evaluate).toHaveBeenCalledWith(
+      expect.anything(),
+      { mode: "none", reason: "HISTORY_UNAVAILABLE" },
+      expect.anything()
+    );
     expect(result.management).toMatchObject({ reason: "HISTORY_UNAVAILABLE" });
   });
 
@@ -296,6 +374,65 @@ describe("PublishUseCaseImpl", () => {
     expect(dependencies.merge).toHaveBeenCalledWith({ number: 1, headSha: "head" });
   });
 
+  it.each([
+    ["rejected", ["allowed:none", "allowed:rejected"]],
+    ["changed", ["allowed:none", "error:changed"]],
+    ["merged", ["allowed:none"]],
+  ] as const)(
+    "Merge の結果 %s で、Merge 済みでなければ Merge を試した後にコメントを更新する",
+    async (outcome, bodies) => {
+      const { usecase, dependencies } = setup();
+      vi.mocked(dependencies.pullRequest).mockResolvedValue({
+        ...pr,
+        mergeData: {
+          draft: false,
+          body: "- [x] すべてのチェックが成功したら自動マージする",
+          ci: {
+            checks: [
+              { name: "ci", status: "completed", conclusion: "success", app: { id: 3, slug: "github-actions" } },
+            ],
+            statuses: [],
+          },
+        },
+      });
+      vi.mocked(dependencies.merge).mockResolvedValue(outcome);
+      vi.mocked(dependencies.formatComment).mockImplementation(
+        (result) => `${result.status}:${result.mergeOutcome ?? "none"}`
+      );
+
+      await usecase.execute({ number: 1 });
+
+      expect(vi.mocked(dependencies.comment).mock.calls.map(([input]) => input.body)).toEqual(bodies);
+      if (outcome !== "merged") {
+        expect(vi.mocked(dependencies.comment).mock.invocationCallOrder[1]).toBeGreaterThan(
+          vi.mocked(dependencies.merge).mock.invocationCallOrder[0] ?? 0
+        );
+      }
+    }
+  );
+
+  it("Merge の拒否後のコメントの更新に失敗しても Merge の結果を返す", async () => {
+    const { usecase, dependencies } = setup();
+    vi.mocked(dependencies.pullRequest).mockResolvedValue({
+      ...pr,
+      mergeData: {
+        draft: false,
+        body: "- [x] すべてのチェックが成功したら自動マージする",
+        ci: {
+          checks: [{ name: "ci", status: "completed", conclusion: "success", app: { id: 3, slug: "github-actions" } }],
+          statuses: [],
+        },
+      },
+    });
+    vi.mocked(dependencies.merge).mockResolvedValue("rejected");
+    vi.mocked(dependencies.comment).mockResolvedValueOnce().mockRejectedValueOnce(new Error("failed"));
+
+    await expect(usecase.execute({ number: 1 })).resolves.toMatchObject({
+      status: "allowed",
+      mergeOutcome: "rejected",
+    });
+  });
+
   it("Merge の競合は再評価可能なエラーとして返す", async () => {
     const { usecase, dependencies } = setup();
     const body = "- [x] すべてのチェックが成功したら自動マージする";
@@ -346,6 +483,22 @@ describe("PublishUseCaseImpl", () => {
     expect(dependencies.merge).not.toHaveBeenCalled();
   });
 
+  it("Approve が成功すればコメントは 1 回だけ投稿する", async () => {
+    const { usecase, dependencies } = setup();
+    await usecase.execute({ number: 1 });
+    expect(dependencies.comment).toHaveBeenCalledOnce();
+  });
+
+  it("Approve が失敗すればコメントをエラーの結果で更新する", async () => {
+    const { usecase, dependencies } = setup();
+    vi.mocked(dependencies.approve).mockRejectedValue(new Error("failed"));
+    vi.mocked(dependencies.formatComment).mockImplementation((result) => result.status);
+
+    await usecase.execute({ number: 1 });
+
+    expect(vi.mocked(dependencies.comment).mock.calls.map(([input]) => input.body)).toEqual(["allowed", "error"]);
+  });
+
   it("認可待機なら Merge を実行しない", async () => {
     const { usecase, dependencies, evaluate } = setup();
     const body = "- [x] すべてのチェックが成功したら自動マージする";
@@ -376,7 +529,7 @@ describe("PublishUseCaseImpl", () => {
       facts,
       merge: { request: "none" },
     });
-    expect(evaluate).toHaveBeenCalledWith(pr, { mode: "none" });
+    expect(evaluate).toHaveBeenCalledWith(pr, { mode: "none" }, expect.anything());
     expect(dependencies.startCheck).toHaveBeenCalledWith({
       number: 1,
       baseSha: "base",
@@ -394,9 +547,9 @@ describe("PublishUseCaseImpl", () => {
     const approveOrder = vi.mocked(dependencies.approve).mock.invocationCallOrder[0] ?? 0;
     const commentOrder = vi.mocked(dependencies.comment).mock.invocationCallOrder[0] ?? 0;
     const finishOrder = vi.mocked(dependencies.finishCheck).mock.invocationCallOrder[0] ?? 0;
-    expect(startOrder).toBeLessThan(approveOrder);
-    expect(approveOrder).toBeLessThan(commentOrder);
-    expect(commentOrder).toBeLessThan(finishOrder);
+    expect(startOrder).toBeLessThan(commentOrder);
+    expect(commentOrder).toBeLessThan(approveOrder);
+    expect(approveOrder).toBeLessThan(finishOrder);
   });
 
   it.each(["headSha", "baseSha"] as const)("取得時に %s が変化したら成功や承認を書き込まない", async (key) => {

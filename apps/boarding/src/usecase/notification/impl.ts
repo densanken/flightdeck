@@ -8,7 +8,11 @@ import type { RootFiles } from "../evaluate/dependencies.js";
 export class NotificationUseCaseImpl implements NotificationUseCase {
   constructor(private readonly dependencies: NotificationDependencies) {}
 
-  async execute(input: { number: number }): Promise<void> {
+  async execute(input: { number: number; merged: boolean }): Promise<void> {
+    // 通知の取得に失敗して再試行になっても、コメントは同じ本文で上書きされる
+    await this.dependencies.closeComment(input);
+    if (!input.merged) return;
+
     const pr = await this.dependencies.pullRequest(input.number);
     const roots = await this.findRoots(pr);
     if (roots.length > 0) await this.dependencies.notifyMerged({ number: input.number, roots });

@@ -1,3 +1,4 @@
+import { consentStatus, needsConsentHistory } from "../../domain/consent.js";
 import { managementRequest, needsBodyHistory, needsManagementHistory } from "../../domain/management.js";
 import { decideMerge } from "../../domain/merge.js";
 import { newAuthorRoots } from "../../domain/paths.js";
@@ -28,6 +29,9 @@ interface Evaluation {
   versions: BodyVersion[] | null;
 }
 
+// 管理介入や確認事項の判定は評価の前に必要なので、評価の前に履歴を取得する
+const needsEvaluationHistory = (body: string): boolean => needsManagementHistory(body) || needsConsentHistory(body);
+
 export class PublishUseCaseImpl implements PublishUseCase {
   constructor(private readonly dependencies: PublishDependencies) {}
 
@@ -40,9 +44,17 @@ export class PublishUseCaseImpl implements PublishUseCase {
     const ref = { number: input.number, baseSha: current.baseSha, headSha: current.headSha };
     const checkId = await this.dependencies.startCheck({ ...ref, result: { status: "waiting", reason: "EVALUATING" } });
     const evaluated = await this.evaluate(ref);
-    const approved = await this.approve(ref, evaluated);
-    const decision = await this.mergeDecision(ref.number, evaluated.pr, evaluated.versions, approved);
-    const result = await this.comment(ref, decision);
+    const history = await this.mergeHistory(ref.number, evaluated);
+
+    // コメントを Approve より先に投稿するため、Approve が成功する前提で判定する
+    // Approve に失敗したときだけ、その結果でコメントを更新する
+    const expected = { result: evaluated.result, approved: this.canApprove(evaluated) };
+    const commented = await this.comment(ref, this.mergeDecision(evaluated.pr, history, expected));
+    const approval = await this.approve(ref, evaluated);
+    const result =
+      approval.approved === expected.approved
+        ? commented
+        : await this.comment(ref, this.mergeDecision(evaluated.pr, history, approval));
 
     await this.dependencies.finishCheck({ ...ref, result, id: checkId });
     const merged = await this.merge(ref, result);
@@ -59,11 +71,12 @@ export class PublishUseCaseImpl implements PublishUseCase {
         return { pr: undefined, versions: null, result: { status: "error", reason: "API_ERROR" } };
       }
 
-      const versions = needsManagementHistory(pr.mergeData.body)
+      const versions = needsEvaluationHistory(pr.mergeData.body)
         ? await this.bodyVersions(ref.number, pr, this.dependencies.managementBodyVersions)
         : null;
       const request = managementRequest(pr.mergeData.body, versions, pr.author.id);
-      const result = await this.dependencies.evaluate.execute(pr, request);
+      const consent = consentStatus(pr.mergeData.body, versions, pr.author.id);
+      const result = await this.dependencies.evaluate.execute(pr, request, consent);
       return { pr, versions, result };
     } catch (error) {
       return { pr: undefined, versions: null, result: errorResult(error) };
@@ -87,9 +100,13 @@ export class PublishUseCaseImpl implements PublishUseCase {
     await this.dependencies.notifyOpened({ number: input.number, author: pr.author.login, roots, result });
   }
 
+  private canApprove({ pr, result }: Evaluation): boolean {
+    return pr !== undefined && isContentOnlyAllowed(result);
+  }
+
   private async approve(ref: Reference, evaluated: Evaluation): Promise<Approval> {
     const { pr, result } = evaluated;
-    if (!pr || !isContentOnlyAllowed(result)) {
+    if (!pr || !this.canApprove(evaluated)) {
       return { result, approved: false };
     }
 
@@ -104,18 +121,21 @@ export class PublishUseCaseImpl implements PublishUseCase {
     }
   }
 
-  private async mergeDecision(
-    number: number,
-    pr: PullRequestData | undefined,
-    versions: BodyVersion[] | null,
-    approval: Approval
-  ): Promise<EvaluationResult> {
-    const { result, approved } = approval;
-    if (!pr) return result;
+  private async mergeHistory(number: number, { pr, versions }: Evaluation): Promise<BodyVersion[] | null> {
+    if (!pr) return null;
 
-    const history = needsManagementHistory(pr.mergeData.body)
+    return needsEvaluationHistory(pr.mergeData.body)
       ? versions
       : await this.bodyVersions(number, pr, this.dependencies.bodyVersions);
+  }
+
+  private mergeDecision(
+    pr: PullRequestData | undefined,
+    history: BodyVersion[] | null,
+    { result, approved }: Approval
+  ): EvaluationResult {
+    if (!pr) return result;
+
     return {
       ...result,
       merge: decideMerge({
@@ -149,9 +169,15 @@ export class PublishUseCaseImpl implements PublishUseCase {
     if (result.merge?.request !== "accepted" || result.merge.waiting) return result;
 
     const mergeOutcome = await this.dependencies.merge({ number: ref.number, headSha: ref.headSha });
-    if (mergeOutcome === "changed") return { ...result, status: "error", reason: "API_ERROR", mergeOutcome };
+    const merged: EvaluationResult =
+      mergeOutcome === "changed"
+        ? { ...result, status: "error", reason: "API_ERROR", mergeOutcome }
+        : { ...result, mergeOutcome };
 
-    return { ...result, mergeOutcome };
+    // Merge 済みの最終状態は、closed の webhook でコメントに書く
+    // 拒否と直前の変更では PR が Open のままなので、結果をコメントに反映する
+    if (mergeOutcome !== "merged") await this.comment(ref, merged);
+    return merged;
   }
 
   private async comment(ref: Reference, result: EvaluationResult): Promise<EvaluationResult> {

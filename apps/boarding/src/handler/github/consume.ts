@@ -41,7 +41,7 @@ export const createMessageConsumer =
           mergeOutcome: result.mergeOutcome,
         });
         if (result.status === "error") throw new Error(result.reason);
-      } else if (queued.event === "merged") {
+      } else if (queued.event === "closed") {
         await notification.execute(queued);
       } else {
         await fanout.execute(queued);

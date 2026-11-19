@@ -75,7 +75,6 @@ describe("GitHubBodyHistory", () => {
     ["編集者がいない", { nodes: [{ ...latest, editor: null }, initial] }],
     ["編集者が User でない", { nodes: [{ ...latest, editor: { __typename: "Bot", databaseId: 1 } }, initial] }],
     ["編集者の ID がない", { nodes: [{ ...latest, editor: { __typename: "User", databaseId: null } }, initial] }],
-    ["作成時の版がない", { nodes: [latest, { ...initial, editedAt: "2026-01-01T00:00:01Z" }] }],
     [
       "作成時の編集者が PR 作成者と異なる",
       { nodes: [latest, { ...initial, editor: { __typename: "User", databaseId: 2 } }] },
@@ -84,6 +83,17 @@ describe("GitHubBodyHistory", () => {
   ])("%s場合は履歴を使わない", async (_label, change) => {
     const history = change === null ? null : { totalCount: 2, pageInfo, nodes: [latest, initial], ...change };
     await expect(setup({ ...pr, userContentEdits: history }).gateway.versions(input)).resolves.toBeNull();
+  });
+
+  it("最古の版の時刻が PR の作成時刻とずれていても、編集者が PR 作成者なら版の列を返す", async () => {
+    const { gateway } = setup({
+      ...pr,
+      userContentEdits: { totalCount: 2, pageInfo, nodes: [latest, { ...initial, editedAt: "2026-01-01T00:00:01Z" }] },
+    });
+    await expect(gateway.versions(input)).resolves.toEqual([
+      { body: "最初", editorId: 1 },
+      { body: "現在", editorId: 1 },
+    ]);
   });
 
   it("取得した現在の本文が評価時と異なれば履歴を使わない", async () => {

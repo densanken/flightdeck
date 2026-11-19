@@ -115,9 +115,13 @@ const toPullRequestMessage = (payload: unknown, deliveryId: string, installation
 
   if (parsed.output.pull_request.base.ref !== "main") return { kind: "ignored" };
   if (parsed.output.action === "closed") {
-    return parsed.output.pull_request.merged === true
-      ? { event: "merged", deliveryId, installationId, number: parsed.output.number }
-      : { kind: "ignored" };
+    return {
+      event: "closed",
+      deliveryId,
+      installationId,
+      number: parsed.output.number,
+      merged: parsed.output.pull_request.merged === true,
+    };
   }
 
   if (!actions.has(parsed.output.action)) {

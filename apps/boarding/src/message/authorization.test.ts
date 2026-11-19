@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { authorizationComment } from "./authorization.js";
+import { authorizationComment, closedComment } from "./authorization.js";
+import { consentLabels } from "../domain/consent.js";
+
+import type { EvaluationResult } from "../usecase/evaluate/interface.js";
 
 const facts = {
   authorRoots: [],
@@ -26,6 +29,18 @@ const facts = {
 };
 
 describe("authorizationComment", () => {
+  it("認可済みでも authors/ 以外の変更があれば、レビューが必要なことを見出しと案内で示す", () => {
+    const body = authorizationComment({
+      status: "allowed",
+      reason: "AUTHORIZED",
+      facts: { authorRoots: ["alice"], otherPaths: ["README.md"], invalidCommits: [] },
+    });
+    expect(body).toContain("## `authors/` 以外の変更にレビューが必要です");
+    expect(body).toContain("### <code>authors/</code> 以外の変更（1 件）\n\n- ` README.md `");
+    expect(body).toContain("App はこの PR を Approve しません");
+    expect(body).not.toContain("## マージできます");
+  });
+
   it.each([
     [{ status: "allowed", reason: "AUTHORIZED" }, "TIP"],
     [{ status: "not_applicable", reason: "NO_CONTENT_CHANGES" }, "NOTE"],
@@ -36,13 +51,19 @@ describe("authorizationComment", () => {
     expect(authorizationComment(result)).toContain(`> [!${alert}]`);
   });
 
-  it("表の対象著者に含まれる縦線をエスケープする", () => {
+  it("認可済みの文言は他の人の Approve を前提にしない", () => {
+    const body = authorizationComment({ status: "allowed", reason: "AUTHORIZED" });
+    expect(body).toContain("> `authors/` の変更に問題はありません。");
+    expect(body).toContain("| 状態 | authors/ の変更に問題はありません（` AUTHORIZED `） |");
+  });
+
+  it("表の変更するディレクトリに含まれる縦線をエスケープする", () => {
     const body = authorizationComment({
       status: "allowed",
       reason: "AUTHORIZED",
       facts: { authorRoots: ["a|b"], otherPaths: [], invalidCommits: [] },
     });
-    expect(body).toContain("| 対象著者 | ` a\\|b ` |");
+    expect(body).toContain("| 変更するディレクトリ | ` authors/a\\|b/ ` |");
   });
 
   it("Org Member の対象外ファイルには削除を案内しない", () => {
@@ -62,7 +83,7 @@ describe("authorizationComment", () => {
       reason: "NON_CONTENT_CHANGE_FORBIDDEN",
       facts: { authorRoots: [], otherPaths: ["README.md"], invalidCommits: [] },
     });
-    expect(body).toContain("### 著者コンテンツ以外の変更\n\n- ` README.md `");
+    expect(body).toContain("### <code>authors/</code> 以外の変更（1 件）\n\n- ` README.md `");
     expect(body).toContain("git restore");
   });
 
@@ -95,8 +116,11 @@ describe("authorizationComment", () => {
       reason: "AUTHORIZED",
       merge: { request: "invalid", reason: "INVALID_CHECKBOX" },
     });
-    expect(body).toContain("`- [ ] すべてのチェックが成功したら自動マージする`");
-    expect(body).toContain("だけにしてからチェック");
+    expect(body).toContain(
+      "> [!WARNING]\n> **自動マージの依頼は無効です**\n> 理由: チェック欄の形式がテンプレートと異なります\n"
+    );
+    expect(body).toContain("テンプレートの 1 行（すべてのチェックが成功したら自動マージする）だけにしてからチェック");
+    expect(body).not.toContain("- [ ]");
     expect(body).not.toContain("チェックを外して入れ直して");
     expect(body).not.toContain("管理者に相談");
   });
@@ -106,9 +130,47 @@ describe("authorizationComment", () => {
     (reason) => {
       const body = authorizationComment({ status: "waiting", reason });
       expect(body).toContain("Approve を依頼してください");
-      expect(body).not.toContain("対象著者を確認してください");
     }
   );
+
+  it("管理介入の Approve 不足では、足りない内訳によらず同じ条件の表を表示する", () => {
+    const missing = (details: EvaluationResult["details"]): string =>
+      authorizationComment({ status: "waiting", reason: "INTERVENTION_QUORUM_MISSING", details });
+
+    const body = missing(undefined);
+    expect(body).toContain(
+      "### Approve の条件\n\n管理介入には、現在のコミットへの次の Approve が必要です。\n\n| 条件 | 必要な人数 |\n| --- | --- |\n| PR 作成者以外の Approve | 4 人以上 |\n| 上のうち Org Owner の Approve | 1 人以上 |"
+    );
+    expect(missing({ root: "alice" })).toBe(body);
+  });
+
+  it("オフボーディングの Approve 不足では Org Owner の条件の表を表示する", () => {
+    const body = authorizationComment({ status: "waiting", reason: "OFFBOARDING_APPROVAL_MISSING" });
+    expect(body).toContain("| PR 作成者以外の Org Owner の Approve | 1 人以上 |");
+    expect(body).not.toContain("4 人以上");
+  });
+
+  it("管理モードの条件は Approve が足りない状態以外では表示しない", () => {
+    expect(authorizationComment({ status: "allowed", reason: "AUTHORIZED" })).not.toContain("Approve の条件");
+    expect(authorizationComment({ status: "waiting", reason: "EDITOR_APPROVAL_MISSING" })).not.toContain(
+      "Approve の条件"
+    );
+  });
+
+  it("コミットの本人確認の結果を文で表示する", () => {
+    const ok = authorizationComment({
+      status: "allowed",
+      reason: "AUTHORIZED",
+      facts: { authorRoots: ["alice"], otherPaths: [], invalidCommits: [] },
+    });
+    expect(ok).toContain("| コミットの本人確認 | すべてのコミットが PR 作成者と一致しました |");
+    expect(authorizationComment({ status: "rejected", reason: "COMMIT_IDENTITY_MISMATCH", facts })).toContain(
+      "| コミットの本人確認 | PR 作成者と一致しないコミットがあります |"
+    );
+    expect(authorizationComment({ status: "error", reason: "API_ERROR" })).toContain(
+      "| コミットの本人確認 | 確認できませんでした |"
+    );
+  });
 
   it("コミットがない場合は本人確認が一致したと表示しない", () => {
     const body = authorizationComment({
@@ -116,43 +178,55 @@ describe("authorizationComment", () => {
       reason: "COMMIT_IDENTITY_MISMATCH",
       facts: { authorRoots: [], otherPaths: [], invalidCommits: [] },
     });
-    expect(body).toContain("| コミットの本人確認 | コミットがありません |");
+    expect(body).toContain("| コミットの本人確認 | 確認できるコミットがありません |");
   });
 
-  it("モードを確認できなかった場合は通常認可と表示しない", () => {
-    expect(authorizationComment({ status: "error", reason: "API_ERROR" })).toContain(
-      "| モード | 確認できませんでした |"
-    );
-    expect(authorizationComment({ status: "error", reason: "API_ERROR", management: { mode: "none" } })).toContain(
-      "| モード | 通常の認可 |"
-    );
+  it("管理介入とオフボーディングのときだけ実施内容の行を表示する", () => {
+    const row = (management: EvaluationResult["management"]): boolean =>
+      authorizationComment({ status: "allowed", reason: "AUTHORIZED", management }).includes("| 実施内容 |");
+
+    expect(row({ mode: "intervention" })).toBe(true);
+    expect(row({ mode: "offboarding" })).toBe(true);
+    expect(row({ mode: "none" })).toBe(false);
+    expect(row(undefined)).toBe(false);
   });
 
-  it("管理モードの申請が無効な理由を折りたたまずに表示する", () => {
+  it("管理介入とオフボーディングの実施内容を日本語で表示する", () => {
+    expect(
+      authorizationComment({ status: "allowed", reason: "AUTHORIZED", management: { mode: "intervention" } })
+    ).toContain("| 実施内容 | 管理介入 |");
+    expect(
+      authorizationComment({ status: "allowed", reason: "AUTHORIZED", management: { mode: "offboarding" } })
+    ).toContain("| 実施内容 | オフボーディング |");
+  });
+
+  it("管理介入とオフボーディングの申請が無効な理由と直し方を折りたたまずに表示する", () => {
     const body = authorizationComment({
       status: "allowed",
       reason: "AUTHORIZED",
       management: { mode: "none", reason: "CONFLICT" },
     });
-    expect(body).toContain("管理モードの申請: 無効（両方のモードは同時に申請できません）");
+    expect(body).toContain(
+      "> [!WARNING]\n> **管理介入・オフボーディングの申請は無効です**\n> 理由: 管理介入とオフボーディングの両方にチェックが入っています\n> どちらか一方だけにチェックを入れてください。"
+    );
   });
 
-  it("管理対象が未確認の場合はなしと区別する", () => {
+  it("削除する Editor が未確認の場合はなしと区別する", () => {
     const body = authorizationComment({
       status: "rejected",
       reason: "OFFBOARDING_INVALID_CHANGES",
       management: { mode: "offboarding" },
     });
-    expect(body).toContain("管理モードの対象: 確認できませんでした");
+    expect(body).toContain("| 削除する Editor | 確認できませんでした |");
   });
 
-  it("Intervention の対象をなしと表示しない", () => {
+  it("管理介入では削除する Editor を表示しない", () => {
     const body = authorizationComment({
       status: "allowed",
       reason: "AUTHORIZED",
       management: { mode: "intervention", targets: [] },
     });
-    expect(body).not.toContain("管理モードの対象");
+    expect(body).not.toContain("削除する Editor");
   });
 
   it("管理対象を表示する", () => {
@@ -170,7 +244,7 @@ describe("authorizationComment", () => {
     expect(body).toContain("` bob `, ` team:blog `");
   });
 
-  it("Team の同意は Maintainer 個人ではなく Team の条件を表示する", () => {
+  it("Team の Approve は Maintainer 個人ではなく Team の条件で表示する", () => {
     const body = authorizationComment({
       status: "waiting",
       reason: "TEAM_MAINTAINER_REQUIRED",
@@ -185,26 +259,103 @@ describe("authorizationComment", () => {
         },
       },
     });
-    expect(body).toContain("` team:blog ` の Maintainer");
-    expect(body).toContain("` bob `");
+    expect(body).toContain("### Approve が必要な人");
+    expect(body).toContain("| 追加または削除する Editor の全員 | ` blog ` の Maintainer、` bob ` |");
   });
 
-  it("複数候補のうち 1 名に同意を求める", () => {
+  it("どのディレクトリの変更が理由かを示して Approve が必要な人を案内する", () => {
     const body = authorizationComment({
       status: "waiting",
       reason: "EDITOR_APPROVAL_MISSING",
-      details: { root: "alice", missing: { kind: "one", editors: [{ type: "user", login: "bob" }] } },
+      details: {
+        root: "solo-team",
+        missing: { kind: "one", editors: [{ type: "team", slug: "boarding-test-team" }] },
+      },
     });
-    expect(body).toContain("必要な同意: 次のうち 1 名: ` bob `");
+    expect(body).toContain("この PR は ` authors/solo-team/ ` を変更しているため、その Editor の Approve が必要です。");
+    expect(body).toContain("| 現在の Editor のうち 1 人 | ` boarding-test-team ` のメンバー |");
   });
 
-  it("website の同意が不足しているときに Org Member Editor の同意を案内する", () => {
+  it("website の Approve が不足しているときに Org Member の Editor を案内する", () => {
     const body = authorizationComment({
       status: "waiting",
       reason: "WEBSITE_MEMBER_CONSENT_MISSING",
       details: { root: "author" },
     });
-    expect(body).toContain("Org Member Editor");
+    expect(body).toContain("| Editor のうち 1 人 | Org Member の Editor |");
+  });
+
+  it("自動マージを依頼していないときはチェック欄の案内を表示する", () => {
+    const body = authorizationComment({ status: "allowed", reason: "AUTHORIZED", merge: { request: "none" } });
+    expect(body).toContain("| 自動マージ | 依頼なし |");
+    expect(body).toContain(
+      "\n\n> [!TIP]\n> PR 本文のチェック欄（すべてのチェックが成功したら自動マージする）にチェックを付けると"
+    );
+    expect(body).not.toContain("- [ ]");
+  });
+
+  it.each(["rejected", "error", "not_applicable"] as const)("%s の PR には自動マージの依頼を案内しない", (status) => {
+    const result = { status, reason: "API_ERROR", merge: { request: "none" } } as EvaluationResult;
+    expect(authorizationComment(result)).not.toContain("チェックを付けると");
+  });
+
+  it("待機中の PR には自動マージの依頼を案内する", () => {
+    const body = authorizationComment({
+      status: "waiting",
+      reason: "EDITOR_APPROVAL_MISSING",
+      merge: { request: "none" },
+    });
+    expect(body).toContain("チェックを付けると");
+  });
+
+  it.each([
+    [{ request: "accepted", waiting: undefined }, undefined, "受け付けました（マージを実行しています）"],
+    [{ request: "accepted", waiting: undefined }, "merged", "受け付けました（マージしました）"],
+    [
+      { request: "accepted", waiting: undefined },
+      "rejected",
+      "受け付けました（GitHub がマージを拒否しました。ブランチの保護ルールや競合を確認してください）",
+    ],
+    [{ request: "accepted", waiting: "CI_PENDING" }, undefined, "受け付けました（CI の完了を待っています）"],
+  ] as const)("Merge の結果を自動マージの行に表示する", (merge, mergeOutcome, text) => {
+    const body = authorizationComment({ status: "allowed", reason: "AUTHORIZED", merge, mergeOutcome });
+    expect(body).toContain(`| 自動マージ | ${text} |`);
+  });
+
+  it.each([
+    [{ request: "accepted", waiting: "DRAFT" }, undefined, "## Draft を解除するとマージできます"],
+    [{ request: "accepted", waiting: "CI_PENDING" }, undefined, "## CI の完了を待っています"],
+    [{ request: "accepted", waiting: undefined }, undefined, "## マージできます"],
+    [{ request: "none" }, undefined, "## マージできます"],
+    [{ request: "accepted", waiting: undefined }, "merged", "## マージしました"],
+    [{ request: "accepted", waiting: undefined }, "rejected", "## マージできませんでした"],
+  ] as const)("認可が通った PR の見出しに自動マージの状況を反映する", (merge, mergeOutcome, heading) => {
+    const body = authorizationComment({ status: "allowed", reason: "AUTHORIZED", merge, mergeOutcome });
+    expect(body).toContain(`${heading}\n`);
+  });
+
+  it("認可されていない PR の見出しは自動マージの待機に影響されない", () => {
+    const body = authorizationComment({
+      status: "waiting",
+      reason: "EDITOR_APPROVAL_MISSING",
+      merge: { request: "accepted", waiting: "AUTHORIZATION" },
+    });
+    expect(body).toContain("## まだマージできません\n");
+  });
+
+  it("利用者向けの文に App の名前を含めない", () => {
+    const body = authorizationComment({ status: "not_applicable", reason: "NO_CONTENT_CHANGES" });
+    expect(body.replace("<!-- boarding:authorization -->", "")).not.toContain("boarding");
+  });
+
+  it.each([
+    [{ status: "allowed", reason: "AUTHORIZED" }, "## マージできます"],
+    [{ status: "waiting", reason: "EDITOR_APPROVAL_MISSING" }, "## まだマージできません"],
+    [{ status: "rejected", reason: "INVALID_PROFILE" }, "## マージできません"],
+    [{ status: "error", reason: "API_ERROR" }, "## 確認できませんでした"],
+    [{ status: "not_applicable", reason: "NO_CONTENT_CHANGES" }, "## 確認は不要です"],
+  ] as const)("状態を伝える見出しを表示する", (result, heading) => {
+    expect(authorizationComment(result)).toContain(`${heading}\n`);
   });
 
   it("長い一覧を件数で省略しコメント上限内に収める", () => {
@@ -254,5 +405,79 @@ describe("authorizationComment", () => {
     expect(body).toContain("Settings → Emails");
     expect(body).toContain("123+alice@users.noreply.github.com");
     expect(body).not.toContain("person@example.com");
+  });
+});
+
+describe("確認事項の表示", () => {
+  const applicable = { authorRoots: ["alice"], otherPaths: [], invalidCommits: [] };
+  const waiting = (consent: EvaluationResult["consent"]): EvaluationResult => ({
+    status: "waiting",
+    reason: "CONSENT_MISSING",
+    facts: applicable,
+    consent,
+  });
+
+  it("すべてチェック済みなら表に示し、警告は出さない", () => {
+    const body = authorizationComment({
+      status: "allowed",
+      reason: "AUTHORIZED",
+      facts: applicable,
+      consent: { state: "agreed" },
+    });
+    expect(body).toContain("| 確認事項 | 3 項目すべてチェック済み |");
+    expect(body).not.toContain("確認事項のチェックが完了していません");
+  });
+
+  it("未チェックの項目を理由に挙げ、PR 作成者本人がチェックするよう案内する", () => {
+    const body = authorizationComment(waiting({ state: "unchecked", missing: consentLabels.slice(1) }));
+    expect(body).toContain("| 確認事項 | チェックされていない項目があります |");
+    expect(body).toContain("> [!WARNING]\n> **確認事項のチェックが完了していません**");
+    expect(body).toContain(
+      `> 理由: 未チェックの項目があります（「${consentLabels[1] ?? ""}」、「${consentLabels[2] ?? ""}」）`
+    );
+    expect(body).not.toContain(`「${consentLabels[0] ?? ""}」`);
+    expect(body).toContain("> PR 作成者本人が PR 本文の確認事項を読み、チェックを入れてください。");
+    expect(body).toContain("## まだマージできません");
+  });
+
+  it("本人以外がチェックした場合は外して入れ直すよう案内する", () => {
+    const body = authorizationComment(waiting({ state: "not_author" }));
+    expect(body).toContain("| 確認事項 | PR 作成者のチェックを確認できません |");
+    expect(body).toContain("> 理由: チェックを入れたのが PR 作成者であることを確認できませんでした");
+    expect(body).toContain("> PR 作成者本人が、3 つのチェックを外して入れ直してください。");
+  });
+
+  it.each([
+    ["invalid", "チェック欄の形式がテンプレートと異なります", "テンプレートの行は書き換えず"],
+    ["history_unavailable", "PR 本文の編集履歴を確認できませんでした", "チェックを外して入れ直してください"],
+  ] as const)("状態 %s の理由と直し方を表示する", (state, reason, action) => {
+    const body = authorizationComment(waiting({ state }));
+    expect(body).toContain(`> 理由: ${reason}`);
+    expect(body).toContain(action);
+  });
+
+  it("authors/ を変更しない PR には表示しない", () => {
+    const body = authorizationComment({
+      status: "not_applicable",
+      reason: "NO_CONTENT_CHANGES",
+      facts: { authorRoots: [], otherPaths: [], invalidCommits: [] },
+      consent: { state: "unchecked", missing: consentLabels },
+    });
+    expect(body).not.toContain("確認事項");
+  });
+
+  it("CONSENT_MISSING の状態を表と案内に表示する", () => {
+    const body = authorizationComment(waiting({ state: "invalid" }));
+    expect(body).toContain("| 状態 | PR 本文の確認事項のチェックが完了していません（` CONSENT_MISSING `） |");
+    expect(body).toContain("> [!IMPORTANT]");
+  });
+});
+
+describe("closedComment", () => {
+  it.each([
+    [true, "> この PR はマージされました。"],
+    [false, "> この PR は閉じられました。再び開くともう一度確認を行います。"],
+  ])("Merge 済み %s の最終状態を、目印から始まる短い本文で示す", (merged, line) => {
+    expect(closedComment(merged)).toBe(`<!-- boarding:authorization -->\n> [!NOTE]\n${line}`);
   });
 });

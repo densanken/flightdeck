@@ -23,6 +23,7 @@ import { errorResult } from "../error-result.js";
 import type { EvaluateGateway, PullRequestData, RootFiles, RootFilesPair } from "./dependencies.js";
 import type { EvaluateUseCase, EvaluationResult } from "./interface.js";
 import type { AuthorizationResult } from "../../domain/authorization.js";
+import type { ConsentStatus } from "../../domain/consent.js";
 import type { AuthorRoot, Editor, Membership, Person } from "../../domain/editors.js";
 import type { ManagementApprovalReason, ManagementRequest } from "../../domain/management.js";
 import type { MetaKeys, OffboardingTargetReason } from "../../domain/offboarding.js";
@@ -57,7 +58,7 @@ export class EvaluateUseCaseImpl implements EvaluateUseCase {
     }
   ) {}
 
-  async execute(pr: PullRequestData, request: ManagementRequest): Promise<EvaluationResult> {
+  async execute(pr: PullRequestData, request: ManagementRequest, consent: ConsentStatus): Promise<EvaluationResult> {
     const { authorRoots, otherPaths } = classifyPaths(pr.files);
     const invalidCommits = invalidCommitIdentities(pr.commits, pr.author.id);
     const facts = { authorRoots, otherPaths, invalidCommits };
@@ -65,29 +66,38 @@ export class EvaluateUseCaseImpl implements EvaluateUseCase {
 
     try {
       if (collidingAuthorRoots(authorRoots, pr.baseRoots).length > 0) {
-        return { status: "rejected", reason: "AUTHOR_ROOT_CASE_CONFLICT", facts, management };
+        return { status: "rejected", reason: "AUTHOR_ROOT_CASE_CONFLICT", facts, management, consent };
       }
 
       if (invalidCommits.length > 0 || pr.commits.length === 0) {
-        return { status: "rejected", reason: "COMMIT_IDENTITY_MISMATCH", facts, management };
+        return { status: "rejected", reason: "COMMIT_IDENTITY_MISMATCH", facts, management, consent };
       }
 
-      return { ...(await this.evaluate(pr, authorRoots, otherPaths, request)), facts };
+      const evaluated = await this.evaluate(pr, authorRoots, otherPaths, request);
+
+      return { ...this.requireConsent(evaluated, consent), facts, consent };
     } catch (error) {
       if (error instanceof BoardingError && error.code === "INVALID_METADATA") {
-        return { status: "rejected", reason: "INVALID_EDITORS", facts, management };
+        return { status: "rejected", reason: "INVALID_EDITORS", facts, management, consent };
       }
 
       if (error instanceof BoardingError && error.code === "INVALID_PROFILE") {
-        return { status: "rejected", reason: "INVALID_PROFILE", facts, management };
+        return { status: "rejected", reason: "INVALID_PROFILE", facts, management, consent };
       }
 
       if (error instanceof BoardingError && error.code === "YAML_SIZE_LIMIT") {
-        return { status: "error", reason: "YAML_SIZE_LIMIT", facts, management };
+        return { status: "error", reason: "YAML_SIZE_LIMIT", facts, management, consent };
       }
 
-      return { ...errorResult(error), facts, management };
+      return { ...errorResult(error), facts, management, consent };
     }
+  }
+
+  // 本来 allowed になる場合にだけ、確認事項のチェックがそろっていないことを理由に waiting へ変える
+  private requireConsent(result: EvaluationResult, consent: ConsentStatus): EvaluationResult {
+    if (result.status !== "allowed" || consent.state === "agreed") return result;
+
+    return { ...result, status: "waiting", reason: "CONSENT_MISSING" };
   }
 
   private async evaluate(

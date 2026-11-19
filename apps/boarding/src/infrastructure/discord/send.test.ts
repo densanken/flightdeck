@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { DiscordSender } from "./send.js";
 
 const payload = {
-  embeds: [{ title: "test", url: "https://example.com", color: 1, fields: [] }],
+  flags: 1 << 15,
+  components: [{ type: 17 as const, accent_color: 1, components: [{ type: 10 as const, content: "test" }] }],
   allowed_mentions: { parse: [] as never[] },
 };
 const logger = { log: vi.fn() };
@@ -41,7 +42,7 @@ describe("Discord 通知", () => {
     await sender().send(payload);
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(fetcher).toHaveBeenLastCalledWith(
-      webhook,
+      `${webhook}?with_components=true`,
       expect.objectContaining({
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -76,7 +77,7 @@ describe("Discord 通知", () => {
       logger,
     }).send(payload);
     expect(fetcher).toHaveBeenCalledOnce();
-    expect(fetcher).toHaveBeenCalledWith(webhook, expect.anything());
+    expect(fetcher).toHaveBeenCalledWith(`${webhook}?with_components=true`, expect.anything());
     expect(logger.log).toHaveBeenCalledWith("error", expect.objectContaining({ route: "bot" }));
   });
 

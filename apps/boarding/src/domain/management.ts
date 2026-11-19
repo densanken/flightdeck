@@ -1,10 +1,11 @@
+import { needsConsentHistory } from "./consent.js";
 import { mergeCheckbox, mergeLabel, mergeRequested } from "./merge-request.js";
 
 import type { Membership } from "./editors.js";
 import type { BodyVersion } from "./merge-request.js";
 
-export const interventionLabel = "Org による管理介入を実施する（Org メンバーのみ可能）";
-export const offboardingLabel = "外部 Editor の Offboarding を実施する（Org メンバーのみ可能）";
+export const interventionLabel = "Org による管理介入を実施する（組織メンバーのみ可能）";
+export const offboardingLabel = "外部 Editor のオフボーディングを実施する（組織メンバーのみ可能）";
 
 export type ManagementApprovalReason = "INTERVENTION_QUORUM_MISSING" | "OFFBOARDING_APPROVAL_MISSING";
 export type ManagementMode = "intervention" | "offboarding";
@@ -15,7 +16,7 @@ export const needsManagementHistory = (body: string): boolean =>
   [interventionLabel, offboardingLabel].some((label) => mergeCheckbox(body, label) === "checked");
 
 export const needsBodyHistory = (body: string): boolean =>
-  mergeCheckbox(body, mergeLabel) === "checked" || needsManagementHistory(body);
+  mergeCheckbox(body, mergeLabel) === "checked" || needsManagementHistory(body) || needsConsentHistory(body);
 
 export const managementRequest = (
   body: string,

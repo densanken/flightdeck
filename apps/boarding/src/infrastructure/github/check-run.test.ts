@@ -57,13 +57,29 @@ describe("GitHubCheckRun", () => {
     });
   });
 
-  it("waiting は in_progress にする", async () => {
+  it("Approve 待ちは action_required で完了させ、PR を詳細のリンクにする", async () => {
     const { fetcher, check } = setup();
-    fetcher.mockReset().mockResolvedValueOnce(Response.json({ ...existing, status: "in_progress", conclusion: null }));
+    fetcher
+      .mockReset()
+      .mockResolvedValueOnce(Response.json({ ...existing, status: "completed", conclusion: "action_required" }));
     await check.finish({ ...ref, id: 10, result: { status: "waiting", reason: "EDITOR_APPROVAL_MISSING" } });
-    expect(fetcher.mock.calls[0]?.[1].method).toBe("PATCH");
-    expect(JSON.parse(fetcher.mock.calls[0]?.[1].body as string)).toMatchObject({ status: "in_progress" });
-    expect(JSON.parse(fetcher.mock.calls[0]?.[1].body as string)).not.toHaveProperty("conclusion");
+    expect(JSON.parse(fetcher.mock.calls[0]?.[1].body as string)).toMatchObject({
+      status: "completed",
+      conclusion: "action_required",
+      details_url: "https://github.com/densanken/blog-contents/pull/1",
+    });
+  });
+
+  it("rejected は failure で完了させる", async () => {
+    const { fetcher, check } = setup();
+    fetcher
+      .mockReset()
+      .mockResolvedValueOnce(Response.json({ ...existing, status: "completed", conclusion: "failure" }));
+    await check.finish({ ...ref, id: 10, result: { status: "rejected", reason: "NON_CONTENT_CHANGE_FORBIDDEN" } });
+    expect(JSON.parse(fetcher.mock.calls[0]?.[1].body as string)).toMatchObject({
+      status: "completed",
+      conclusion: "failure",
+    });
   });
 
   it("更新後の ID または状態が異なれば失敗する", async () => {

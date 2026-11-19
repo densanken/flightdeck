@@ -83,4 +83,25 @@ describe("GitHubComment", () => {
     await expect(gateway.write(ref)).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
+
+  it("管理コメントがあれば Open の確認なしで更新する", async () => {
+    const { gateway, fetcher, verify } = setup([existing]);
+    await gateway.updateExisting({ number: 1, body: ref.body });
+    expect(verify).not.toHaveBeenCalled();
+    expect(fetcher.mock.calls[1]?.[1].method).toBe("PATCH");
+  });
+
+  it("管理コメントがなければ作らない", async () => {
+    const { gateway, fetcher } = setup([{ ...existing, user: { id: 20 } }]);
+    await gateway.updateExisting({ number: 1, body: ref.body });
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it("管理コメントが複数ある場合は更新しない", async () => {
+    const { gateway, fetcher } = setup([existing, { ...existing, id: 13 }]);
+    await expect(gateway.updateExisting({ number: 1, body: ref.body })).rejects.toMatchObject({
+      code: "INVALID_RESPONSE",
+    });
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
 });

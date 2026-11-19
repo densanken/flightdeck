@@ -12,6 +12,6 @@ export const checkOutput = (result: EvaluationResult): CheckOutput => ({
   title: reasonLabels[result.reason],
   summary:
     result.reason === "EVALUATING"
-      ? `${guidance[result.reason]}評価の完了をお待ちください。`
+      ? `${guidance[result.reason]}完了までしばらくお待ちください。`
       : `${guidance[result.reason]}詳しくは PR の管理コメントを確認してください。`,
 });

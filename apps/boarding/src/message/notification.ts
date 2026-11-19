@@ -1,67 +1,93 @@
+import { listWithinLimit } from "./list.js";
+import { reasonLabels, statusLabels } from "./status.js";
 import { editorName } from "../domain/editors.js";
 
-import type { NewAuthorRoot } from "../domain/editors.js";
+import type { Editor, NewAuthorRoot } from "../domain/editors.js";
 import type { EvaluationResult } from "../usecase/evaluate/interface.js";
-
-const statusLabels: Record<EvaluationResult["status"], string> = {
-  allowed: "認可済み",
-  waiting: "承認待ち",
-  rejected: "認可されませんでした",
-  not_applicable: "認可対象外",
-  error: "確認できませんでした",
-};
-
-const reasonLabels: Record<EvaluationResult["reason"], string> = {
-  AUTHORIZED: "必要な同意を確認済み",
-  NO_CONTENT_CHANGES: "著者の変更なし",
-  EVALUATING: "評価中",
-  INTERVENTION_QUORUM_MISSING: "管理介入の承認不足",
-  OFFBOARDING_APPROVAL_MISSING: "Offboarding の承認不足",
-  OFFBOARDING_INVALID_CHANGES: "Offboarding の変更が不正",
-  OFFBOARDING_INVALID_TARGET: "Offboarding の対象が不正",
-  EDITOR_APPROVAL_MISSING: "Editor の承認不足",
-  TEAM_MAINTAINER_REQUIRED: "Team Maintainer の承認不足",
-  WEBSITE_MEMBER_CONSENT_MISSING: "website 変更への同意不足",
-  INVALID_EDITORS: "Editor の設定が不正",
-  INVALID_PROFILE: "プロフィールが不正",
-  INITIAL_AUTHOR_NOT_EDITOR: "PR 作成者が Editor に含まれていない",
-  NON_CONTENT_CHANGE_FORBIDDEN: "authors 以外の変更を含む",
-  AUTHOR_ROOT_CASE_CONFLICT: "著者名が既存の名前と重複",
-  COMMIT_IDENTITY_MISMATCH: "コミットの作者が一致しない",
-  INCOMPLETE_DATA: "データの取得が不完全",
-  API_ERROR: "GitHub の情報を取得できない",
-  YAML_SIZE_LIMIT: "YAML のサイズ超過",
-  SUBREQUEST_LIMIT: "API 呼び出しの上限超過",
-};
 
 const safe = (value: string): string => value.replace(/[\r\n]/g, " ").replace(/[\\`*_{}[\]()#+\-.!|~<>]/g, "\\$&");
 
+export interface DiscordPayload {
+  embeds: { title: string; url: string; color: number; fields: { name: string; value: string }[] }[];
+  allowed_mentions: { parse: never[] };
+}
+
+const fallbackText = (editors: Editor[] | null): string => {
+  if (editors === null) return "確認できません";
+  if (editors.length === 0) return "なし";
+  return `…ほか ${String(editors.length)} 件`;
+};
+
 const roots = (items: NewAuthorRoot[]): string => {
-  const text = items
-    .map(
-      ({ name, editors }) =>
-        `- ${safe(name)}: ${editors ? editors.map((editor) => safe(editorName(editor))).join(", ") || "なし" : "確認できません"}`
-    )
-    .join("\n");
-  return text.length > 1400 ? `${text.slice(0, 1400)}…（一部省略）` : text;
+  if (!items.length) return "なし";
+
+  const rows = items.map(({ name, editors }) => ({
+    prefix: `- ${safe(name)}: `,
+    editors,
+    fallback: fallbackText(editors),
+  }));
+  const minimum = rows.reduce((sum, row) => sum + row.prefix.length + row.fallback.length, rows.length - 1);
+  if (minimum > 1024) return listWithinLimit(rows, (row) => row.prefix + row.fallback, "\n", 1024);
+
+  let remaining = 1024 - minimum;
+  const lines: string[] = [];
+  for (const row of rows) {
+    const names =
+      row.editors === null
+        ? row.fallback
+        : listWithinLimit(row.editors, (editor) => safe(editorName(editor)), ", ", row.fallback.length + remaining) ||
+          row.fallback;
+    remaining -= names.length - row.fallback.length;
+    lines.push(row.prefix + names);
+  }
+  return lines.join("\n");
+};
+
+const otherChangesText = (facts: EvaluationResult["facts"]): string => {
+  if (!facts) return "確認できません";
+  if (facts.otherPaths.length > 0) return "あり";
+  return "なし";
 };
 
 const url = (number: number): string => `https://github.com/densanken/blog-contents/pull/${String(number)}`;
+
+const colors: Record<EvaluationResult["status"], number> = {
+  allowed: 0x2ea44f,
+  not_applicable: 0x2ea44f,
+  waiting: 0xe3b341,
+  rejected: 0xcf222e,
+  error: 0xcf222e,
+};
+
+const payload = (
+  title: string,
+  number: number,
+  color: number,
+  fields: DiscordPayload["embeds"][0]["fields"]
+): DiscordPayload => ({
+  embeds: [{ title, url: url(number), color, fields }],
+  allowed_mentions: { parse: [] },
+});
 
 export const openedNotification = (input: {
   number: number;
   author: string;
   roots: NewAuthorRoot[];
   result: EvaluationResult;
-}): string =>
-  [
-    "著者登録申請",
-    `申請者: ${safe(input.author)}`,
-    `AuthorRoot / Editor 候補:\n${roots(input.roots)}`,
-    `認可: ${statusLabels[input.result.status]}（${reasonLabels[input.result.reason]}）`,
-    `著者以外の変更: ${input.result.facts?.otherPaths.length ? "あり" : "なし"}`,
-    url(input.number),
-  ].join("\n");
+}): DiscordPayload =>
+  payload("著者登録申請", input.number, colors[input.result.status], [
+    { name: "申請者", value: safe(input.author).slice(0, 1024) || "不明" },
+    { name: "PR", value: `#${String(input.number)}` },
+    { name: "AuthorRoot / Editor 候補", value: roots(input.roots) },
+    { name: "認可", value: `${statusLabels[input.result.status]}（${reasonLabels[input.result.reason]}）` },
+    {
+      name: "著者以外の変更",
+      value: otherChangesText(input.result.facts),
+    },
+  ]);
 
-export const mergedNotification = (input: { number: number; roots: NewAuthorRoot[] }): string =>
-  ["著者登録完了", `AuthorRoot / Editor:\n${roots(input.roots)}`, url(input.number)].join("\n");
+export const mergedNotification = (input: { number: number; roots: NewAuthorRoot[] }): DiscordPayload =>
+  payload("著者登録完了", input.number, colors.allowed, [
+    { name: "PR", value: `#${String(input.number)}` },
+    { name: "AuthorRoot / Editor", value: roots(input.roots) },
+  ]);

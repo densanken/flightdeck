@@ -20,9 +20,9 @@ const membership = (id: number, orgRole: Membership["orgRole"]): Membership => (
 });
 
 const interventionQuorum = (members: Membership[], authorId: number) =>
-  managementApproval(members, authorId, "intervention").reason === undefined;
+  managementApproval(members, authorId, "intervention") === undefined;
 const offboardingApproval = (members: Membership[], authorId: number) =>
-  managementApproval(members, authorId, "offboarding").reason === undefined;
+  managementApproval(members, authorId, "offboarding") === undefined;
 
 describe("管理モードの申請", () => {
   it.each([interventionLabel, offboardingLabel, mergeLabel])("チェックした欄 %s に対して履歴を取得する", (label) => {
@@ -103,9 +103,10 @@ describe("管理モードの承認", () => {
     expect(interventionQuorum([...reviewers, membership(5, "member")], 1)).toBe(true);
   });
 
-  it("Offboarding の承認者には Owner だけを表示する", () => {
+  it("Offboarding の承認には Owner だけを数える", () => {
     const reviewers = [membership(1, "admin"), membership(2, "member"), membership(3, "admin")];
-    expect(managementApproval(reviewers, 1, "offboarding").approvers).toEqual([reviewers[2]]);
+    expect(managementApproval(reviewers, 1, "offboarding")).toBeUndefined();
+    expect(managementApproval(reviewers.slice(0, 2), 1, "offboarding")).toBe("OFFBOARDING_APPROVAL_MISSING");
   });
 
   it("Offboarding は作成者以外の Owner を必要とする", () => {

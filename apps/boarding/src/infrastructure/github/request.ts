@@ -14,6 +14,13 @@ export class GitHubHttpError extends BoardingError {
   }
 }
 
+const valueAt = (data: unknown, path: (string | number)[]): unknown =>
+  path.reduce<unknown>(
+    (value, part) =>
+      typeof value === "object" && value !== null ? (value as Record<string | number, unknown>)[part] : undefined,
+    data
+  );
+
 export class GitHubRequest {
   private readonly budget: { requests: number };
   private readonly limit: number;
@@ -128,7 +135,8 @@ export class GitHubRequest {
     token: string,
     query: string,
     variables: Record<string, unknown>,
-    userAliases: string[] = []
+    userAliases: string[] = [],
+    nullablePaths: (string | number)[][] = []
   ): Promise<unknown> {
     const response = await this.call({ method: "POST", path: "/graphql", token, body: { query, variables } });
     const result = v.safeParse(
@@ -151,16 +159,20 @@ export class GitHubRequest {
       );
 
       const data = v.safeParse(v.record(v.string(), v.unknown()), result.output.data);
-      if (
-        !errors.success ||
-        !data.success ||
-        errors.output.some(
-          (error) =>
-            typeof error.path[0] !== "string" ||
-            !userAliases.includes(error.path[0]) ||
-            data.output[error.path[0]] !== null
-        )
-      ) {
+      if (!errors.success || !data.success) {
+        throw new BoardingError("API_ERROR", "GitHub GraphQL response is incomplete");
+      }
+
+      const isAllowedError = (error: (typeof errors.output)[number]): boolean => {
+        const path = error.path;
+        const userAlias = path.length === 1 && typeof path[0] === "string" && userAliases.includes(path[0]);
+        const nullablePath = nullablePaths.some(
+          (allowed) => allowed.length === path.length && allowed.every((part, index) => part === path[index])
+        );
+        return (userAlias || nullablePath) && valueAt(data.output, path) === null;
+      };
+
+      if (errors.output.some((error) => !isAllowedError(error))) {
         throw new BoardingError("API_ERROR", "GitHub GraphQL response is incomplete");
       }
     }

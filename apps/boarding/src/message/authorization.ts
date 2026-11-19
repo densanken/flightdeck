@@ -1,10 +1,25 @@
+import { listWithinLimit } from "./list.js";
+import { statusLabels } from "./status.js";
 import { editorName } from "../domain/editors.js";
 
+import type { Editor } from "../domain/editors.js";
 import type { ManagementReason, ManagementRequest } from "../domain/management.js";
 import type { MergeDecision } from "../domain/merge.js";
 import type { EvaluationResult } from "../usecase/evaluate/interface.js";
 
-const code = (value: string): string => `\`${value.replace(/[\r\n`]/g, " ")}\``;
+const code = (value: string): string => {
+  const text = value.replace(/[\r\n]/g, " ");
+  const longest = (text.match(/`+/g) ?? []).reduce((max, run) => Math.max(max, run.length), 0);
+  const fence = "`".repeat(longest + 1);
+  return `${fence} ${text} ${fence}`;
+};
+
+const cell = (value: string): string => value.replaceAll("|", "\\|");
+
+// 一覧ごとの上限を合計しても GitHub のコメント上限を超えないようにする
+const LIST_BUDGET = 8_000;
+const list = <T>(items: T[], render: (item: T) => string, separator: string): string =>
+  listWithinLimit(items, render, separator, LIST_BUDGET);
 
 const modeLabels: Record<ManagementRequest["mode"], string> = {
   none: "通常の認可",
@@ -12,7 +27,7 @@ const modeLabels: Record<ManagementRequest["mode"], string> = {
   offboarding: "Offboarding",
 };
 
-const guidance: Record<EvaluationResult["reason"], string> = {
+export const guidance: Record<EvaluationResult["reason"], string> = {
   AUTHORIZED: "必要な同意を確認しました。",
   NO_CONTENT_CHANGES: "著者のコンテンツに対する認可は不要です。設定の変更は通常のレビューを受けてください。",
   EVALUATING: "認可を確認しています。",
@@ -30,7 +45,7 @@ const guidance: Record<EvaluationResult["reason"], string> = {
   INVALID_PROFILE: "profile.yaml または profile.yml の YAML と website の値を確認し、修正して push してください。",
   INITIAL_AUTHOR_NOT_EDITOR: "新しい著者の editors に PR 作成者自身か、作成者が所属する Team を指定してください。",
   NON_CONTENT_CHANGE_FORBIDDEN:
-    "以下の対象外ファイルを PR から取り除いて push してください。設定や検証スクリプトの変更を提案する場合は Issue を作成してください。",
+    "対象外ファイルを PR から取り除いて push してください。設定や検証スクリプトの変更を提案する場合は Issue を作成してください。",
   AUTHOR_ROOT_CASE_CONFLICT:
     "既存の著者ディレクトリと大文字小文字だけが異なる名前を避け、既存ディレクトリを使うか別の名前に変更してください。",
   COMMIT_IDENTITY_MISMATCH:
@@ -80,103 +95,143 @@ const mergeWaiting: Record<NonNullable<Extract<MergeDecision, { request: "accept
   CI_FAILED: "失敗した CI の修正",
 };
 
+const targetsText = (targets: Editor[] | undefined): string => {
+  if (targets === undefined) return "確認できませんでした";
+  if (targets.length === 0) return "なし";
+  return list(targets, (editor) => code(editorName(editor)), ", ");
+};
+
 const managementLines = (management: EvaluationResult["management"]): string[] => {
   if (!management) return [];
   if (management.mode === "none") {
     return management.reason ? [`管理モードの申請: 無効（${managementReasons[management.reason]}）`] : [];
   }
 
-  const targets = management.targets?.map((editor) => code(editorName(editor)));
-  const approvers = management.approvers?.map(
-    (approver) => `${code(approver.person.login)} (${approver.orgRole === "admin" ? "Owner" : "Member"})`
-  );
-  return [
-    `管理モードの対象: ${targets === undefined ? "確認できませんでした" : targets.length ? targets.join(", ") : "なし"}`,
-    `管理モードの承認者: ${approvers === undefined ? "確認できませんでした" : approvers.length ? approvers.join(", ") : "なし"}`,
+  if (management.mode !== "offboarding") return [];
+
+  return [`管理モードの対象: ${targetsText(management.targets)}`];
+};
+
+const alerts: Record<EvaluationResult["status"], string> = {
+  allowed: "TIP",
+  not_applicable: "NOTE",
+  waiting: "IMPORTANT",
+  rejected: "WARNING",
+  error: "CAUTION",
+};
+
+const mergeText = (merge: EvaluationResult["merge"]): string => {
+  if (!merge) return "確認できませんでした";
+  if (merge.request === "none") return "依頼なし";
+  if (merge.request === "invalid") return `無効（${invalidMerge[merge.reason]}）`;
+  return merge.waiting ? `受理 / ${mergeWaiting[merge.waiting]}待ち` : "受理 / Merge を実行します";
+};
+
+const identityText = (result: EvaluationResult): string => {
+  if (!result.facts) return "取得できませんでした";
+  if (result.facts.invalidCommits.length) return "確認できないコミットがあります";
+  if (result.reason === "COMMIT_IDENTITY_MISMATCH") return "コミットがありません";
+  return "一致";
+};
+
+const details = (title: string, body: string[]): string[] => [
+  "<details>",
+  `<summary>${title}</summary>`,
+  "",
+  ...body,
+  "",
+  "</details>",
+];
+
+const missingLines = (result: EvaluationResult): string[] => {
+  if (result.status !== "waiting" || managementWaitingReasons.has(result.reason)) return [];
+
+  const root = result.details?.root;
+  const lines = [`不足している同意: ${root ? code(root) : "対象著者を確認してください"}`];
+  const missing = result.details?.missing;
+  if (missing) {
+    const names = list(
+      missing.editors,
+      (editor) => {
+        const name = code(editorName(editor));
+        return editor.type === "team" && result.reason === "TEAM_MAINTAINER_REQUIRED" ? `${name} の Maintainer` : name;
+      },
+      ", "
+    );
+    lines.push(`必要な同意: 次の${missing.kind === "all" ? "全員" : "うち 1 名"}: ${names}`);
+  }
+  return lines;
+};
+
+const pathsSection = (result: EvaluationResult): string[] => {
+  const paths = result.facts?.otherPaths ?? [];
+  if (!paths.length) return [];
+
+  const body = [list(paths, (path) => `- ${code(path)}`, "\n")];
+  if (result.reason === "NON_CONTENT_CHANGE_FORBIDDEN") {
+    body.push(
+      "",
+      "対象ファイルを base の状態に戻すには `git restore --source origin/main -- <ファイル>` を実行し、変更をコミットして push してください。新規ファイルは削除してコミットしてください。"
+    );
+    return ["### 著者コンテンツ以外の変更", "", ...body];
+  }
+  return details("著者コンテンツ以外の変更", body);
+};
+
+const commitsSection = (result: EvaluationResult): string[] => {
+  const bad = result.facts?.invalidCommits ?? [];
+  if (!bad.length) return [];
+
+  const body = [
+    list(
+      bad,
+      (commit) => {
+        const email =
+          commit.authorId === null &&
+          commit.authorEmail &&
+          /^[^\s@]+@users\.noreply\.github\.com$/i.test(commit.authorEmail)
+            ? `: ${code(commit.authorEmail)}`
+            : "";
+        return `- ${code(commit.sha)}${email}`;
+      },
+      "\n"
+    ),
   ];
+  if (bad.some((commit) => commit.authorId === null)) {
+    body.push(
+      "",
+      "GitHub の Settings → Emails でコミットに使ったアドレスを追加するか、GitHub の noreply アドレスでコミットし直して push してください。"
+    );
+  }
+  return details("本人確認に失敗したコミット", body);
 };
 
 export const authorizationComment = (result: EvaluationResult): string => {
-  const { authorRoots = [], otherPaths = [], invalidCommits: bad = [] } = result.facts ?? {};
-  const unlinked = bad.filter((commit) => commit.authorId === null);
-  const lines = [
-    "<!-- boarding:authorization -->",
-    "## 認可結果",
-    `状態: ${code(result.status)} / ${code(result.reason)}`,
-    `モード: ${result.management ? modeLabels[result.management.mode] : "確認できませんでした"}`,
-    `対象著者: ${result.facts ? (authorRoots.length ? authorRoots.map(code).join(", ") : "なし") : "取得できませんでした"}`,
-    `コミットの本人確認: ${result.facts ? (bad.length === 0 ? (result.reason === "COMMIT_IDENTITY_MISMATCH" ? "コミットがありません" : "一致") : "確認できないコミットがあります") : "取得できませんでした"}`,
-    guidance[result.reason],
+  const rows: [string, string][] = [
+    ["状態", `${statusLabels[result.status]}（${code(result.reason)}）`],
+    ["モード", result.management ? modeLabels[result.management.mode] : "確認できませんでした"],
+    ["対象著者", result.facts ? list(result.facts.authorRoots, code, ", ") || "なし" : "取得できませんでした"],
+    ["コミットの本人確認", identityText(result)],
+    ["自動マージ", mergeText(result.merge)],
   ];
-
-  lines.push(...managementLines(result.management));
-
-  if (result.details?.memberships) {
-    lines.push("### Org / Team の判定");
-    lines.push(
-      ...result.details.memberships.map((membership) => {
-        const teams = Object.entries(membership.teams)
-          .map(([slug, role]) => `${code(slug)}: ${role ?? "所属なし"}`)
-          .join(", ");
-        return `- ${code(membership.person.login)}: Org ${membership.orgRole === undefined ? "未確認" : (membership.orgRole ?? "所属なし")}${teams ? ` / Team ${teams}` : ""}`;
-      })
-    );
-  } else {
-    lines.push("Org / Team の判定: この評価では確認できませんでした。");
-  }
-
-  if (result.status === "waiting" && !managementWaitingReasons.has(result.reason)) {
-    lines.push(`不足している同意: ${result.details?.root ? code(result.details.root) : "対象著者を確認してください"}`);
-    const missing = result.details?.missing;
-    if (missing) {
-      lines.push(
-        `必要な同意: ${missing.editors.map(code).join(", ")} ${missing.kind === "all" ? "の全員" : "のうち1名"}`
-      );
-    }
-  }
-
-  lines.push("website の追加または変更には対象の Org Member Editor の同意が必要です。");
-
-  if (otherPaths.length > 0) {
-    if (result.reason !== "NON_CONTENT_CHANGE_FORBIDDEN") {
-      lines.push(
-        "Org Member でない PR 作成者は、次の著者コンテンツ以外の変更を取り除いてください。設定や検証スクリプトの変更は Issue で提案できます。"
-      );
-    }
-    lines.push(...otherPaths.map((path) => `- ${code(path)}`));
-    lines.push(
-      "例: 対象ファイルを base の状態に戻してコミットするには、`git restore --source origin/main -- <ファイル>` を実行し、変更をコミットして push してください。新規ファイルは削除してコミットしてください。"
-    );
-  }
-
-  if (bad.length > 0) lines.push(`本人確認に失敗したコミット: ${bad.map((commit) => code(commit.sha)).join(", ")}`);
-
-  if (unlinked.length > 0) {
-    lines.push(
-      "GitHub アカウントにメールアドレスを紐づけられないコミットがあります。GitHub の Settings → Emails でコミットに使ったアドレスを追加するか、GitHub の noreply アドレスでコミットし直して push してください。"
-    );
-    lines.push(
-      ...unlinked.map(
-        (commit) =>
-          `- ${code(commit.sha)}: ${commit.authorEmail && /^[^\s@]+@users\.noreply\.github\.com$/i.test(commit.authorEmail) ? code(commit.authorEmail) : "メールアドレスは非表示"}`
-      )
-    );
-  }
-
-  if (result.merge) {
-    const merge = result.merge;
-    lines.push("### 自動マージ");
-
-    if (merge.request === "none") lines.push("Merge 依頼: なし");
-    if (merge.request === "invalid") {
-      lines.push(`Merge 依頼: 無効（${invalidMerge[merge.reason]}）`, invalidMergeGuidance[merge.reason]);
-    }
-    if (merge.request === "accepted") {
-      lines.push(
-        `Merge 依頼: 受理${merge.waiting ? ` / 待機: ${mergeWaiting[merge.waiting]}` : " / Merge を実行します"}`
-      );
-    }
-  }
-
-  return lines.join("\n\n");
+  const management = managementLines(result.management);
+  const sections: string[][] = [
+    ["<!-- boarding:authorization -->", `> [!${alerts[result.status]}]`, `> ${guidance[result.reason]}`],
+    [
+      "## 認可結果",
+      "",
+      "| 項目 | 結果 |",
+      "| --- | --- |",
+      ...rows.map(([name, value]) => `| ${name} | ${cell(value)} |`),
+    ],
+    result.merge?.request === "invalid" ? [invalidMergeGuidance[result.merge.reason]] : [],
+    management,
+    missingLines(result),
+    pathsSection(result),
+    commitsSection(result),
+  ];
+  return sections
+    .filter((section) => section.length)
+    .map((section) => section.join("\n"))
+    .join("\n\n");
 };

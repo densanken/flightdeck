@@ -201,7 +201,15 @@ const parseComparison = (response: unknown, baseSha: string, headSha: string, ch
   const refs = result.output.permalink_url.split("/compare/")[1]?.split("...");
   const base = refs?.[0]?.split(":").at(-1);
   const head = refs?.[1]?.split(":").at(-1);
-  if (refs?.length !== 2 || base !== baseSha || head !== headSha) {
+  if (
+    refs?.length !== 2 ||
+    !base ||
+    !head ||
+    base.length < 7 ||
+    head.length < 7 ||
+    !baseSha.startsWith(base) ||
+    !headSha.startsWith(head)
+  ) {
     throw new BoardingError("INVALID_RESPONSE", "GitHub comparison references do not match");
   }
 
@@ -283,12 +291,18 @@ export class GitHubGatewayImpl {
 
   async pullRequest(number: number): Promise<PullRequestData> {
     const token = await this.input.getToken();
-    const data = await this.input.request.graphql(token, query, {
-      number,
-      commits: null,
-      reviews: null,
-      first: true,
-    });
+    const data = await this.input.request.graphql(
+      token,
+      query,
+      {
+        number,
+        commits: null,
+        reviews: null,
+        first: true,
+      },
+      [],
+      [["repository", "pullRequest", "baseRef", "target", "file"]]
+    );
 
     const parsed = v.safeParse(responseSchema, data);
     if (!parsed.success) throw new BoardingError("INVALID_RESPONSE", "GitHub pull request response is invalid");
@@ -335,7 +349,13 @@ export class GitHubGatewayImpl {
 
   async mergedPullRequest(number: number): Promise<MergedPullRequest> {
     const token = await this.input.getToken();
-    const data = await this.input.request.graphql(token, mergedQuery, { number });
+    const data = await this.input.request.graphql(
+      token,
+      mergedQuery,
+      { number },
+      [],
+      [["repository", "pullRequest", "mergeCommit", "parents", "nodes", 0, "file"]]
+    );
     const parsed = v.safeParse(mergedSchema, data);
     if (!parsed.success) throw new BoardingError("INVALID_RESPONSE", "Merged pull request is unavailable");
 

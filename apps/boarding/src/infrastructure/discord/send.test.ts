@@ -2,6 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DiscordSender } from "./send.js";
 
+const payload = {
+  embeds: [{ title: "test", url: "https://example.com", color: 1, fields: [] }],
+  allowed_mentions: { parse: [] as never[] },
+};
 const logger = { log: vi.fn() };
 const credentials = () => ({ token: "secret-token", channelId: "123" });
 const webhook = "https://discord.com/api/webhooks/123/secret-webhook";
@@ -16,13 +20,13 @@ describe("Discord 通知", () => {
   it("Bot が成功すればメンションを無効にして送り Webhook を使わない", async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
     vi.stubGlobal("fetch", fetcher);
-    await sender().send("@everyone");
+    await sender().send(payload);
     expect(fetcher).toHaveBeenCalledOnce();
     expect(fetcher).toHaveBeenCalledWith(
       "https://discord.com/api/v10/channels/123/messages",
       expect.objectContaining({
         headers: { Authorization: "Bot secret-token", "Content-Type": "application/json" },
-        body: JSON.stringify({ content: "@everyone", allowed_mentions: { parse: [] } }),
+        body: JSON.stringify(payload),
       })
     );
   });
@@ -34,14 +38,14 @@ describe("Discord 通知", () => {
     fetcher.mockResolvedValueOnce(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetcher);
 
-    await sender().send("@everyone");
+    await sender().send(payload);
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(fetcher).toHaveBeenLastCalledWith(
       webhook,
       expect.objectContaining({
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: "@everyone", allowed_mentions: { parse: [] } }),
+        body: JSON.stringify(payload),
       })
     );
     expect(logger.log).toHaveBeenCalledWith(
@@ -53,7 +57,7 @@ describe("Discord 通知", () => {
   it("Webhook が未設定なら Bot の失敗後に送信しない", async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 429, headers: { "Retry-After": "12" } }));
     vi.stubGlobal("fetch", fetcher);
-    await new DiscordSender({ credentials, webhookUrl: () => undefined, logger }).send("test");
+    await new DiscordSender({ credentials, webhookUrl: () => undefined, logger }).send(payload);
     expect(fetcher).toHaveBeenCalledOnce();
     expect(logger.log).toHaveBeenCalledWith(
       "error",
@@ -70,7 +74,7 @@ describe("Discord 通知", () => {
       },
       webhookUrl: () => webhook,
       logger,
-    }).send("test");
+    }).send(payload);
     expect(fetcher).toHaveBeenCalledOnce();
     expect(fetcher).toHaveBeenCalledWith(webhook, expect.anything());
     expect(logger.log).toHaveBeenCalledWith("error", expect.objectContaining({ route: "bot" }));
@@ -82,7 +86,7 @@ describe("Discord 通知", () => {
       .mockRejectedValueOnce(new Error(`secret-token ${webhook}`))
       .mockResolvedValueOnce(new Response(null, { status: 429, headers: { "Retry-After": "5" } }));
     vi.stubGlobal("fetch", fetcher);
-    await expect(sender().send("test")).resolves.toBeUndefined();
+    await expect(sender().send(payload)).resolves.toBeUndefined();
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(logger.log).toHaveBeenCalledWith(
       "error",
@@ -98,7 +102,7 @@ describe("Discord 通知", () => {
       .mockResolvedValueOnce(new Response(null, { status: 403 }))
       .mockRejectedValueOnce(new Error(`${webhook} secret-token`));
     vi.stubGlobal("fetch", fetcher);
-    await expect(sender().send("test")).resolves.toBeUndefined();
+    await expect(sender().send(payload)).resolves.toBeUndefined();
     expect(logger.log).toHaveBeenCalledWith("error", expect.objectContaining({ route: "webhook" }));
     expect(JSON.stringify(logger.log.mock.calls)).not.toContain(webhook);
     expect(JSON.stringify(logger.log.mock.calls)).not.toContain("secret-token");

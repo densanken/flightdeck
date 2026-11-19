@@ -38,7 +38,7 @@ export class PublishUseCaseImpl implements PublishUseCase {
     }
 
     const ref = { number: input.number, baseSha: current.baseSha, headSha: current.headSha };
-    const checkId = await this.dependencies.startCheck(ref);
+    const checkId = await this.dependencies.startCheck({ ...ref, result: { status: "waiting", reason: "EVALUATING" } });
     const evaluated = await this.evaluate(ref);
     const approved = await this.approve(ref, evaluated);
     const decision = await this.mergeDecision(ref.number, evaluated.pr, evaluated.versions, approved);

@@ -53,7 +53,7 @@ describe("authorizeRoot", () => {
 
   it("未同意の移転先を示す", () => {
     const result = authorizeRoot(root({ after: [bob], consents: [consent(alice, 1)] }));
-    expect(result.details?.missing).toEqual({ kind: "all", editors: ["bob"] });
+    expect(result.details?.missing).toEqual({ kind: "all", editors: [bob] });
   });
 
   it("Editor の移転では旧 Editor と新 Editor の同意を要求する", () => {
@@ -94,7 +94,7 @@ describe("authorizeRoot", () => {
       consents: [consent(alice, 1)],
       websiteAddedOrChanged: true,
     });
-    expect(authorizeRoot(input).reason).toBe("WEBSITE_MEMBER_CONSENT_MISSING");
+    expect(authorizeRoot(input)).toEqual({ status: "waiting", reason: "WEBSITE_MEMBER_CONSENT_MISSING" });
     expect(authorizeRoot({ ...input, consents: [...input.consents, consent(bob, 2, false, true)] }).status).toBe(
       "allowed"
     );
@@ -114,7 +114,7 @@ describe("authorizeRoot", () => {
 
   it("website の追加には Org Member Editor の同意を要求する", () => {
     const input = root({ consents: [consent(alice, 1)], websiteAddedOrChanged: true });
-    expect(authorizeRoot(input).reason).toBe("WEBSITE_MEMBER_CONSENT_MISSING");
+    expect(authorizeRoot(input)).toEqual({ status: "waiting", reason: "WEBSITE_MEMBER_CONSENT_MISSING" });
     expect(authorizeRoot({ ...input, consents: [consent(alice, 1, false, true)] }).status).toBe("allowed");
   });
 });
@@ -143,7 +143,7 @@ describe("管理モードの同意", () => {
     expect(authorizeRoot(input)).toMatchObject({
       status: "waiting",
       reason: "EDITOR_APPROVAL_MISSING",
-      details: { missing: { kind: "one", editors: ["bob"] } },
+      details: { missing: { kind: "one", editors: [bob] } },
     });
     expect(authorizeRoot({ ...input, consents: [...input.consents, consent(alice, 1)] }).status).toBe("waiting");
     expect(authorizeRoot({ ...input, consents: [...input.consents, consent(bob, 2)] }).status).toBe("allowed");
@@ -151,7 +151,7 @@ describe("管理モードの同意", () => {
 
   it("Intervention は website の特別認可を省略しない", () => {
     const input = root({ mode: "intervention", websiteAddedOrChanged: true });
-    expect(authorizeRoot(input).reason).toBe("WEBSITE_MEMBER_CONSENT_MISSING");
+    expect(authorizeRoot(input)).toEqual({ status: "waiting", reason: "WEBSITE_MEMBER_CONSENT_MISSING" });
     expect(authorizeRoot({ ...input, consents: [consent(alice, 2, false, true)] }).status).toBe("allowed");
   });
 

@@ -1,4 +1,4 @@
-import { editorKey, editorName } from "./editors.js";
+import { editorKey } from "./editors.js";
 
 import type { Consent, Editor } from "./editors.js";
 import type { ManagementApprovalReason, ManagementMode } from "./management.js";
@@ -29,7 +29,7 @@ export type AuthorizationResult = (
 ) & {
   details?:
     | {
-        missing?: { kind: "all" | "one"; editors: string[] } | undefined;
+        missing?: { kind: "all" | "one"; editors: Editor[] } | undefined;
       }
     | undefined;
 };
@@ -74,7 +74,7 @@ const previousConsentResult = (
   return {
     status: "waiting",
     reason: "EDITOR_APPROVAL_MISSING",
-    details: { missing: { kind: "one", editors: previousEditors.map(editorName) } },
+    details: { missing: { kind: "one", editors: previousEditors } },
   };
 };
 
@@ -98,7 +98,7 @@ const editorChangeResult = (
       reason: missingChange.some((editor) => editor.type === "team")
         ? "TEAM_MAINTAINER_REQUIRED"
         : "EDITOR_APPROVAL_MISSING",
-      details: { missing: { kind: "all", editors: missingChange.map(editorName) } },
+      details: { missing: { kind: "all", editors: missingChange } },
     };
   }
 
@@ -128,7 +128,6 @@ export const authorizeRoot = (input: RootAuthorization): AuthorizationResult => 
       return {
         status: "waiting",
         reason: "WEBSITE_MEMBER_CONSENT_MISSING",
-        details: { missing: { kind: "one", editors: editors.map(editorName) } },
       };
     }
   }

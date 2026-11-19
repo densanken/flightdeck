@@ -44,9 +44,7 @@ interface Context {
 
 interface Outcome {
   result: AuthorizationResult;
-  memberships: Membership[];
   root?: AuthorRoot | undefined;
-  approvers?: Membership[] | undefined;
 }
 
 export class EvaluateUseCaseImpl implements EvaluateUseCase {
@@ -126,12 +124,10 @@ export class EvaluateUseCaseImpl implements EvaluateUseCase {
       details: {
         ...outcome.result.details,
         root: outcome.root?.name,
-        memberships: outcome.memberships,
       },
       management: {
         ...context.management,
         targets: context.management.mode === "offboarding" ? removedEditors(context.roots) : [],
-        approvers: outcome.approvers,
       },
     };
   }
@@ -142,7 +138,7 @@ export class EvaluateUseCaseImpl implements EvaluateUseCase {
 
     const offboarding = await this.checkOffboarding(context);
     if (offboarding.reason) {
-      return { result: { status: "rejected", reason: offboarding.reason }, memberships: [context.author] };
+      return { result: { status: "rejected", reason: offboarding.reason } };
     }
 
     return this.authorize(context, offboarding.memberships);
@@ -177,11 +173,11 @@ export class EvaluateUseCaseImpl implements EvaluateUseCase {
     const { author, otherPaths, roots } = context;
 
     if (otherPaths.length > 0 && !isOrgMember(author)) {
-      return { result: { status: "rejected", reason: "NON_CONTENT_CHANGE_FORBIDDEN" }, memberships: [author] };
+      return { result: { status: "rejected", reason: "NON_CONTENT_CHANGE_FORBIDDEN" } };
     }
 
     if (roots.length === 0) {
-      return { result: { status: "not_applicable", reason: "NO_CONTENT_CHANGES" }, memberships: [author] };
+      return { result: { status: "not_applicable", reason: "NO_CONTENT_CHANGES" } };
     }
 
     return undefined;
@@ -215,14 +211,14 @@ export class EvaluateUseCaseImpl implements EvaluateUseCase {
   private async authorize(context: Context, targets: Membership[]): Promise<Outcome> {
     const initial = this.rootResults(context, [context.author]);
     const rejected = initial.find(({ result }) => result.status === "rejected");
-    if (rejected) return { ...rejected, memberships: [context.author] };
+    if (rejected) return rejected;
 
     const pending = initial.filter(({ result }) => result.status === "waiting").map(({ root }) => root);
     const memberships = await this.loadReviewers(context.pr, pending, [context.author]);
     const approval = await this.checkManagement(context, [...memberships, ...targets]);
 
-    if (approval.reason) {
-      return { result: { status: "waiting", reason: approval.reason }, memberships, approvers: approval.approvers };
+    if (approval) {
+      return { result: { status: "waiting", reason: approval } };
     }
 
     const incomplete = this.rootResults(context, memberships).find(({ result }) => result.status !== "allowed");
@@ -230,8 +226,6 @@ export class EvaluateUseCaseImpl implements EvaluateUseCase {
     return {
       result: incomplete?.result ?? { status: "allowed", reason: "AUTHORIZED" },
       root: incomplete?.root,
-      memberships,
-      approvers: approval.approvers,
     };
   }
 
@@ -253,15 +247,9 @@ export class EvaluateUseCaseImpl implements EvaluateUseCase {
     }));
   }
 
-  private async checkManagement(
-    context: Context,
-    known: Membership[]
-  ): Promise<{
-    reason: ManagementApprovalReason | undefined;
-    approvers: Membership[];
-  }> {
+  private async checkManagement(context: Context, known: Membership[]): Promise<ManagementApprovalReason | undefined> {
     const mode = context.management.mode;
-    if (mode === "none") return { reason: undefined, approvers: [] };
+    if (mode === "none") return undefined;
 
     const people = approvedPeople(context.pr.reviews, context.pr.headSha, context.pr.author.id);
     const reviewers: Membership[] = [];

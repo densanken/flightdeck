@@ -1,3 +1,4 @@
+import type { DiscordPayload } from "../../message/notification.js";
 import type { Logger } from "../../util/logger.js";
 
 export class DiscordSender {
@@ -9,20 +10,20 @@ export class DiscordSender {
     }
   ) {}
 
-  async send(content: string): Promise<void> {
-    if (await this.sendBot(content)) return;
+  async send(payload: DiscordPayload): Promise<void> {
+    if (await this.sendBot(payload)) return;
 
     const url = this.input.webhookUrl();
-    if (url) await this.post(url, {}, content, "webhook");
+    if (url) await this.post(url, {}, payload, "webhook");
   }
 
-  private async sendBot(content: string): Promise<boolean> {
+  private async sendBot(payload: DiscordPayload): Promise<boolean> {
     try {
       const { token, channelId } = this.input.credentials();
       return await this.post(
         `https://discord.com/api/v10/channels/${encodeURIComponent(channelId)}/messages`,
         { Authorization: `Bot ${token}` },
-        content,
+        payload,
         "bot"
       );
     } catch {
@@ -34,14 +35,14 @@ export class DiscordSender {
   private async post(
     url: string,
     headers: Record<string, string>,
-    content: string,
+    payload: DiscordPayload,
     route: "bot" | "webhook"
   ): Promise<boolean> {
     try {
       const response = await fetch(url, {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
+        body: JSON.stringify(payload),
         signal: AbortSignal.timeout(15_000),
       });
       if (!response.ok) {

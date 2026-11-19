@@ -26,6 +26,7 @@ import { GitHubRequest } from "../infrastructure/github/request.js";
 import { GitHubWorkflow } from "../infrastructure/github/workflow.js";
 import { createBatchEnqueue } from "../infrastructure/queue/enqueue.js";
 import { authorizationComment } from "../message/authorization.js";
+import { checkOutput } from "../message/check-run.js";
 import { mergedNotification, openedNotification } from "../message/notification.js";
 import { EvaluateUseCaseImpl } from "../usecase/evaluate/impl.js";
 import { FanoutUseCaseImpl } from "../usecase/fanout/impl.js";
@@ -127,8 +128,8 @@ export const composeMessageConsumer = (env: Env) =>
           evaluate,
           current: (number) => publication.current(number),
           pullRequest: (number) => evaluation.pullRequest(number),
-          startCheck: (input) => check.start(input),
-          finishCheck: (input) => check.finish(input),
+          startCheck: (input) => check.start({ ...input, output: checkOutput(input.result) }),
+          finishCheck: (input) => check.finish({ ...input, output: checkOutput(input.result) }),
         }),
         notification: new NotificationUseCaseImpl({
           pullRequest: (number) => publication.mergedPullRequest(number),

@@ -5,7 +5,7 @@ import { mergeCheckbox, mergeLabel, mergeRequested } from "./merge-request.js";
 import type { BodyVersion } from "./merge-request.js";
 import type { CheckRun, CommitStatus } from "@flightdeck/rules";
 
-export const authorizationCheckName = "boarding/authorization";
+export const authorizationCheckName = "Boarding";
 
 export interface CiData {
   checks: CheckRun[];

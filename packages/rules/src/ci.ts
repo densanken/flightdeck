@@ -17,7 +17,11 @@ export const evaluateCi = (checks: CheckRun[], statuses: CommitStatus[]): CiDeci
   // clearance は失敗で Approve を撤回するため、pending を優先する takeoff と異なり確定した失敗を先に判定する
   if (
     checks.some(
-      (check) => check.status === "completed" && check.conclusion !== "success" && check.conclusion !== "skipped"
+      (check) =>
+        check.status === "completed" &&
+        check.conclusion !== "success" &&
+        check.conclusion !== "skipped" &&
+        check.conclusion !== "neutral"
     )
   ) {
     return "blocked";

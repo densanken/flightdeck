@@ -1,7 +1,7 @@
 import type { PullRequestData } from "./dependencies.js";
 import type { AuthorizationResult } from "../../domain/authorization.js";
 import type { CommitIdentity } from "../../domain/commit-identity.js";
-import type { Editor, Membership } from "../../domain/editors.js";
+import type { Editor } from "../../domain/editors.js";
 import type { ManagementRequest } from "../../domain/management.js";
 import type { MergeDecision } from "../../domain/merge.js";
 
@@ -14,7 +14,6 @@ export type EvaluationResult = (
   management?:
     | (ManagementRequest & {
         targets?: Editor[] | undefined;
-        approvers?: Membership[] | undefined;
       })
     | undefined;
   merge?: MergeDecision | undefined;
@@ -23,7 +22,6 @@ export type EvaluationResult = (
   details?:
     | (NonNullable<AuthorizationResult["details"]> & {
         root?: string | undefined;
-        memberships?: Membership[] | undefined;
       })
     | undefined;
 };

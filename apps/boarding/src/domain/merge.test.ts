@@ -82,7 +82,7 @@ describe("Merge の判定", () => {
   it("自分の実行中 Check を除き Actions の結果を判定する", () => {
     const checks = [
       ...data.ci.checks,
-      { name: "boarding/authorization", status: "in_progress", conclusion: null, app: { id: 10, slug: "boarding" } },
+      { name: "Boarding", status: "in_progress", conclusion: null, app: { id: 10, slug: "boarding" } },
     ];
     expect(decideMerge({ ...input, data: { ...data, ci: { ...data.ci, checks } } })).toEqual({
       request: "accepted",
@@ -149,7 +149,7 @@ describe("CI の未完了判定", () => {
         checks: [
           { name: "ci", status: "completed", conclusion: "success", app: { id: 2, slug: "github-actions" } },
           {
-            name: "boarding/authorization",
+            name: "Boarding",
             status: "in_progress",
             conclusion: null,
             app: { id: 20, slug: "boarding" },
@@ -164,7 +164,7 @@ describe("CI の未完了判定", () => {
       {
         checks: [
           { name: "ci", status: "completed", conclusion: "success", app: { id: 2, slug: "github-actions" } },
-          { name: "boarding/authorization", status: "in_progress", conclusion: null, app: { id: 21, slug: "other" } },
+          { name: "Boarding", status: "in_progress", conclusion: null, app: { id: 21, slug: "other" } },
         ],
         statuses: [],
       },

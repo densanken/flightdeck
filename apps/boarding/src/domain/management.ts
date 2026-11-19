@@ -62,16 +62,13 @@ export const managementApproval = (
   memberships: Membership[],
   authorId: number,
   mode: ManagementMode
-): {
-  approvers: Membership[];
-  reason: ManagementApprovalReason | undefined;
-} => {
+): ManagementApprovalReason | undefined => {
   const approvers = managementApprovers(memberships, authorId, mode);
   if (mode === "intervention" && (approvers.length < 4 || !approvers.some((member) => member.orgRole === "admin"))) {
-    return { approvers, reason: "INTERVENTION_QUORUM_MISSING" };
+    return "INTERVENTION_QUORUM_MISSING";
   }
   if (mode === "offboarding" && approvers.length === 0) {
-    return { approvers, reason: "OFFBOARDING_APPROVAL_MISSING" };
+    return "OFFBOARDING_APPROVAL_MISSING";
   }
-  return { approvers, reason: undefined };
+  return undefined;
 };

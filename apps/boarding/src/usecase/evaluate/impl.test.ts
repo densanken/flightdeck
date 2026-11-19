@@ -728,7 +728,6 @@ describe("管理モードの評価", () => {
       management: {
         mode: "offboarding",
         targets: [{ type: "user", login: "bob" }],
-        approvers: [{ person: carol, orgRole: "admin" }],
       },
     });
     expect(gateway.orgMembership).toHaveBeenCalledTimes(3);

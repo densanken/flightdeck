@@ -377,7 +377,12 @@ describe("PublishUseCaseImpl", () => {
       merge: { request: "none" },
     });
     expect(evaluate).toHaveBeenCalledWith(pr, { mode: "none" });
-    expect(dependencies.startCheck).toHaveBeenCalledWith({ number: 1, baseSha: "base", headSha: "head" });
+    expect(dependencies.startCheck).toHaveBeenCalledWith({
+      number: 1,
+      baseSha: "base",
+      headSha: "head",
+      result: { status: "waiting", reason: "EVALUATING" },
+    });
     expect(dependencies.approve).toHaveBeenCalledOnce();
     expect(dependencies.finishCheck).toHaveBeenCalledWith(
       expect.objectContaining({

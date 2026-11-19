@@ -23,7 +23,12 @@ export interface PublishDependencies {
   approve: (input: { number: number; baseSha: string; headSha: string }) => Promise<void>;
   comment: (input: { number: number; baseSha: string; headSha: string; body: string }) => Promise<void>;
   formatComment: (result: EvaluationResult) => string;
-  startCheck: (input: { number: number; baseSha: string; headSha: string }) => Promise<number>;
+  startCheck: (input: {
+    number: number;
+    baseSha: string;
+    headSha: string;
+    result: EvaluationResult;
+  }) => Promise<number>;
   finishCheck: (input: {
     number: number;
     baseSha: string;

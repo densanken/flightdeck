@@ -4,11 +4,16 @@ import { boardingMessageSchema } from "../../message/webhook.js";
 
 import type { BoardingMessage } from "../../message/webhook.js";
 import type { FanoutUseCase } from "../../usecase/fanout/interface.js";
+import type { NotificationUseCase } from "../../usecase/notification/interface.js";
 import type { PublishUseCase } from "../../usecase/publish/interface.js";
 import type { Logger } from "../../util/logger.js";
 
 export interface ConsumeDependencies {
-  createUseCases: (message: BoardingMessage) => { publish: PublishUseCase; fanout: FanoutUseCase };
+  createUseCases: (message: BoardingMessage) => {
+    publish: PublishUseCase;
+    fanout: FanoutUseCase;
+    notification: NotificationUseCase;
+  };
   logger: Logger;
 }
 
@@ -25,7 +30,7 @@ export const createMessageConsumer =
 
     const queued = parsed.output;
     try {
-      const { publish, fanout } = createUseCases(queued);
+      const { publish, fanout, notification } = createUseCases(queued);
       if (queued.event === "evaluate") {
         const result = await publish.execute(queued);
         logger.log("info", {
@@ -36,6 +41,8 @@ export const createMessageConsumer =
           mergeOutcome: result.mergeOutcome,
         });
         if (result.status === "error") throw new Error(result.reason);
+      } else if (queued.event === "merged") {
+        await notification.execute(queued);
       } else {
         await fanout.execute(queued);
       }

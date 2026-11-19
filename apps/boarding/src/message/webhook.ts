@@ -7,7 +7,8 @@ const common = {
 };
 
 export const boardingMessageSchema = v.variant("event", [
-  v.object({ ...common, event: v.literal("evaluate"), number: githubId }),
+  v.object({ ...common, event: v.literal("evaluate"), number: githubId, opened: v.optional(v.boolean()) }),
+  v.object({ ...common, event: v.literal("merged"), number: githubId }),
   v.object({
     ...common,
     event: v.picklist(["ci-completed", "ci-requested"]),

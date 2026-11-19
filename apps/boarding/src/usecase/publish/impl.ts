@@ -1,5 +1,6 @@
 import { managementRequest, needsBodyHistory, needsManagementHistory } from "../../domain/management.js";
 import { decideMerge } from "../../domain/merge.js";
+import { newAuthorRoots } from "../../domain/paths.js";
 import { approvedReviewers } from "../../domain/reviews.js";
 import { isContentOnlyAllowed } from "../../domain/workflow.js";
 import { errorResult } from "../error-result.js";
@@ -30,7 +31,7 @@ interface Evaluation {
 export class PublishUseCaseImpl implements PublishUseCase {
   constructor(private readonly dependencies: PublishDependencies) {}
 
-  async execute(input: { number: number }): Promise<EvaluationResult> {
+  async execute(input: { number: number; opened?: boolean | undefined }): Promise<EvaluationResult> {
     const current = await this.dependencies.current(input.number);
     if (current.state !== "OPEN" || current.baseBranch !== "main") {
       return { status: "not_applicable", reason: "NO_CONTENT_CHANGES" };
@@ -46,6 +47,7 @@ export class PublishUseCaseImpl implements PublishUseCase {
     await this.dependencies.finishCheck({ ...ref, result, id: checkId });
     const merged = await this.merge(ref, result);
     if (evaluated.pr) await this.dependencies.workflow.execute(evaluated.pr, merged);
+    await this.notify(input, evaluated.pr, evaluated.result);
     return merged;
   }
 
@@ -66,6 +68,23 @@ export class PublishUseCaseImpl implements PublishUseCase {
     } catch (error) {
       return { pr: undefined, versions: null, result: errorResult(error) };
     }
+  }
+
+  private async notify(
+    input: { number: number; opened?: boolean | undefined },
+    pr: PullRequestData | undefined,
+    result: EvaluationResult
+  ): Promise<void> {
+    if (!input.opened || !pr || result.status === "error") return;
+
+    const names = newAuthorRoots(pr.files, pr.baseRoots);
+    const roots = names.map((name) => ({
+      name,
+      editors: result.rootEditors?.find((root) => root.name === name)?.editors ?? null,
+    }));
+    if (roots.length === 0) return;
+
+    await this.dependencies.notifyOpened({ number: input.number, author: pr.author.login, roots, result });
   }
 
   private async approve(ref: Reference, evaluated: Evaluation): Promise<Approval> {

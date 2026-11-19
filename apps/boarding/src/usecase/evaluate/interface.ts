@@ -10,6 +10,7 @@ export type EvaluationResult = (
   | { status: "waiting"; reason: "EVALUATING" }
   | { status: "error"; reason: "INCOMPLETE_DATA" | "API_ERROR" | "SUBREQUEST_LIMIT" | "YAML_SIZE_LIMIT" }
 ) & {
+  rootEditors?: { name: string; editors: Editor[] }[] | undefined;
   management?:
     | (ManagementRequest & {
         targets?: Editor[] | undefined;

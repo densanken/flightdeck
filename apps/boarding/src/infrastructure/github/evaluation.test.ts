@@ -48,6 +48,67 @@ const compare = (files: unknown[], base = "base", head = "head") =>
   });
 
 describe("GitHubGatewayImpl", () => {
+  it("Merge 前の親コミットと head の差分を取得する", async () => {
+    const value = {
+      state: "MERGED",
+      mergeCommit: {
+        oid: "head",
+        changedFilesIfAvailable: 2,
+        parents: {
+          nodes: [
+            {
+              oid: "base",
+              file: { type: "tree", object: { __typename: "Tree", entries: [{ name: "old", type: "tree" }] } },
+            },
+          ],
+        },
+      },
+    };
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(json({ repository: { pullRequest: value } }))
+      .mockResolvedValueOnce(
+        compare([
+          { filename: "authors/new/meta.yaml", status: "added" },
+          { filename: "authors/old/meta.yaml", status: "removed" },
+        ])
+      );
+    const gateway = new GitHubGatewayImpl({
+      request: new GitHubRequest(fetcher),
+      getToken: () => Promise.resolve("token"),
+    });
+    expect(await gateway.mergedPullRequest(1)).toEqual({
+      baseSha: "base",
+      headSha: "head",
+      baseRoots: ["old"],
+      files: [
+        { path: "authors/new/meta.yaml", removed: false, previousPath: undefined },
+        { path: "authors/old/meta.yaml", removed: true, previousPath: undefined },
+      ],
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    [null, "INVALID_RESPONSE"],
+    [2, "INCOMPLETE_PAGINATION"],
+  ])("Merge commit の変更件数が %s の場合は不完全な差分を拒否する", async (count, code) => {
+    const value = {
+      state: "MERGED",
+      mergeCommit: { oid: "head", changedFilesIfAvailable: count, parents: { nodes: [{ oid: "base", file: null }] } },
+    };
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(json({ repository: { pullRequest: value } }))
+      .mockResolvedValueOnce(compare([{ filename: "authors/new/meta.yaml", status: "added" }]));
+    const gateway = new GitHubGatewayImpl({
+      request: new GitHubRequest(fetcher),
+      getToken: () => Promise.resolve("token"),
+    });
+    await expect(gateway.mergedPullRequest(1)).rejects.toMatchObject({ code });
+    expect(fetcher).toHaveBeenCalledTimes(count === null ? 1 : 2);
+  });
+
   it("head とマージコミットの Check と Status を合わせる", async () => {
     const check = {
       __typename: "CheckRun",
@@ -121,7 +182,9 @@ describe("GitHubGatewayImpl", () => {
     });
     const result = await gateway.pullRequest(2);
     expect(result.baseRoots).toEqual(["alice"]);
-    expect(result.files).toEqual([{ path: "authors/alice/new.md", previousPath: "authors/alice/old.md" }]);
+    expect(result.files).toEqual([
+      { path: "authors/alice/new.md", removed: false, previousPath: "authors/alice/old.md" },
+    ]);
     expect(result.commits[0]?.authorId).toBe(1);
   });
 
@@ -251,7 +314,9 @@ describe("GitHubGatewayImpl", () => {
       request: new GitHubRequest(fetcher),
       getToken: () => Promise.resolve("token"),
     });
-    expect((await gateway.pullRequest(2)).files).toEqual([{ path: "authors/alice/h1.md", previousPath: undefined }]);
+    expect((await gateway.pullRequest(2)).files).toEqual([
+      { path: "authors/alice/h1.md", removed: false, previousPath: undefined },
+    ]);
     expect(fetcher.mock.calls[1]?.[0]).toContain("/compare/base...head?per_page=1&page=1");
     expect(live.head).toBe("head");
   });

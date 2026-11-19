@@ -2,6 +2,11 @@ import type { ChangedFile } from "./paths.js";
 
 export type Editor = { type: "user"; login: string } | { type: "team"; slug: string };
 
+export interface NewAuthorRoot {
+  name: string;
+  editors: Editor[] | null;
+}
+
 export interface Person {
   id: number;
   login: string;

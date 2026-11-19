@@ -1,3 +1,4 @@
+import type { NewAuthorRoot } from "../../domain/editors.js";
 import type { BodyVersion } from "../../domain/merge-request.js";
 import type { PullRequestData } from "../evaluate/dependencies.js";
 import type { EvaluateUseCase, EvaluationResult } from "../evaluate/interface.js";
@@ -5,6 +6,12 @@ import type { WorkflowUseCase } from "../workflow/interface.js";
 
 export interface PublishDependencies {
   evaluate: EvaluateUseCase;
+  notifyOpened: (input: {
+    number: number;
+    author: string;
+    roots: NewAuthorRoot[];
+    result: EvaluationResult;
+  }) => Promise<void>;
   workflow: WorkflowUseCase;
   botUserId: number;
   appId: number;

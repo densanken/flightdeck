@@ -1,10 +1,18 @@
 import { verifyGitHubWebhookSignature } from "@flightdeck/github-webhook-signature";
 
 import { createApp } from "../app.js";
-import { getBotUserId, getGitHubAppCredentials, getGitHubAppId, getWebhookSecret } from "../env.js";
+import {
+  getBotUserId,
+  getDiscordCredentials,
+  getDiscordWebhookUrl,
+  getGitHubAppCredentials,
+  getGitHubAppId,
+  getWebhookSecret,
+} from "../env.js";
 import { createMessageConsumer } from "../handler/github/consume.js";
 import { createWebhookHandler } from "../handler/github/webhook.js";
 import { readEditors, readMetaKeys, readWebsite } from "../infrastructure/config/parse.js";
+import { DiscordSender } from "../infrastructure/discord/send.js";
 import { GitHubApprove } from "../infrastructure/github/approve.js";
 import { GitHubInstallationTokenProvider } from "../infrastructure/github/auth.js";
 import { GitHubCheckRun } from "../infrastructure/github/check-run.js";
@@ -18,8 +26,10 @@ import { GitHubRequest } from "../infrastructure/github/request.js";
 import { GitHubWorkflow } from "../infrastructure/github/workflow.js";
 import { createBatchEnqueue } from "../infrastructure/queue/enqueue.js";
 import { authorizationComment } from "../message/authorization.js";
+import { mergedNotification, openedNotification } from "../message/notification.js";
 import { EvaluateUseCaseImpl } from "../usecase/evaluate/impl.js";
 import { FanoutUseCaseImpl } from "../usecase/fanout/impl.js";
+import { NotificationUseCaseImpl } from "../usecase/notification/impl.js";
 import { PublishUseCaseImpl } from "../usecase/publish/impl.js";
 import { WorkflowUseCaseImpl } from "../usecase/workflow/impl.js";
 import { createLogger } from "../util/logger.js";
@@ -73,6 +83,11 @@ export const composeMessageConsumer = (env: Env) =>
         readMetaKeys,
         readWebsite,
       });
+      const discord = new DiscordSender({
+        credentials: () => getDiscordCredentials(env),
+        webhookUrl: () => getDiscordWebhookUrl(env),
+        logger: createLogger(),
+      });
       const appId = getGitHubAppId(env);
       const check = new GitHubCheckRun({
         request,
@@ -97,6 +112,7 @@ export const composeMessageConsumer = (env: Env) =>
       return {
         publish: new PublishUseCaseImpl({
           botUserId: getBotUserId(env),
+          notifyOpened: (input) => discord.send(openedNotification(input)),
           appId,
           workflow: new WorkflowUseCaseImpl({
             list: (sha) => workflow.list(sha),
@@ -113,6 +129,12 @@ export const composeMessageConsumer = (env: Env) =>
           pullRequest: (number) => evaluation.pullRequest(number),
           startCheck: (input) => check.start(input),
           finishCheck: (input) => check.finish(input),
+        }),
+        notification: new NotificationUseCaseImpl({
+          pullRequest: (number) => publication.mergedPullRequest(number),
+          files: (baseSha, headSha, roots) => publication.files(baseSha, headSha, roots, [], roots),
+          readEditors,
+          notifyMerged: (input) => discord.send(mergedNotification(input)),
         }),
         fanout: new FanoutUseCaseImpl({
           appId,

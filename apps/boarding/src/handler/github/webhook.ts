@@ -62,7 +62,7 @@ const prSchema = v.object({
   ...common,
   action: v.string(),
   number: githubId,
-  pull_request: v.object({ base: v.object({ ref: v.string() }) }),
+  pull_request: v.object({ base: v.object({ ref: v.string() }), merged: v.optional(v.nullable(v.boolean())) }),
 });
 const reviewSchema = v.object({
   ...common,
@@ -113,11 +113,24 @@ const toPullRequestMessage = (payload: unknown, deliveryId: string, installation
   const parsed = v.safeParse(prSchema, payload);
   if (!parsed.success) return { kind: "invalid" };
 
-  if (!actions.has(parsed.output.action) || parsed.output.pull_request.base.ref !== "main") {
+  if (parsed.output.pull_request.base.ref !== "main") return { kind: "ignored" };
+  if (parsed.output.action === "closed") {
+    return parsed.output.pull_request.merged === true
+      ? { event: "merged", deliveryId, installationId, number: parsed.output.number }
+      : { kind: "ignored" };
+  }
+
+  if (!actions.has(parsed.output.action)) {
     return { kind: "ignored" };
   }
 
-  return { event: "evaluate", deliveryId, installationId, number: parsed.output.number };
+  return {
+    event: "evaluate",
+    deliveryId,
+    installationId,
+    number: parsed.output.number,
+    opened: parsed.output.action === "opened",
+  };
 };
 
 const toReviewMessage = (

@@ -1,5 +1,6 @@
 export interface ChangedFile {
   path: string;
+  removed?: boolean | undefined;
   previousPath?: string | undefined;
 }
 
@@ -30,4 +31,15 @@ export const collidingAuthorRoots = (changedRoots: string[], baseRoots: string[]
   }
 
   return changedRoots.filter((root) => (names.get(root.toLowerCase())?.size ?? 0) > 1);
+};
+
+export const newAuthorRoots = (files: ChangedFile[], baseRoots: string[]): string[] => {
+  const existing = new Set(baseRoots.map((root) => root.toLowerCase()));
+  const roots = files.flatMap(({ path, removed }) => {
+    const match = /^authors\/([^/]+)\/meta\.ya?ml$/.exec(path);
+    const name = match?.[1];
+    return name && !removed && !existing.has(name.toLowerCase()) ? [name] : [];
+  });
+
+  return [...new Set(roots)];
 };

@@ -36,6 +36,7 @@ const setup = () => {
     current: vi.fn().mockResolvedValue(current),
     pullRequest: vi.fn().mockResolvedValue(pr),
     evaluate: { execute: evaluate },
+    notifyOpened: vi.fn().mockResolvedValue(undefined),
     startCheck: vi.fn().mockResolvedValue(42),
     finishCheck: vi.fn().mockResolvedValue(undefined),
     comment: vi.fn().mockResolvedValue(undefined),
@@ -46,6 +47,89 @@ const setup = () => {
 };
 
 describe("PublishUseCaseImpl", () => {
+  it.each([
+    [true, "allowed", 1],
+    [false, "allowed", 0],
+    [true, "error", 0],
+  ] as const)("opened %s と評価状態 %s で通知を判定する", async (opened, status, count) => {
+    const { usecase, dependencies, evaluate } = setup();
+    vi.mocked(dependencies.pullRequest).mockResolvedValue({
+      ...pr,
+      baseRoots: [],
+      files: [{ path: "authors/alice/meta.yaml" }],
+    });
+    evaluate.mockResolvedValue({
+      status,
+      reason: status === "error" ? "API_ERROR" : "AUTHORIZED",
+      facts,
+      rootEditors: [{ name: "alice", editors: [] }],
+    });
+    await usecase.execute({ number: 1, opened });
+    expect(dependencies.notifyOpened).toHaveBeenCalledTimes(count);
+  });
+
+  it("評価済みの Editor から新しい著者の候補だけを通知する", async () => {
+    const { usecase, dependencies, evaluate } = setup();
+    vi.mocked(dependencies.pullRequest).mockResolvedValue({
+      ...pr,
+      baseRoots: ["existing"],
+      files: [{ path: "authors/existing/meta.yaml" }, { path: "authors/alice/meta.yaml" }],
+    });
+    evaluate.mockResolvedValue({
+      status: "allowed",
+      reason: "AUTHORIZED",
+      facts,
+      rootEditors: [
+        { name: "existing", editors: [{ type: "user", login: "bob" }] },
+        { name: "alice", editors: [{ type: "user", login: "alice" }] },
+      ],
+    });
+
+    await usecase.execute({ number: 1, opened: true });
+    expect(dependencies.notifyOpened).toHaveBeenCalledWith(
+      expect.objectContaining({ roots: [{ name: "alice", editors: [{ type: "user", login: "alice" }] }] })
+    );
+  });
+
+  it("評価が早期に拒否された場合も新しい著者名を通知する", async () => {
+    const { usecase, dependencies, evaluate } = setup();
+    vi.mocked(dependencies.pullRequest).mockResolvedValue({
+      ...pr,
+      baseRoots: [],
+      files: [{ path: "authors/alice/meta.yaml" }],
+    });
+    evaluate.mockResolvedValue({ status: "rejected", reason: "COMMIT_IDENTITY_MISMATCH", facts });
+
+    await usecase.execute({ number: 1, opened: true });
+    expect(dependencies.notifyOpened).toHaveBeenCalledWith(
+      expect.objectContaining({ roots: [{ name: "alice", editors: null }] })
+    );
+    expect(evaluate).toHaveBeenCalledWith(expect.anything(), { mode: "none" });
+  });
+
+  it("Workflow の処理後に評価結果を通知する", async () => {
+    const { usecase, dependencies, workflowExecute } = setup();
+    vi.mocked(dependencies.pullRequest).mockResolvedValue({
+      ...pr,
+      baseRoots: [],
+      files: [{ path: "authors/alice/meta.yaml" }],
+    });
+
+    await usecase.execute({ number: 1, opened: true });
+    expect(workflowExecute.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(dependencies.notifyOpened).mock.invocationCallOrder[0] ?? 0
+    );
+    expect(dependencies.notifyOpened).toHaveBeenCalledWith(
+      expect.objectContaining({ result: { status: "allowed", reason: "AUTHORIZED", facts } })
+    );
+  });
+
+  it("既存の著者のみの申請は通知しない", async () => {
+    const { usecase, dependencies } = setup();
+    await usecase.execute({ number: 1, opened: true });
+    expect(dependencies.notifyOpened).not.toHaveBeenCalled();
+  });
+
   it("Check 確定後に評価結果を Workflow の処理に渡す", async () => {
     const { usecase, dependencies, workflowExecute } = setup();
     await usecase.execute({ number: 1 });
@@ -217,6 +301,8 @@ describe("PublishUseCaseImpl", () => {
     const body = "- [x] すべてのチェックが成功したら自動マージする";
     vi.mocked(dependencies.pullRequest).mockResolvedValue({
       ...pr,
+      baseRoots: [],
+      files: [{ path: "authors/alice/meta.yaml" }],
       mergeData: {
         draft: false,
         body,
@@ -228,12 +314,15 @@ describe("PublishUseCaseImpl", () => {
     });
     vi.mocked(dependencies.merge).mockResolvedValue("changed");
 
-    await expect(usecase.execute({ number: 1 })).resolves.toMatchObject({
+    await expect(usecase.execute({ number: 1, opened: true })).resolves.toMatchObject({
       status: "error",
       reason: "API_ERROR",
       mergeOutcome: "changed",
     });
     expect(dependencies.merge).toHaveBeenCalledWith({ number: 1, headSha: "head" });
+    expect(dependencies.notifyOpened).toHaveBeenCalledWith(
+      expect.objectContaining({ result: { status: "allowed", reason: "AUTHORIZED", facts } })
+    );
   });
 
   it("今回の Approve が失敗すれば Merge しない", async () => {
@@ -384,11 +473,23 @@ describe("PublishUseCaseImpl", () => {
 
   it("コメントの書き込みに失敗すると成功 Check を記録しない", async () => {
     const { usecase, dependencies } = setup();
+    vi.mocked(dependencies.pullRequest).mockResolvedValue({
+      ...pr,
+      baseRoots: [],
+      files: [{ path: "authors/alice/meta.yaml" }],
+    });
     vi.mocked(dependencies.comment).mockRejectedValue(new Error("failed"));
-    await expect(usecase.execute({ number: 1 })).resolves.toEqual({ status: "error", reason: "API_ERROR", facts });
+    await expect(usecase.execute({ number: 1, opened: true })).resolves.toEqual({
+      status: "error",
+      reason: "API_ERROR",
+      facts,
+    });
     expect(dependencies.finishCheck).toHaveBeenLastCalledWith(
       expect.objectContaining({ result: { status: "error", reason: "API_ERROR", facts } })
     );
     expect(dependencies.approve).toHaveBeenCalledOnce();
+    expect(dependencies.notifyOpened).toHaveBeenCalledWith(
+      expect.objectContaining({ result: { status: "allowed", reason: "AUTHORIZED", facts } })
+    );
   });
 });

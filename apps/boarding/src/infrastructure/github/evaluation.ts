@@ -5,6 +5,7 @@ import { BoardingError } from "../../errors.js";
 
 import type { GitHubRequest } from "./request.js";
 import type { PullRequestData, RootFiles, RootFilesPair } from "../../usecase/evaluate/dependencies.js";
+import type { MergedPullRequest } from "../../usecase/notification/dependencies.js";
 
 const person = v.object({ databaseId: v.pipe(v.number(), v.safeInteger(), v.minValue(1)), login: v.string() });
 const actor = v.nullable(v.object({ user: v.nullable(person), email: v.optional(v.nullable(v.string())) }));
@@ -29,6 +30,48 @@ const query = `query Evaluation($number: Int!, $commits: String, $reviews: Strin
     }
   }
 }`;
+const mergedQuery = `query Merged($number: Int!) {
+  repository(owner: "densanken", name: "blog-contents") {
+    pullRequest(number: $number) {
+      state
+      mergeCommit {
+        oid changedFilesIfAvailable
+        parents(first: 1) { nodes { oid file(path: "authors") { type object { __typename ... on Tree { entries { name type } } } } } }
+      }
+    }
+  }
+}`;
+const mergedSchema = v.object({
+  repository: v.object({
+    pullRequest: v.object({
+      state: v.literal("MERGED"),
+      mergeCommit: v.object({
+        oid: v.string(),
+        changedFilesIfAvailable: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+        parents: v.object({
+          nodes: v.pipe(
+            v.array(
+              v.object({
+                oid: v.string(),
+                file: v.nullable(
+                  v.object({
+                    type: v.literal("tree"),
+                    object: v.object({
+                      __typename: v.literal("Tree"),
+                      entries: v.array(v.object({ name: v.string(), type: v.string() })),
+                    }),
+                  })
+                ),
+              })
+            ),
+            v.length(1)
+          ),
+        }),
+      }),
+    }),
+  }),
+});
+
 const responseSchema = v.object({
   repository: v.object({
     pullRequest: v.object({
@@ -171,7 +214,11 @@ const parseComparison = (response: unknown, baseSha: string, headSha: string, ch
     throw new BoardingError("INCOMPLETE_PAGINATION", "GitHub rename source is missing");
   }
 
-  const files = changed.map((file) => ({ path: file.filename, previousPath: file.previous_filename }));
+  const files = changed.map((file) => ({
+    path: file.filename,
+    removed: file.status === "removed",
+    previousPath: file.previous_filename,
+  }));
   if (new Set(files.map((file) => file.path)).size !== files.length) {
     throw new BoardingError("INCOMPLETE_PAGINATION", "GitHub changed files contain duplicates");
   }
@@ -283,6 +330,30 @@ export class GitHubGatewayImpl {
       })),
       reviews: mapReviews(reviews),
       baseRoots,
+    };
+  }
+
+  async mergedPullRequest(number: number): Promise<MergedPullRequest> {
+    const token = await this.input.getToken();
+    const data = await this.input.request.graphql(token, mergedQuery, { number });
+    const parsed = v.safeParse(mergedSchema, data);
+    if (!parsed.success) throw new BoardingError("INVALID_RESPONSE", "Merged pull request is unavailable");
+
+    const pr = parsed.output.repository.pullRequest;
+    const base = pr.mergeCommit.parents.nodes[0];
+    if (!base) throw new BoardingError("INVALID_RESPONSE", "Merge parent is unavailable");
+
+    const comparison = await this.input.request.call({
+      method: "GET",
+      path: `/repos/densanken/blog-contents/compare/${encodeURIComponent(base.oid)}...${encodeURIComponent(pr.mergeCommit.oid)}?per_page=1&page=1`,
+      token,
+    });
+
+    return {
+      baseSha: base.oid,
+      headSha: pr.mergeCommit.oid,
+      baseRoots: (base.file?.object.entries ?? []).filter((entry) => entry.type === "tree").map((entry) => entry.name),
+      files: parseComparison(comparison, base.oid, pr.mergeCommit.oid, pr.mergeCommit.changedFilesIfAvailable),
     };
   }
 

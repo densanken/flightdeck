@@ -122,6 +122,7 @@ export class EvaluateUseCaseImpl implements EvaluateUseCase {
   private evaluationResult(context: Context, outcome: Outcome): EvaluationResult {
     return {
       ...outcome.result,
+      rootEditors: context.roots.map(({ name, after }) => ({ name, editors: after })),
       details: {
         ...outcome.result.details,
         root: outcome.root?.name,

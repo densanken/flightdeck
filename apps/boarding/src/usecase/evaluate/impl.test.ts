@@ -115,6 +115,21 @@ const setup = (
 };
 
 describe("EvaluateUseCaseImpl", () => {
+  it("評価した既存と新規の著者の Editor を結果に含める", async () => {
+    const snapshot = {
+      ...pr,
+      baseRoots: ["alice"],
+      files: [{ path: "authors/alice/meta.yaml" }, { path: "authors/bob/meta.yaml" }],
+    };
+    const { run } = setup({ pr: snapshot, files: { alice: pair(["alice"], ["alice"]), bob: pair(null, ["alice"]) } });
+    expect(await run()).toMatchObject({
+      rootEditors: [
+        { name: "alice", editors: [{ type: "user", login: "alice" }] },
+        { name: "bob", editors: [{ type: "user", login: "alice" }] },
+      ],
+    });
+  });
+
   it("大文字を含む個人 Editor と Reviewer の同意を照合する", async () => {
     const { run, parseEditors } = setup({ pr: { ...pr, reviews: [review(bob)] } });
     parseEditors.mockReturnValue([{ type: "user", login: "BOB" }]);

@@ -11,6 +11,7 @@ densanken における Pull Request の運用・管理を自動化するため�
 | [`dispatch`](apps/dispatch/README.md)                                                 | ソースリポジトリの更新を親リポジトリの Submodule へ反映する PR の自動作成           |
 | [`clearance`](apps/clearance/README.md)                                               | dispatch と放置された Renovate PR の自動承認                                        |
 | [`autopilot`](apps/autopilot/README.md)                                               | 承認と CI を再検証した PR の自動マージ                                              |
+| [`boarding`](apps/boarding/README.md)                                                 | `blog-contents` の PR の検証、自動承認、自動マージ                                  |
 | [`@flightdeck/github-app-jwt`](packages/github-app-jwt/README.md)                     | GitHub App 認証用 JWT 生成パッケージ                                                |
 | [`@flightdeck/github-policy`](packages/github-policy/README.md)                       | PR 判定に必要な GitHub データの共通取得                                             |
 | [`@flightdeck/github-webhook-signature`](packages/github-webhook-signature/README.md) | GitHub Webhook の署名（`X-Hub-Signature-256`）の検証                                |
@@ -71,6 +72,9 @@ pnpm --filter takeoff dev
 
 # Dispatch の起動
 pnpm --filter dispatch dev
+
+# Boarding の起動
+pnpm --filter boarding dev
 ```
 
 ## コマンド一覧

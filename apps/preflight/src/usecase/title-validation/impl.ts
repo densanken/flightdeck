@@ -1,19 +1,12 @@
-import { validatePullRequestTitle } from "@flightdeck/pr-title";
 import { ConfigurationError } from "@flightdeck/validation";
 
 import { reconcileTitleValidationComments } from "./comment-reconciler.js";
 import { TitleValidationExecutionError } from "./errors.js";
 import { HeadStatusTracker } from "./head-status-tracker.js";
-import {
-  allTitlesValid,
-  commentBody,
-  currentHeadVerdict,
-  headVerdict,
-  normalizeAssociatedPullRequests,
-  sameDetachedHeadState,
-  samePolicyState,
-} from "./policy-state.js";
+import { normalizeAssociatedPullRequests, sameDetachedHeadState, samePolicyState } from "./policy-state.js";
 import { SupersededStatusSweep } from "./superseded-status-sweep.js";
+import { loadAssociatedTitleTypePolicies, loadCurrentTitleTypePolicies } from "./title-type-inputs.js";
+import { allTitlesValid, commentBody, headVerdict, validateTitle } from "../../domain/title-policy.js";
 import { TITLE_STATUS_MESSAGES } from "../../domain/title-status-message.js";
 import { PullRequestStateChangedError } from "../../errors.js";
 
@@ -194,17 +187,25 @@ export class ValidatePullRequestTitleUseCaseImpl implements ValidatePullRequestT
       context.heads.setCurrent(current.headSha);
       context.currentStateLoaded = true;
 
-      const associatedPullRequests = normalizeAssociatedPullRequests(
+      const normalized = normalizeAssociatedPullRequests(
         (requestedHead === current.headSha ? fetched : undefined) ??
           (await this.gateway.listOpenPullRequestsForHeadShas(headCoordinates(command, current.headSha), signal)),
         current.headSha,
         { number: command.pullRequestNumber, state: current }
       );
 
-      return {
+      const { pullRequests: associatedPullRequests, current: enrichedCurrent } = await loadCurrentTitleTypePolicies({
+        gateway: this.gateway,
+        coordinates: command,
         current,
+        pullRequests: normalized,
+        signal,
+      });
+
+      return {
+        current: enrichedCurrent,
         associatedPullRequests,
-        currentValidation: validatePullRequestTitle(current.title),
+        currentValidation: validateTitle(enrichedCurrent),
         allTitlesValid: allTitlesValid(associatedPullRequests),
       };
     } catch (error) {
@@ -224,12 +225,18 @@ export class ValidatePullRequestTitleUseCaseImpl implements ValidatePullRequestT
       const fetched = await this.gateway.getCurrentPolicyState({ ...pullRequestCoordinates(command), headSha }, signal);
       const current = recovery ? fetched.current : undefined;
       if (current && current.headSha !== context.heads.current) context.heads.setCurrent(current.headSha);
-      const associatedPullRequests = normalizeAssociatedPullRequests(
+      const normalized = normalizeAssociatedPullRequests(
         fetched.associatedPullRequests ??
           (await this.gateway.listOpenPullRequestsForHeadShas(headCoordinates(command, headSha), signal)),
         headSha,
         current ? { number: command.pullRequestNumber, state: current } : undefined
       );
+      const associatedPullRequests = await loadAssociatedTitleTypePolicies({
+        gateway: this.gateway,
+        coordinates: command,
+        pullRequests: normalized,
+        signal,
+      });
       return { headSha, associatedPullRequests, current };
     } catch (error) {
       throw new TitleValidationExecutionError("state_lookup_failed", error);
@@ -270,7 +277,7 @@ export class ValidatePullRequestTitleUseCaseImpl implements ValidatePullRequestT
         state.current.state === "closed"
           ? "closed"
           : // pending は draft か作業中の接頭辞による保留で、共有 head の失敗と混ぜると alert の意味が変わる
-            currentHeadVerdict(state).state === "pending"
+            headVerdict(state).state === "pending"
             ? "held"
             : !state.currentValidation.valid
               ? "invalid"
@@ -358,7 +365,7 @@ export class ValidatePullRequestTitleUseCaseImpl implements ValidatePullRequestT
     signal: AbortSignal,
     context: TitleValidationExecutionContext
   ): Promise<void> {
-    const verdict = currentHeadVerdict(state);
+    const verdict = headVerdict(state);
     await this.postStatus(command, state.current.headSha, verdict.state, verdict.message, signal, context);
   }
 

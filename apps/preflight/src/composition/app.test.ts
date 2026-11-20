@@ -85,11 +85,36 @@ const commitTitleStatusesResponse = (headSha = "6367c48dd193d56ea7b0baad25b19455
 const currentPolicyResponse = (
   title: string,
   state = "OPEN",
-  nodes = [{ number: 7, title, state: "OPEN", headRefOid: "6367c48dd193d56ea7b0baad25b19455e529f5ee", isDraft: false }]
+  nodes: {
+    number: number;
+    title: string;
+    state: string;
+    headRefOid: string;
+    isDraft: boolean;
+    baseRefOid?: string;
+    changedFiles?: number;
+  }[] = [
+    {
+      number: 7,
+      title,
+      state: "OPEN",
+      headRefOid: "6367c48dd193d56ea7b0baad25b19455e529f5ee",
+      isDraft: false,
+      baseRefOid: "6367c48dd193d56ea7b0baad25b19455e529f5ee",
+    },
+  ],
+  changedFiles?: number
 ) => ({
   data: {
     repository: {
-      pullRequest: { title, state, headRefOid: "6367c48dd193d56ea7b0baad25b19455e529f5ee", isDraft: false },
+      pullRequest: {
+        title,
+        state,
+        headRefOid: "6367c48dd193d56ea7b0baad25b19455e529f5ee",
+        isDraft: false,
+        baseRefOid: "6367c48dd193d56ea7b0baad25b19455e529f5ee",
+        changedFiles,
+      },
       object: { associatedPullRequests: { totalCount: nodes.length, nodes, pageInfo: { hasNextPage: false } } },
       defaultBranchRef: {
         compare: { headTarget: { oid: "6367c48dd193d56ea7b0baad25b19455e529f5ee" }, status: "AHEAD" },
@@ -117,6 +142,8 @@ const successfulGitHubFetch = (options: { assigneesStatus?: number } = {}) => {
             title: "feat: add login",
             state: "open",
             head: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
+            base: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
+            changed_files: 0,
             draft: false,
           },
           200
@@ -140,8 +167,12 @@ const successfulGitHubFetch = (options: { assigneesStatus?: number } = {}) => {
       );
     }
     if (new URL(url).pathname === "/graphql") {
-      if (requestBody(init).includes("CurrentPolicy"))
+      if (requestBody(init).includes("TitleConfig")) {
+        return Promise.resolve(jsonResponse({ data: { repository: { yml: null, yaml: null } } }));
+      }
+      if (requestBody(init).includes("CurrentPolicy")) {
         return Promise.resolve(jsonResponse(currentPolicyResponse("feat: add login")));
+      }
       if (requestBody(init).includes("ConfirmSweep")) {
         return Promise.resolve(
           jsonResponse({
@@ -206,6 +237,197 @@ describe("composeApp", () => {
     privateKeyPem = await createTestPrivateKey();
   });
 
+  it("recovery で変更ファイルの予算が足りなければ既定 type で status を再判定する", async () => {
+    const fallback = successfulGitHubFetch();
+    const head = "6367c48dd193d56ea7b0baad25b19455e529f5ee";
+    let recovering = false;
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation((input, init) => {
+      const path = new URL(requestUrl(input)).pathname;
+      if (path.endsWith("/issues/7/comments") && init?.method === "GET") {
+        recovering = true;
+        return Promise.resolve(jsonResponse({ message: "comment lookup failed" }, 400));
+      }
+      if (path === "/graphql" && requestBody(init).includes("TitleConfig")) {
+        return Promise.resolve(
+          jsonResponse({
+            data: {
+              repository: {
+                yml: {
+                  text: "preflight:\n  title-types:\n    - paths: ['docs/**']\n      types: [docs]",
+                  isTruncated: false,
+                },
+                yaml: null,
+              },
+            },
+          })
+        );
+      }
+      if (path === "/graphql" && requestBody(init).includes("CurrentPolicy")) {
+        const nodes = [
+          {
+            number: 7,
+            title: "feat: add login",
+            state: "OPEN",
+            headRefOid: head,
+            isDraft: false,
+            baseRefOid: head,
+            changedFiles: 0,
+          },
+          ...(recovering
+            ? [
+                {
+                  number: 8,
+                  title: "feat: shared",
+                  state: "OPEN",
+                  headRefOid: head,
+                  isDraft: false,
+                  baseRefOid: "b".repeat(40),
+                  changedFiles: 600,
+                },
+              ]
+            : []),
+        ];
+        return Promise.resolve(jsonResponse(currentPolicyResponse("feat: add login", "OPEN", nodes, 0)));
+      }
+      return fallback(input, init);
+    });
+
+    await composeGitHubWebhookProcessor(env(), {
+      fetchImpl,
+      cacheStorage: new MemoryCacheStorage(),
+      appBotIdentityCache: new Map(),
+      now: () => new Date("2026-07-16T00:00:00.000Z"),
+    })(webhookPayload(pullRequestBody()), { deliveryId: "recovery-input-budget", attempt: 1 });
+
+    expect(postedStatuses(fetchImpl).at(-1)).toEqual({ sha: head, state: "success" });
+    expect(fetchImpl.mock.calls.some(([input]) => requestUrl(input).includes("/pulls/8/files"))).toBe(false);
+  });
+
+  it.each([
+    { count: 800, allowedType: "feat", expectedStatus: "success", pages: 8 },
+    { count: 800, allowedType: "docs", expectedStatus: "failure", pages: 8 },
+    { count: 1500, allowedType: "docs", expectedStatus: "success", pages: 0 },
+    { count: 3000, allowedType: "docs", expectedStatus: "success", pages: 0 },
+  ])("$count 件の変更ファイルで $expectedStatus を確定する", async ({ count, allowedType, expectedStatus, pages }) => {
+    const fallback = successfulGitHubFetch();
+    let comment: string | undefined;
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation((input, init) => {
+      const url = new URL(requestUrl(input));
+      if (url.pathname === "/repos/owner/repo/issues/7/comments") {
+        if (init?.method === "POST") {
+          comment = (JSON.parse(requestBody(init)) as { body: string }).body;
+          return Promise.resolve(jsonResponse({}, 201));
+        }
+        return Promise.resolve(
+          jsonResponse(comment === undefined ? [] : [{ id: 1, body: comment, user: { id: 4242 } }])
+        );
+      }
+      if (url.pathname === "/repos/owner/repo/pulls/7" && init?.method === "GET") {
+        return Promise.resolve(
+          jsonResponse({
+            head: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
+            base: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
+            changed_files: count,
+          })
+        );
+      }
+      if (url.pathname.endsWith("/pulls/7/files")) {
+        const page = Number(url.searchParams.get("page"));
+        return Promise.resolve(
+          jsonResponse(
+            Array.from({ length: 100 }, (_, index) => ({ filename: `docs/${String((page - 1) * 100 + index)}.md` }))
+          )
+        );
+      }
+      if (url.pathname === "/graphql" && requestBody(init).includes("TitleConfig")) {
+        return Promise.resolve(
+          jsonResponse({
+            data: {
+              repository: {
+                yml: {
+                  text: `preflight:\n  title-types:\n    - paths: ['docs/**']\n      types: [${allowedType}]`,
+                  isTruncated: false,
+                },
+                yaml: null,
+              },
+            },
+          })
+        );
+      }
+      if (url.pathname === "/graphql" && requestBody(init).includes("CurrentPolicy")) {
+        return Promise.resolve(jsonResponse(currentPolicyResponse("feat: add login", "OPEN", undefined, count)));
+      }
+      return fallback(input, init);
+    });
+
+    const processor = composeGitHubWebhookProcessor(env(), {
+      fetchImpl,
+      cacheStorage: new MemoryCacheStorage(),
+      appBotIdentityCache: new Map(),
+      now: () => new Date("2026-07-16T00:00:00.000Z"),
+    });
+    const payload = webhookPayload(pullRequestBody());
+    const outcome = await processor(payload, { deliveryId: "large-pr", attempt: 1 });
+
+    expect(outcome, fetchImpl.mock.calls.map(([input]) => requestUrl(input)).join("\n")).toEqual({
+      status: "processed",
+      result: "assigned",
+    });
+    expect(fetchImpl.mock.calls.filter(([input]) => requestUrl(input).includes("/pulls/7/files?"))).toHaveLength(pages);
+    expect(
+      fetchImpl.mock.calls.some(([input]) => new URL(requestUrl(input)).pathname === "/repos/owner/repo/pulls/7")
+    ).toBe(false);
+    expect(
+      postedStatuses(fetchImpl)
+        .filter(({ sha }) => sha === "6367c48dd193d56ea7b0baad25b19455e529f5ee")
+        .at(-1)
+    ).toEqual(expect.objectContaining({ state: expectedStatus }));
+    if (expectedStatus === "failure") expect(comment).toContain("`docs`");
+
+    expect(await processor(payload, { deliveryId: "large-pr", attempt: 1 })).toEqual({
+      status: "processed",
+      result: "duplicate",
+    });
+  });
+
+  it.each(["draft", "wip"])("予約 type %s の設定を無視して既定の type で検証する", async (type) => {
+    const fallback = successfulGitHubFetch();
+    const logger = new RecordingLogger();
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation((input, init) => {
+      if (new URL(requestUrl(input)).pathname === "/graphql" && requestBody(init).includes("TitleConfig")) {
+        return Promise.resolve(
+          jsonResponse({
+            data: {
+              repository: {
+                yml: {
+                  text: `preflight:\n  title-types:\n    - paths: ['**']\n      types: [${type}]`,
+                  isTruncated: false,
+                },
+                yaml: null,
+              },
+            },
+          })
+        );
+      }
+      return fallback(input, init);
+    });
+
+    const outcome = await composeGitHubWebhookProcessor(env(), {
+      fetchImpl,
+      logger,
+      cacheStorage: new MemoryCacheStorage(),
+      appBotIdentityCache: new Map(),
+      now: () => new Date("2026-07-16T00:00:00.000Z"),
+    })(webhookPayload(pullRequestBody()), { deliveryId: "reserved-type", attempt: 1 });
+
+    expect(outcome).toEqual({ status: "processed", result: "assigned" });
+    expect(postedStatuses(fetchImpl)).toContainEqual(expect.objectContaining({ state: "success" }));
+    expect(
+      fetchImpl.mock.calls.some(([input, init]) => requestUrl(input).includes("/comments") && init?.method === "POST")
+    ).toBe(false);
+    expect(logger.records.some(({ record }) => record.result === "config_unavailable")).toBe(true);
+  });
+
   it("pending から usecase, GitHub gateway, delivery cache までを結線し、同じ delivery の 2 回目を duplicate にする", async () => {
     const fetchImpl = successfulGitHubFetch();
     const cacheStorage = new MemoryCacheStorage();
@@ -228,11 +450,12 @@ describe("composeApp", () => {
       ?.signal;
     expect(accessTokenSignal).toBe(hardDeadlineController.signal);
 
+    const requestCount = fetchImpl.mock.calls.length;
     const duplicate = await processor(webhookPayload(body), { deliveryId: "delivery-1", attempt: 1 });
 
     expect(duplicate).toEqual({ status: "processed", result: "duplicate" });
     expect(createHardDeadlineSignal).toHaveBeenCalledTimes(2);
-    expect(fetchImpl).toHaveBeenCalledTimes(14);
+    expect(fetchImpl).toHaveBeenCalledTimes(requestCount);
     // 検証を始める前に pending を投稿し、処理済みと判定した再配信では投稿しない
     expect(postedStatuses(fetchImpl).at(0)).toEqual({
       sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee",
@@ -358,6 +581,18 @@ describe("composeApp", () => {
     const fetchImpl = vi.fn<typeof fetch>().mockImplementation((input, init) => {
       const url = requestUrl(input);
       const path = new URL(url).pathname;
+      if (path.endsWith("/pulls/8")) {
+        return Promise.resolve(
+          jsonResponse({
+            head: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
+            base: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
+            changed_files: 0,
+          })
+        );
+      }
+      if (path === "/graphql" && requestBody(init).includes("TitleConfig")) {
+        return Promise.resolve(jsonResponse({ data: { repository: { yml: null, yaml: null } } }));
+      }
       if (url.endsWith("/access_tokens")) {
         return Promise.resolve(jsonResponse({ token: "installation-token", expires_at: "2026-07-16T01:00:00Z" }, 201));
       }
@@ -368,6 +603,8 @@ describe("composeApp", () => {
               title: "feat: merged PR",
               state: "closed",
               head: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
+              base: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
+              changed_files: 0,
               draft: false,
             },
             200
@@ -596,13 +833,17 @@ describe("composeApp", () => {
         return Promise.resolve(jsonResponse([], 200));
       }
       if (new URL(url).pathname === "/graphql") {
-        if (requestBody(init).includes("CurrentPolicy"))
+        if (requestBody(init).includes("TitleConfig")) {
+          return Promise.resolve(jsonResponse({ data: { repository: { yml: null, yaml: null } } }));
+        }
+        if (requestBody(init).includes("CurrentPolicy")) {
           return Promise.resolve(
             jsonResponse({
               ...currentPolicyResponse("feat: add auto assignment", "OPEN", []),
               errors: [{ message: "partial" }],
             })
           );
+        }
         if (requestBody(init).includes("ConfirmSweep")) {
           return Promise.resolve(
             jsonResponse({
@@ -718,6 +959,8 @@ describe("composeApp", () => {
               title: currentTitle,
               state: "open",
               head: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
+              base: { sha: "6367c48dd193d56ea7b0baad25b19455e529f5ee" },
+              changed_files: 0,
               draft: false,
             },
             200
@@ -741,8 +984,12 @@ describe("composeApp", () => {
         );
       }
       if (new URL(url).pathname === "/graphql") {
-        if (requestBody(init).includes("CurrentPolicy"))
+        if (requestBody(init).includes("TitleConfig")) {
+          return Promise.resolve(jsonResponse({ data: { repository: { yml: null, yaml: null } } }));
+        }
+        if (requestBody(init).includes("CurrentPolicy")) {
           return Promise.resolve(jsonResponse(currentPolicyResponse(currentTitle)));
+        }
         if (requestBody(init).includes("ConfirmSweep")) {
           return Promise.resolve(
             jsonResponse({

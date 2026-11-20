@@ -22,6 +22,7 @@ const commitStatus = (sha: string): PullRequestCommitTitleStatus => ({
 });
 const command = () => ({ owner: "owner", repo: "repo", pullRequestNumber: 7, fallbackHeadSha: "abc123" });
 const createGateway = (input: { commitStatuses?: PullRequestCommitTitleStatus[] } = {}): TitleValidationGateway => ({
+  getTitleTypeInputs: vi.fn().mockResolvedValue({ rules: [], files: [], filesComplete: true }),
   getCurrentPolicyState: vi.fn().mockResolvedValue({
     current: { title: "feat: add login", headSha: "abc123", state: "open", draft: false },
     associatedPullRequests: [{ number: 7, title: "feat: add login", headSha: "abc123", draft: false }],

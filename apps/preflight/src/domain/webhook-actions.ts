@@ -11,5 +11,10 @@ const TITLE_VALIDATION_ACTIONS = new Set([
 
 export const triggersAutoAssign = (action: string): boolean => AUTO_ASSIGN_ACTIONS.has(action);
 
-export const triggersTitleValidation = (action: string, titleChanged: boolean): boolean =>
-  TITLE_VALIDATION_ACTIONS.has(action) || (action === "edited" && titleChanged);
+export interface PullRequestChanges {
+  title: boolean;
+  base: boolean;
+}
+
+export const triggersTitleValidation = (action: string, changes: PullRequestChanges): boolean =>
+  TITLE_VALIDATION_ACTIONS.has(action) || (action === "edited" && (changes.title || changes.base));

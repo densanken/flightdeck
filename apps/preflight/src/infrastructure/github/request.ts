@@ -43,6 +43,7 @@ export const githubRequest = async (input: {
   fetchImpl: typeof fetch;
   signal: AbortSignal;
   retry?: boolean | GitHubRetryOptions;
+  beforeAttempt?: () => void;
 }): Promise<Response> => {
   const retryEnabled = input.method === "GET" || input.retry === true || typeof input.retry === "object";
   const retryOptions = typeof input.retry === "object" ? input.retry : {};
@@ -55,6 +56,7 @@ export const githubRequest = async (input: {
   let lastNetworkError: unknown;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    input.beforeAttempt?.();
     let response: Response;
     try {
       if (input.signal.aborted) throw input.signal.reason;

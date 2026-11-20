@@ -1,6 +1,8 @@
 import { commitSha, githubId } from "@flightdeck/validation";
 import * as v from "valibot";
 
+import { changedFilesSchema } from "./pull-request-schema.js";
+
 import type { AssociatedPullRequestTitle } from "../../usecase/title-validation/dependencies.js";
 
 export const associatedObjectSchema = v.object({ associatedPullRequests: v.optional(v.unknown()) });
@@ -14,6 +16,8 @@ const connectionSchema = v.object({
       state: v.picklist(["OPEN", "CLOSED", "MERGED"]),
       isDraft: v.boolean(),
       headRefOid: commitSha,
+      baseRefOid: v.optional(commitSha),
+      changedFiles: v.optional(changedFilesSchema),
     })
   ),
   pageInfo: v.object({ hasNextPage: v.literal(false) }),
@@ -36,7 +40,14 @@ export const parseAssociatedPullRequests = (
     if (seen.has(node.number)) return undefined;
     seen.add(node.number);
     if (node.state === "OPEN" && node.headRefOid === sha) {
-      matches.push({ number: node.number, title: node.title, headSha: node.headRefOid, draft: node.isDraft });
+      matches.push({
+        number: node.number,
+        title: node.title,
+        headSha: node.headRefOid,
+        draft: node.isDraft,
+        baseSha: node.baseRefOid,
+        changedFiles: node.changedFiles,
+      });
     }
   }
   return matches.sort((a, b) => a.number - b.number);

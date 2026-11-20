@@ -33,18 +33,18 @@ export type TitleValidationFailureReason =
   | "invalid_scope"
   | "invalid_description";
 
-export interface ParsedPullRequestTitle {
-  type: PullRequestTitleType;
+export interface ParsedPullRequestTitle<T extends string = PullRequestTitleType> {
+  type: T;
   scope: string | undefined;
   breaking: boolean;
   description: string;
 }
 
-export type TitleValidationResult =
+export type TitleValidationResult<T extends string = PullRequestTitleType> =
   | {
       valid: true;
       title: string;
-      parsed: ParsedPullRequestTitle;
+      parsed: ParsedPullRequestTitle<T>;
     }
   | {
       valid: false;
@@ -79,15 +79,18 @@ const disallowedInvisibleCharacter = /\p{Cc}|\p{Cf}|[^\S ]/u;
 const disallowedFullwidthSymbol =
   /[[\u2014\u2015\u2018\u2019\u201C\u201D\u2026\u203B\u3000-\u303F\u30A0\u30FB\uFF01-\uFF65\uFFE0-\uFFEE]&&[\p{P}\p{S}]]/v;
 
-const isAllowedType = (value: string): value is PullRequestTitleType => allowedTypes.has(value);
-
-const invalidResult = (title: string, reason: TitleValidationFailureReason): TitleValidationResult => ({
+const invalidResult = (title: string, reason: TitleValidationFailureReason): TitleValidationFailure => ({
   valid: false,
   reason,
   title,
 });
 
-export const validatePullRequestTitle = (title: string): TitleValidationResult => {
+export function validatePullRequestTitle(title: string): TitleValidationResult;
+export function validatePullRequestTitle<T extends string>(
+  title: string,
+  types: readonly T[]
+): TitleValidationResult<T>;
+export function validatePullRequestTitle(title: string, types?: readonly string[]): TitleValidationResult<string> {
   if (title.trim().length === 0) return invalidResult(title, "empty");
   if (title.trim() !== title) return invalidResult(title, "surrounding_whitespace");
 
@@ -106,7 +109,9 @@ export const validatePullRequestTitle = (title: string): TitleValidationResult =
 
   const [, type, scope, breakingMarker, description] = match;
   if (!type || !description) return invalidResult(title, "invalid_format");
-  if (!isAllowedType(type)) return invalidResult(title, "unsupported_type");
+  if (!(types === undefined ? allowedTypes.has(type) : types.includes(type))) {
+    return invalidResult(title, "unsupported_type");
+  }
 
   if (
     scope !== undefined &&
@@ -133,4 +138,4 @@ export const validatePullRequestTitle = (title: string): TitleValidationResult =
       description,
     },
   };
-};
+}

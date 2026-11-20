@@ -6,6 +6,12 @@ import {
   truncateCommitStatusDescription,
 } from "./commit-status-description.js";
 
+import type { TitleTypePolicy } from "./title-types.js";
+
+// commit status は context ごとに最新の 1 件だけが評価される
+// pending へ戻せるのは check run に無い性質
+export type TitleStatusState = "error" | "failure" | "pending" | "success";
+
 export interface TitleStatusMessage {
   description: string;
   /**
@@ -16,8 +22,16 @@ export interface TitleStatusMessage {
 }
 
 export const buildTitleFailureStatusMessage = (
-  pullRequestNumbers: readonly [number, ...number[]]
+  pullRequestNumbers: readonly [number, ...number[]],
+  policy?: TitleTypePolicy
 ): TitleStatusMessage => {
+  if (pullRequestNumbers.length === 1 && policy?.restricted) {
+    return {
+      description: `PR #${String(pullRequestNumbers[0])}: 使用可能な type が制限されています`,
+      targetUrl: CONVENTIONAL_COMMITS_URL,
+    };
+  }
+
   const pullRequests = pullRequestNumbers.map((number) => `#${String(number)}`).join(", ");
   const completeDescription = `PR ${pullRequests} のタイトルを修正する必要があります`;
   const fallbackDescription = `PR #${String(pullRequestNumbers[0])} ほか ${String(pullRequestNumbers.length - 1)} 件のタイトルを修正する必要があります`;
@@ -25,6 +39,7 @@ export const buildTitleFailureStatusMessage = (
     commitStatusDescriptionByteLength(completeDescription) <= COMMIT_STATUS_DESCRIPTION_BYTE_BUDGET
       ? completeDescription
       : truncateCommitStatusDescription(fallbackDescription);
+
   return { description, targetUrl: CONVENTIONAL_COMMITS_URL };
 };
 

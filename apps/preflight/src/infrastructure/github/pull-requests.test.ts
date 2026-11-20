@@ -106,6 +106,7 @@ describe("getCurrentPolicyState", () => {
       associatedPullRequests: undefined,
     });
   });
+
   it("open かつ同じ head の PR だけを採用する", async () => {
     await expect(
       read(
@@ -121,6 +122,22 @@ describe("getCurrentPolicyState", () => {
       ],
     });
   });
+
+  it("関連 PR の base と変更ファイル数を取得する", async () => {
+    const baseRefOid = "a".repeat(40);
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse(response("AHEAD", [{ ...node(8, "fix: shared"), baseRefOid, changedFiles: 3 }])));
+
+    const result = await getCurrentPolicyState({
+      ...currentInput(fetchImpl),
+      headSha: "9f4ec6d0f2ae16551d600db3261072c8c99f4c1f",
+    });
+
+    expect(result.associatedPullRequests).toMatchObject([{ number: 8, baseSha: baseRefOid, changedFiles: 3 }]);
+    expect(requestBody(fetchImpl.mock.calls[0]?.[1]).query).toContain("headRefOid baseRefOid changedFiles");
+  });
+
   it("errors、SHA 不一致、打ち切りは一覧を破棄する", async () => {
     const truncated = response("AHEAD");
     truncated.data.repository.object.associatedPullRequests.pageInfo.hasNextPage = true;
@@ -132,6 +149,7 @@ describe("getCurrentPolicyState", () => {
       expect(result).toMatchObject({ associatedPullRequests: undefined });
     }
   });
+
   it("現在 head と異なる SHA でも比較と関連一覧が確定すれば再利用する", async () => {
     const body = response("AHEAD", [node(8, "fix: old", "3cc2b777ba8748ddfdc9f633b0600efc3bf72f5c")]);
     body.data.repository.defaultBranchRef.compare.headTarget.oid = "3cc2b777ba8748ddfdc9f633b0600efc3bf72f5c";

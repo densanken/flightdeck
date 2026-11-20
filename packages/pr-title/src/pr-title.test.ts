@@ -3,6 +3,12 @@ import { describe, expect, it } from "vitest";
 import { ALLOWED_PR_TITLE_TYPES, hasDraftTitleMarker, validatePullRequestTitle } from "./index.js";
 
 describe("validatePullRequestTitle", () => {
+  it("指定された type の一覧で検証する", () => {
+    expect(validatePullRequestTitle("content: update text", ["content"]).valid).toBe(true);
+    expect(validatePullRequestTitle("feat: add feature", ["content"])).toMatchObject({ reason: "unsupported_type" });
+    expect(validatePullRequestTitle("content: update text")).toMatchObject({ reason: "unsupported_type" });
+  });
+
   it("type の allow-list を公開する", () => {
     expect(ALLOWED_PR_TITLE_TYPES).toEqual([
       "feat",

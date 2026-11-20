@@ -1,3 +1,4 @@
+import type { PullRequestChanges } from "../../domain/webhook-actions.js";
 import type { WebhookFeature } from "../../repository/delivery/interface.js";
 import type { AssignmentResult } from "../assignment/interface.js";
 import type { TitleValidationOutcome } from "../title-validation/interface.js";
@@ -5,7 +6,7 @@ import type { TitleValidationOutcome } from "../title-validation/interface.js";
 export interface PullRequestPolicyCommand {
   deliveryId: string;
   action: string;
-  titleChanged: boolean;
+  changes: PullRequestChanges;
   installationId: number;
   owner: string;
   repo: string;

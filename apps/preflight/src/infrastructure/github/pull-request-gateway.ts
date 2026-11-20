@@ -2,17 +2,26 @@ import { confirmSweepCommits, listPullRequestCommitTitleStatuses, setPullRequest
 import { createIssueComment, deleteIssueComment, listIssueComments, updateIssueComment } from "./issue-comments.js";
 import { addPullRequestAuthorAsAssignee } from "./pull-request-assignee.js";
 import { getCurrentPolicyState, listOpenPullRequestsForHeadShas } from "./pull-requests.js";
+import { createTitleTypeInputCache, getTitleTypeInputs } from "./title-type-inputs.js";
 
 import type { GitHubInstallationSession } from "./installation-session.js";
+import type { TitleTypeInputCache } from "./title-type-inputs.js";
+import type { TitleTypeInputs } from "../../domain/title-types.js";
 import type { AssignPullRequestAuthorInput, GitHubAssignmentGateway } from "../../usecase/assignment/dependencies.js";
 import type {
   AssociatedPullRequestTitle,
   IssueComment,
   PullRequestCommitTitleStatus,
   TitleStatusState,
+  TitleTypeInputsQuery,
   TitleValidationGateway,
 } from "../../usecase/title-validation/dependencies.js";
 import type { Logger } from "../../util/logger.js";
+
+interface TitleTypeOptions {
+  cache: TitleTypeInputCache;
+  remainingInputRequests: () => number;
+}
 
 export class GitHubPullRequestGatewayImpl implements GitHubAssignmentGateway, TitleValidationGateway {
   constructor(
@@ -20,8 +29,24 @@ export class GitHubPullRequestGatewayImpl implements GitHubAssignmentGateway, Ti
     private readonly logger: Logger,
     // 全 open PR fallback の totalCount 不一致警告に付け、同じ delivery の他の github_webhook_consume log と相関できるようにする
     private readonly deliveryId: string,
-    private readonly fetchImpl: typeof fetch = (input, init) => fetch(input, init)
+    private readonly fetchImpl: typeof fetch = (input, init) => fetch(input, init),
+    private readonly titleTypeOptions: TitleTypeOptions = {
+      cache: createTitleTypeInputCache(),
+      remainingInputRequests: () => Infinity,
+    }
   ) {}
+
+  async getTitleTypeInputs(input: TitleTypeInputsQuery, signal: AbortSignal): Promise<TitleTypeInputs> {
+    return getTitleTypeInputs({
+      ...input,
+      installationToken: await this.session.getInstallationToken(signal),
+      fetchImpl: this.fetchImpl,
+      signal,
+      logger: this.logger,
+      deliveryId: this.deliveryId,
+      ...this.titleTypeOptions,
+    });
+  }
 
   async assignPullRequestAuthor(input: AssignPullRequestAuthorInput, signal: AbortSignal): Promise<boolean> {
     const result = await addPullRequestAuthorAsAssignee({

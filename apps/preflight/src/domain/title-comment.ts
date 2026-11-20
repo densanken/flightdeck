@@ -1,5 +1,6 @@
 import { ALLOWED_PR_TITLE_TYPES, CONVENTIONAL_COMMITS_URL } from "@flightdeck/pr-title";
 
+import type { TitleTypePolicy } from "./title-types.js";
 import type { TitleValidationFailure } from "@flightdeck/pr-title";
 
 export const PR_TITLE_COMMENT_MARKER = "<!-- preflight:pr-title-validation -->";
@@ -8,7 +9,6 @@ export const PR_TITLE_COMMENT_MARKER = "<!-- preflight:pr-title-validation -->";
 // 公式表記の `[optional scope]` は角括弧が省略可能を表すが、
 // 読んだ人が `feat[api]:` と書きかねないため、書く文字がそのまま出る表記にする
 const TITLE_FORMAT = "`<type>(<optional scope>)<optional !>: <description>`";
-const TYPE_LIST = ALLOWED_PR_TITLE_TYPES.map((type) => `\`${type}\``).join(", ");
 const DESCRIPTION_END_CHARACTERS = "`.` `,` `;` `:` `!` `?`";
 // 全角記号は該当する文字が多いため、日本語入力から混入しやすい代表例だけを挙げる
 const FULLWIDTH_SYMBOL_EXAMPLES =
@@ -17,6 +17,9 @@ const FULLWIDTH_SYMBOL_RULES = [
   "全角と CJK の記号は、末尾だけでなくタイトルのどこにも使用できません",
   `${FULLWIDTH_SYMBOL_EXAMPLES} のような記号はいずれも使用できません`,
 ] as const;
+
+const formatTypes = (policy?: TitleTypePolicy): string =>
+  (policy?.types ?? ALLOWED_PR_TITLE_TYPES).map((type) => `\`${type}\``).join(", ");
 
 const longestRun = (value: string, character: "`" | "~"): number => {
   let longest = 0;
@@ -53,7 +56,7 @@ interface TitleFailureGuidance {
 
 const STANDARD_EXAMPLES = ["feat: add passkey login", "feat: ログイン機能を追加"];
 
-const failureGuidance = (result: TitleValidationFailure): TitleFailureGuidance => {
+const failureGuidance = (result: TitleValidationFailure, policy?: TitleTypePolicy): TitleFailureGuidance => {
   switch (result.reason) {
     case "empty":
       return {
@@ -85,9 +88,16 @@ const failureGuidance = (result: TitleValidationFailure): TitleFailureGuidance =
         examples: ["feat: 認証まわりを整理", "feat: 対応 (暫定) を追加"],
       };
     case "unsupported_type":
+      if (policy?.restricted) {
+        return {
+          summary: "リポジトリの設定により、本 Pull Request ではこの type は許可されていません。",
+          rules: [`この Pull Request で使用できる type は ${formatTypes(policy)} のみです`],
+          examples: [],
+        };
+      }
       return {
         summary: "使用できる type ではありません。",
-        rules: [`使用できる type は ${TYPE_LIST} で、すべて英小文字とする必要があります`],
+        rules: [`使用できる type は ${formatTypes(policy)} で、すべて英小文字とする必要があります`],
         examples: ["feat: add passkey login", "chore(deps): update hono"],
       };
     case "invalid_scope":
@@ -120,7 +130,7 @@ const failureGuidance = (result: TitleValidationFailure): TitleFailureGuidance =
  * このリポジトリのルールは Conventional Commits の上位互換ではないため、
  * 公式へのリンクだけを置いて「公式に従えば通る」と誤解されることを防ぐ
  */
-const ALL_RULES_DETAILS = `<details>
+const allRulesDetails = (policy?: TitleTypePolicy): string => `<details>
 <summary>タイトルのルール</summary>
 
 ${TITLE_FORMAT}
@@ -130,7 +140,7 @@ ${TITLE_FORMAT}
 そのため、上記サイトに従って書いたタイトルであっても、次の点で無効になることがあります。
 
 ${bulletList([
-  `使用できる type は ${TYPE_LIST} で、すべて英小文字とする必要があります`,
+  `使用できる type は ${formatTypes(policy)} で、すべて英小文字とする必要があります`,
   "type と description の区切りは `:` と半角スペース 1 個にする必要があります",
   "scope は省略可能です",
   "scope に使用できる文字は英小文字、数字、`-` `.` `_` `/` に限られます",
@@ -146,9 +156,10 @@ ${bulletList([
 
 </details>`;
 
-const failureDetail = (result: TitleValidationFailure): string => {
-  const guidance = failureGuidance(result);
-  const examples = guidance.examples.length === 0 ? "" : `### 修正例\n\n${codeBulletList(guidance.examples)}`;
+const failureDetail = (result: TitleValidationFailure, policy?: TitleTypePolicy): string => {
+  const guidance = failureGuidance(result, policy);
+  const examples =
+    policy?.restricted || guidance.examples.length === 0 ? "" : `### 修正例\n\n${codeBulletList(guidance.examples)}`;
   return `> [!WARNING]
 > ${guidance.summary}
 
@@ -162,32 +173,39 @@ ${bulletList(guidance.rules)}
 
 ${examples}
 
-${ALL_RULES_DETAILS}`;
+${allRulesDetails(policy)}`;
 };
 
 export const buildTitleValidationFailureComment = (
-  result: TitleValidationFailure
+  result: TitleValidationFailure,
+  policy?: TitleTypePolicy
 ): string => `${PR_TITLE_COMMENT_MARKER}
 
 ## Pull Request のタイトルを修正してください
 
-${failureDetail(result)}
+${failureDetail(result, policy)}
 
 タイトルを編集すると再検証され、ルールに一致すればこのコメントは削除されます。
 `;
 
-export const buildDraftTitleComment = (result: TitleValidationFailure): string => `${PR_TITLE_COMMENT_MARKER}
+export const buildDraftTitleComment = (
+  result: TitleValidationFailure,
+  policy?: TitleTypePolicy
+): string => `${PR_TITLE_COMMENT_MARKER}
 
 ## Ready for review の前にタイトルを修正してください
 
 この Pull Request の現在のタイトルはルールに一致していないため、Ready for review にする前に修正してください。
 
-${failureDetail(result)}
+${failureDetail(result, policy)}
 
 タイトルを編集すると再検証され、ルールに一致すればこのコメントは削除されます。
 `;
 
-export const buildDraftMarkerTitleComment = (title: string): string => `${PR_TITLE_COMMENT_MARKER}
+export const buildDraftMarkerTitleComment = (
+  title: string,
+  policy?: TitleTypePolicy
+): string => `${PR_TITLE_COMMENT_MARKER}
 
 ## この Pull Request はまだ作業中です
 
@@ -202,5 +220,5 @@ ${createSafeMarkdownCodeFence(title)}
 
 接頭辞を外すとタイトルの検証を行い、タイトルがルールに一致すればこのコメントは削除されます。
 
-${ALL_RULES_DETAILS}
+${allRulesDetails(policy)}
 `;

@@ -10,3 +10,6 @@ allowBuilds:
   sharp: false
   unrs-resolver: false
   workerd: true
+minimumReleaseAgeExclude:
+  # Renovate security update: picomatch@4.0.4
+  - picomatch@4.0.4

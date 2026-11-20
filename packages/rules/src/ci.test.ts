@@ -10,6 +10,10 @@ describe("CI の判定", () => {
     expect(evaluateCi([success], [])).toBe("passed");
   });
 
+  it("neutral の完了を通過として扱う", () => {
+    expect(evaluateCi([success, { ...success, conclusion: "neutral" }], [])).toBe("passed");
+  });
+
   it("全結果を検査する", () => {
     expect(evaluateCi([success, { ...success, conclusion: "failure" }], [])).toBe("blocked");
     expect(evaluateCi([success, { ...success, status: "queued", conclusion: null }], [])).toBe("pending");

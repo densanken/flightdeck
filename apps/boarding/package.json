@@ -1,0 +1,27 @@
+{
+  "name": "boarding",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "pnpm typecheck && wrangler deploy --dry-run --config wrangler.jsonc",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json",
+    "lint": "pnpm typecheck && eslint --fix && prettier --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "set-github-private-key": "tsx scripts/set-github-private-key.ts"
+  },
+  "dependencies": {
+    "@flightdeck/github-webhook-signature": "workspace:*",
+    "@flightdeck/rules": "workspace:*",
+    "@flightdeck/validation": "workspace:*",
+    "hono": "^4.13.8",
+    "valibot": "^1.5.0",
+    "@flightdeck/github-app-jwt": "workspace:*",
+    "yaml": "^2.8.0",
+    "@flightdeck/logger": "workspace:*"
+  },
+  "devDependencies": {
+    "@flightdeck/private-key-env": "workspace:*"
+  }
+}

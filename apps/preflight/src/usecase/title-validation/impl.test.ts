@@ -185,7 +185,9 @@ describe("ValidatePullRequestTitleUseCaseImpl", () => {
     expect(
       vi
         .mocked(gateway.setTitleStatus)
-        .mock.calls.some(([input]) => input.state === "failure" && input.description.includes("type: docs"))
+        .mock.calls.some(
+          ([input]) => input.state === "failure" && input.description === "PR #7: 使用可能な type が制限されています"
+        )
     ).toBe(true);
     expect(vi.mocked(gateway.createIssueComment).mock.calls.some(([input]) => input.body.includes("`docs`"))).toBe(
       true

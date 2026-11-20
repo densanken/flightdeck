@@ -33,7 +33,7 @@ describe("title policy", () => {
     const verdict = headVerdict({ associatedPullRequests: [{ ...current, number: 7 }] });
 
     expect(verdict.state).toBe("failure");
-    expect(verdict.message.description).toContain("content");
+    expect(verdict.message.description).toBe("PR #7: 使用可能な type が制限されています");
     expect(commentBody({ current, currentValidation: validateTitle(current) })).toContain("`content`");
   });
 

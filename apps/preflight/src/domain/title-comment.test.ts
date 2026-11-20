@@ -95,6 +95,30 @@ describe("buildTitleValidationFailureComment", () => {
     expect(comment).toContain("タイトルの先頭と末尾に空白を置くことはできません");
     expect(comment.split("<details>")[0]).not.toContain("修正例");
   });
+
+  it("type が制限されていない場合は修正例を表示する", () => {
+    const result = invalidTitle("feat: Add login");
+
+    expect(buildTitleValidationFailureComment(result, { types: ["feat", "content"], restricted: false })).toContain(
+      "### 修正例"
+    );
+  });
+
+  it.each([
+    "",
+    " feat: add login",
+    "not conventional",
+    "feat: add login；",
+    "unknown: add login",
+    "feat(BAD): add login",
+    "feat: Add login",
+  ])("type が制限されている場合は %j の修正例を表示しない", (title) => {
+    const result = invalidTitle(title);
+    const policy = { types: ["content"], restricted: true };
+
+    expect(buildTitleValidationFailureComment(result, policy)).not.toContain("### 修正例");
+    expect(buildDraftTitleComment(result, policy)).not.toContain("### 修正例");
+  });
 });
 
 describe("buildDraftTitleComment", () => {

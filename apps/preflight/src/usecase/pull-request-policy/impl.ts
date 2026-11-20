@@ -14,7 +14,9 @@ import type { WebhookFeature } from "../../repository/delivery/interface.js";
 const targetFeatures = (command: PullRequestPolicyCommand): WebhookFeature[] => {
   const features: WebhookFeature[] = [];
   if (triggersAutoAssign(command.action)) features.push("auto-assign");
-  if (triggersTitleValidation(command.action, command.titleChanged)) features.push("title-validation");
+  if (triggersTitleValidation(command.action, command.changes)) {
+    features.push("title-validation");
+  }
   return features;
 };
 

@@ -1,9 +1,10 @@
+import type { TitleStatusState } from "../../domain/title-status-message.js";
+import type { TitleTypeInputs, TitleTypePolicy } from "../../domain/title-types.js";
+
+export type { TitleStatusState } from "../../domain/title-status-message.js";
+
 // 1 ページ 100 件で 600 件相当。上限を超える場合は一覧を確定できなかった失敗とする
 export const MAX_OPEN_PULL_REQUEST_PAGES = 6;
-
-// commit status は context ごとに最新の 1 件だけが評価される
-// pending へ戻せるのは check run に無い性質
-export type TitleStatusState = "error" | "failure" | "pending" | "success";
 
 /**
  * `PR Title` status の読み取り結果
@@ -22,6 +23,9 @@ export interface PullRequestTitleState {
   headSha: string;
   state: "closed" | "open";
   draft: boolean;
+  typePolicy?: TitleTypePolicy;
+  baseSha?: string;
+  changedFiles?: number;
 }
 
 export interface AssociatedPullRequestTitle {
@@ -29,6 +33,9 @@ export interface AssociatedPullRequestTitle {
   title: string;
   headSha: string;
   draft: boolean;
+  typePolicy?: TitleTypePolicy;
+  baseSha?: string;
+  changedFiles?: number;
 }
 
 export interface PullRequestCommitTitleStatus {
@@ -40,7 +47,17 @@ export interface PullRequestCommitTitleStatus {
   statusState: ObservedTitleStatusState | null;
 }
 
+export interface TitleTypeInputsQuery {
+  owner: string;
+  repo: string;
+  pullRequestNumber: number;
+  headSha: string;
+  baseSha?: string;
+  changedFiles?: number;
+}
+
 export interface TitleValidationGateway {
+  readonly getTitleTypeInputs: (input: TitleTypeInputsQuery, signal: AbortSignal) => Promise<TitleTypeInputs>;
   readonly getCurrentPolicyState: (
     input: { owner: string; repo: string; pullRequestNumber: number; headSha: string },
     signal: AbortSignal

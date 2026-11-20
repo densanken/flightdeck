@@ -16,11 +16,14 @@
     "@flightdeck/github-webhook-signature": "workspace:*",
     "@flightdeck/logger": "workspace:*",
     "@flightdeck/pr-title": "workspace:*",
+    "@flightdeck/rules": "workspace:*",
     "@flightdeck/validation": "workspace:*",
     "hono": "^4.13.8",
+    "picomatch": "^4.0.2",
     "valibot": "^1.5.0"
   },
   "devDependencies": {
-    "@flightdeck/private-key-env": "workspace:*"
+    "@flightdeck/private-key-env": "workspace:*",
+    "@types/picomatch": "^4.0.0"
   }
 }

@@ -50,6 +50,12 @@ describe("parsePullRequestWebhookPayload", () => {
     expect(parsePullRequestWebhookPayload(value)?.changes).toBeUndefined();
   });
 
+  it("base の変更を保持する", () => {
+    const value = payload();
+    value.changes = { base: { ref: { from: "main" } } };
+    expect(parsePullRequestWebhookPayload(value)?.changes).toEqual({ base: { ref: { from: "main" } } });
+  });
+
   it.each([
     [
       "title が無い payload",

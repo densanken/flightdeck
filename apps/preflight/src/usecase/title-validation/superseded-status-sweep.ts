@@ -1,5 +1,7 @@
 import { MAX_OPEN_PULL_REQUEST_PAGES } from "./dependencies.js";
-import { headVerdict, normalizeAssociatedPullRequests, sameAssociatedPullRequests } from "./policy-state.js";
+import { normalizeAssociatedPullRequests, sameAssociatedPullRequests } from "./policy-state.js";
+import { loadAssociatedTitleTypePolicies } from "./title-type-inputs.js";
+import { headVerdict } from "../../domain/title-policy.js";
 import { TITLE_STATUS_MESSAGES } from "../../domain/title-status-message.js";
 
 import type { AssociatedPullRequestTitle, TitleStatusState, TitleValidationPhases } from "./dependencies.js";
@@ -150,11 +152,17 @@ export class SupersededStatusSweep {
           )
         : [];
 
-    return new Map(
-      shas.map((sha) => [
+    const results = new Map<string, AssociatedPullRequestTitle[]>();
+    for (const sha of shas) {
+      const normalized = normalizeAssociatedPullRequests(
+        confirmations.get(sha) ?? scanned.filter((pr) => pr.headSha === sha),
+        sha
+      );
+      results.set(
         sha,
-        normalizeAssociatedPullRequests(confirmations.get(sha) ?? scanned.filter((pr) => pr.headSha === sha), sha),
-      ])
-    );
+        await loadAssociatedTitleTypePolicies({ gateway, coordinates: command, pullRequests: normalized, signal })
+      );
+    }
+    return results;
   }
 }

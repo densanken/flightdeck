@@ -88,7 +88,7 @@ describe("検証済み payload の処理", () => {
       {
         deliveryId: "delivery-1",
         action: "opened",
-        titleChanged: false,
+        changes: { title: false, base: false },
         installationId: 42,
         owner: "owner",
         repo: "repo",

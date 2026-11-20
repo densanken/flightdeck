@@ -10,9 +10,11 @@ import { createGitHubWebhookProcessor, HARD_DEADLINE_MS } from "../handler/githu
 import { setPullRequestTitleStatus } from "../infrastructure/github/commit-status.js";
 import { GitHubInstallationSession } from "../infrastructure/github/installation-session.js";
 import { GitHubPullRequestGatewayImpl } from "../infrastructure/github/pull-request-gateway.js";
+import { createTitleTypeInputCache } from "../infrastructure/github/title-type-inputs.js";
 import { CacheDeliveryRepository } from "../repository/delivery/impl.js";
 import { AssignPullRequestAuthorUseCaseImpl } from "../usecase/assignment/impl.js";
 import { PullRequestPolicyUseCaseImpl } from "../usecase/pull-request-policy/impl.js";
+import { MAX_OPEN_PULL_REQUEST_PAGES } from "../usecase/title-validation/dependencies.js";
 import { ValidatePullRequestTitleUseCaseImpl } from "../usecase/title-validation/impl.js";
 import { jsonResponse } from "../util/http-response.js";
 import { createLogger } from "../util/logger.js";
@@ -27,6 +29,19 @@ import type { Logger } from "../util/logger.js";
 
 // 安定した Bot user ID だけを isolate 内で共有し、token や JWT は保持しない
 const appBotIdentityCache = new Map<string, number>();
+
+// 通常検証の完了と、旧 HEAD の走査・修復に残す
+const NORMAL_COMPLETION_RESERVE = 8;
+const SWEEP_RESERVE = 11;
+
+// 各段階で状態の再確認や status 投稿などのために残す（sweep は最大 3 件を修復する）
+const TITLE_INPUT_RESERVE: Record<SubrequestPurpose, number> = {
+  normal: NORMAL_COMPLETION_RESERVE + SWEEP_RESERVE,
+  sweep: 3,
+  // status 投稿後の再確認と、必要な場合の open PR 走査に残す
+  recovery: 2 + MAX_OPEN_PULL_REQUEST_PAGES,
+  recovery_status: 0,
+};
 
 export interface PlatformDependencies {
   appBotIdentityCache?: AppBotIdentityCache;
@@ -58,6 +73,7 @@ export const composeGitHubWebhookProcessor =
           return fetchImpl(input, init);
         };
       const normalFetch = budgetedFetch("normal");
+      const titleTypeCache = createTitleTypeInputCache();
       const deliveryRepository = new CacheDeliveryRepository(
         resolvedRuntimeOptions.deliveryCacheTtlSeconds,
         budgetedCacheStorage(platform.cacheStorage ?? caches, budget),
@@ -88,8 +104,11 @@ export const composeGitHubWebhookProcessor =
         createTitleValidationUseCase: (installationId) => {
           const session = getSession(installationId);
           const makeGateway = (purpose: SubrequestPurpose) =>
-            new GitHubPullRequestGatewayImpl(session, logger, delivery.deliveryId, budgetedFetch(purpose));
-          return new ValidatePullRequestTitleUseCaseImpl(
+            new GitHubPullRequestGatewayImpl(session, logger, delivery.deliveryId, budgetedFetch(purpose), {
+              cache: titleTypeCache,
+              remainingInputRequests: () => Math.max(0, budget.remaining(purpose) - TITLE_INPUT_RESERVE[purpose]),
+            });
+          const useCase = new ValidatePullRequestTitleUseCaseImpl(
             makeGateway("normal"),
             () => parseGitHubAppBotUserId(env.GITHUB_APP_BOT_USER_ID),
             {
@@ -109,6 +128,14 @@ export const composeGitHubWebhookProcessor =
               },
             }
           );
+          return {
+            execute: async (...args) => {
+              const outcome = await useCase.execute(...args);
+              // 検証と sweep が完了した後は、残った枠を配信の処理済み記録に使える
+              if (!outcome.supersededSweepFailed) budget.releaseReserves();
+              return outcome;
+            },
+          };
         },
         now,
       });

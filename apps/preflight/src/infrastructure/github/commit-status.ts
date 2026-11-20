@@ -275,7 +275,7 @@ export const confirmSweepCommits = async (input: {
     variables[`oid${String(i)}`] = sha;
     declarations.push(`$sha${String(i)}: String!, $oid${String(i)}: GitObjectID!`);
     objects.push(
-      `o${String(i)}: object(oid: $oid${String(i)}) { ... on Commit { associatedPullRequests(first: 100) { totalCount nodes { number title state isDraft headRefOid } pageInfo { hasNextPage } } } }`
+      `o${String(i)}: object(oid: $oid${String(i)}) { ... on Commit { associatedPullRequests(first: 100) { totalCount nodes { number title state isDraft headRefOid baseRefOid changedFiles } pageInfo { hasNextPage } } } }`
     );
     comparisons.push(`c${String(i)}: compare(headRef: $sha${String(i)}) { status headTarget { oid } }`);
   });

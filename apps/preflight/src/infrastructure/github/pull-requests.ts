@@ -6,6 +6,7 @@ import {
   isOutsideDefaultBranch,
   parseAssociatedPullRequests,
 } from "./associated-pull-requests.js";
+import { changedFilesSchema } from "./pull-request-schema.js";
 import { GITHUB_API_BASE_URL, githubRequest, invalidShapeError, readGitHubJson } from "./request.js";
 import { GitHubError } from "../../errors.js";
 import { MAX_OPEN_PULL_REQUEST_PAGES } from "../../usecase/title-validation/dependencies.js";
@@ -16,12 +17,12 @@ import type { Logger } from "../../util/logger.js";
 const CURRENT_POLICY_QUERY = `
   query CurrentPolicy($owner: String!, $repo: String!, $number: Int!, $sha: String!, $oid: GitObjectID!) {
     repository(owner: $owner, name: $repo) {
-      pullRequest(number: $number) { title state isDraft headRefOid }
+      pullRequest(number: $number) { title state isDraft headRefOid baseRefOid changedFiles }
       object(oid: $oid) {
         ... on Commit {
           associatedPullRequests(first: 100) {
             totalCount
-            nodes { number title state isDraft headRefOid }
+            nodes { number title state isDraft headRefOid baseRefOid changedFiles }
             pageInfo { hasNextPage }
           }
         }
@@ -47,6 +48,8 @@ const OPEN_PULL_REQUESTS_QUERY = `
           state
           isDraft
           headRefOid
+          baseRefOid
+          changedFiles
         }
         pageInfo {
           hasNextPage
@@ -70,6 +73,8 @@ const nodeSchema = v.object({
   state: v.literal("OPEN"),
   isDraft: v.boolean(),
   headRefOid: commitSha,
+  baseRefOid: v.optional(commitSha),
+  changedFiles: v.optional(changedFilesSchema),
 });
 
 const openPageSchema = v.object({
@@ -96,6 +101,8 @@ const parseOpenPullRequestPage = (value: unknown): OpenPullRequestPage | null =>
       title: node.title,
       headSha: node.headRefOid,
       draft: node.isDraft,
+      baseSha: node.baseRefOid,
+      changedFiles: node.changedFiles,
     })),
     hasNextPage: page.pageInfo.hasNextPage,
     endCursor: page.pageInfo.endCursor,
@@ -113,6 +120,8 @@ const currentResponseSchema = v.object({
         state: v.picklist(["OPEN", "CLOSED", "MERGED"]),
         isDraft: v.boolean(),
         headRefOid: commitSha,
+        baseRefOid: v.optional(commitSha),
+        changedFiles: v.optional(changedFilesSchema),
       }),
       defaultBranchRef: v.optional(v.unknown()),
       object: v.optional(v.unknown()),
@@ -268,6 +277,8 @@ export const getCurrentPolicyState = async (input: {
     state: pr.state === "OPEN" ? "open" : "closed",
     draft: pr.isDraft,
     headSha: pr.headRefOid,
+    baseSha: pr.baseRefOid,
+    changedFiles: pr.changedFiles,
   };
   const branch = v.safeParse(branchSchema, repository.defaultBranchRef);
   const object = v.safeParse(associatedObjectSchema, repository.object);

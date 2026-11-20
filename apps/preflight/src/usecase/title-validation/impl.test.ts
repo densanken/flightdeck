@@ -80,6 +80,7 @@ const createGateway = (
     return state ? Promise.resolve(state) : Promise.reject(new Error("Missing test state"));
   };
   const gateway: TitleValidationGateway = {
+    getTitleTypeInputs: vi.fn().mockResolvedValue({ rules: [], files: [], filesComplete: true }),
     getCurrentPolicyState: vi.fn<TitleValidationGateway["getCurrentPolicyState"]>(async (request, signal) => ({
       current: await getCurrentPullRequestTitleState(request, signal),
       associatedPullRequests: undefined,
@@ -140,6 +141,61 @@ const phases = (sweep: TitleValidationGateway, recovery = sweep, recoveryStatus 
 });
 
 describe("ValidatePullRequestTitleUseCaseImpl", () => {
+  it("共有 HEAD の別の draft PR は取得せず、処理対象の draft PR は取得する", async () => {
+    const gateway = createGateway({
+      states: [pullRequestState("feat: add login", "abc123", "open", true)],
+      associatedStates: [[{ number: 8, title: "feat: other", headSha: "abc123", draft: true }]],
+    });
+
+    await new ValidatePullRequestTitleUseCaseImpl(gateway, () => 42, phases(gateway)).execute(
+      command(),
+      new AbortController().signal
+    );
+
+    const calls = vi.mocked(gateway.getTitleTypeInputs).mock.calls;
+    expect(calls.some(([input]) => input.pullRequestNumber === 7)).toBe(true);
+    expect(calls.some(([input]) => input.pullRequestNumber === 8)).toBe(false);
+  });
+
+  it("共有 HEAD の各 PR をそれぞれの変更ファイルで検証する", async () => {
+    const gateway = createGateway({
+      associatedStates: [
+        [
+          { number: 7, title: "feat: add login", headSha: "abc123", draft: false },
+          { number: 8, title: "content: update text", headSha: "abc123", draft: false },
+        ],
+      ],
+    });
+
+    vi.mocked(gateway.getTitleTypeInputs).mockImplementation(({ pullRequestNumber }) =>
+      Promise.resolve({
+        rules: [{ paths: ["docs/**"], types: pullRequestNumber === 7 ? ["docs"] : ["content"] }],
+        files: ["docs/a.md"],
+        filesComplete: true,
+      })
+    );
+
+    await expect(
+      new ValidatePullRequestTitleUseCaseImpl(gateway, () => 42, phases(gateway)).execute(
+        command(),
+        new AbortController().signal
+      )
+    ).resolves.toMatchObject({ result: "invalid" });
+
+    expect(
+      vi
+        .mocked(gateway.setTitleStatus)
+        .mock.calls.some(([input]) => input.state === "failure" && input.description.includes("type: docs"))
+    ).toBe(true);
+    expect(vi.mocked(gateway.createIssueComment).mock.calls.some(([input]) => input.body.includes("`docs`"))).toBe(
+      true
+    );
+    expect(gateway.getTitleTypeInputs).toHaveBeenCalledWith(
+      expect.objectContaining({ pullRequestNumber: 8 }),
+      expect.anything()
+    );
+  });
+
   it("recovery は現在 head を優先し、残りの投稿枠で旧 SHA も fail-closed にする", async () => {
     const normal = createGateway({ states: [pullRequestState("feat: current", "new-sha")] });
     const recovery = createGateway({ states: [pullRequestState("feat: current", "new-sha")] });

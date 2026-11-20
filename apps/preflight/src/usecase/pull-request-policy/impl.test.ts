@@ -28,7 +28,7 @@ class MemoryDeliveryRepository implements DeliveryRepository {
 const command = (overrides: Partial<PullRequestPolicyCommand> = {}): PullRequestPolicyCommand => ({
   deliveryId: "delivery-1",
   action: "opened",
-  titleChanged: false,
+  changes: { title: false, base: false },
   installationId: 42,
   owner: "owner",
   repo: "repo",
@@ -106,19 +106,29 @@ describe("PullRequestPolicyUseCaseImpl", () => {
     expect(fixture.titleExecute).toHaveBeenCalledOnce();
   });
 
-  it("edited は title 変更時だけ実行し、synchronize, ready_for_review, converted_to_draft, closed では title 検証だけを実行する", async () => {
+  it("edited は title または base の変更時に実行し、synchronize, ready_for_review, converted_to_draft, closed では title 検証だけを実行する", async () => {
     const ignored = createUseCase();
     await expect(
-      ignored.useCase.execute(command({ action: "edited", titleChanged: false }), new AbortController().signal)
+      ignored.useCase.execute(command({ action: "edited" }), new AbortController().signal)
     ).resolves.toMatchObject({ features: [], result: "ignored_action" });
     expect(ignored.createGateway).not.toHaveBeenCalled();
 
     const edited = createUseCase();
     await expect(
-      edited.useCase.execute(command({ action: "edited", titleChanged: true }), new AbortController().signal)
+      edited.useCase.execute(
+        command({ action: "edited", changes: { title: true, base: false } }),
+        new AbortController().signal
+      )
     ).resolves.toMatchObject({ features: [expect.objectContaining({ feature: "title-validation" })] });
     expect(edited.assignmentExecute).not.toHaveBeenCalled();
     expect(edited.titleExecute).toHaveBeenCalledOnce();
+
+    const baseEdited = createUseCase();
+    await baseEdited.useCase.execute(
+      command({ action: "edited", changes: { title: false, base: true } }),
+      new AbortController().signal
+    );
+    expect(baseEdited.titleExecute).toHaveBeenCalledOnce();
 
     const synchronized = createUseCase();
     await synchronized.useCase.execute(

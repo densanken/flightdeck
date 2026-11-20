@@ -7,6 +7,7 @@ import { AppError } from "../../errors.js";
 
 import type { RequestLogContext } from "./context.js";
 import type { PullRequestWebhookPayload } from "./payload.js";
+import type { PullRequestChanges } from "../../domain/webhook-actions.js";
 import type { ErrorCode } from "../../errors.js";
 import type { FeatureResult, PullRequestPolicyUseCase } from "../../usecase/pull-request-policy/interface.js";
 import type { Logger } from "../../util/logger.js";
@@ -75,8 +76,6 @@ const postPendingTitleStatus = async (
 ): Promise<void> => {
   const setPendingTitleStatus = dependencies.setPendingTitleStatus;
   if (!setPendingTitleStatus) return;
-  if (!triggersTitleValidation(payload.action, payload.changes?.title !== undefined)) return;
-
   // 機能ごとに処理済みを記録するため、前の attempt が title の verdict だけ書き終えている場合がある
   // delivery cache は colo-local で別 colo の attempt を確認できないので、retry では pending を書かない
   // 確定した status を pending へ戻して gate を開閉させるより、pending を落とすほうが影響は小さい
@@ -135,6 +134,10 @@ export const createGitHubWebhookProcessor =
     const deliveryId = delivery.deliveryId;
     const { owner, name: repo } = splitRepository(payload.repository.fullName);
     const author = payload.pullRequest.user.login;
+    const changes: PullRequestChanges = {
+      title: payload.changes?.title !== undefined,
+      base: payload.changes?.base?.ref !== undefined,
+    };
     const context: RequestLogContext = {
       deliveryId,
       githubEvent: "pull_request",
@@ -155,13 +158,15 @@ export const createGitHubWebhookProcessor =
     const signal = AbortSignal.any([softDeadlineSignal, hardDeadlineSignal]);
 
     try {
-      await postPendingTitleStatus(dependencies, payload, { owner, repo }, delivery, context, startedAt, signal);
+      if (triggersTitleValidation(payload.action, changes)) {
+        await postPendingTitleStatus(dependencies, payload, { owner, repo }, delivery, context, startedAt, signal);
+      }
 
       const outcome = await dependencies.policyUseCase.execute(
         {
           deliveryId,
           action: payload.action,
-          titleChanged: payload.changes?.title !== undefined,
+          changes,
           installationId: payload.installation.id,
           owner,
           repo,

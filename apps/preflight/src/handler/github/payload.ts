@@ -6,7 +6,12 @@ const nonEmpty = v.pipe(v.string(), v.nonEmpty());
 const payloadSchema = v.object({
   action: v.string(),
   before: v.optional(commitSha),
-  changes: v.optional(v.object({ title: v.optional(v.object({ from: v.optional(v.string()) })) })),
+  changes: v.optional(
+    v.object({
+      title: v.optional(v.object({ from: v.optional(v.string()) })),
+      base: v.optional(v.object({ ref: v.optional(v.object({ from: v.optional(v.string()) })) })),
+    })
+  ),
   installation: v.object({ id: githubId }),
   repository: v.object({ full_name: repositoryFullName }),
   pull_request: v.object({
@@ -21,7 +26,7 @@ const payloadSchema = v.object({
 export interface PullRequestWebhookPayload {
   action: string;
   before?: string;
-  changes?: { title?: { from?: string } };
+  changes?: { title?: { from?: string }; base?: { ref?: { from?: string } } };
   installation: { id: number };
   repository: { fullName: string };
   pullRequest: {
@@ -39,7 +44,7 @@ export const parsePullRequestWebhookPayload = (value: unknown): PullRequestWebho
   const { pull_request: pullRequest, repository, ...rest } = parsed.output;
   return {
     ...rest,
-    changes: rest.changes?.title === undefined ? undefined : rest.changes,
+    changes: rest.changes?.title === undefined && rest.changes?.base?.ref === undefined ? undefined : rest.changes,
     repository: { fullName: repository.full_name },
     pullRequest,
   };

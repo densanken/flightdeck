@@ -75,7 +75,8 @@ describe("application routing", () => {
     const logSpy = vi.spyOn(logger, "log").mockImplementation(() => {
       // この test では log の出力を意図的に抑止する
     });
-    const discord = new Hono<Env>().get("/boom", () => {
+    const discord = new Hono<Env>();
+    discord.get("/boom", () => {
       throw new TypeError("broken");
     });
     const app = createApp({ discord, github: new Hono<Env>() });

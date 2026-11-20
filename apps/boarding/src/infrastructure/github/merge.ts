@@ -26,7 +26,7 @@ export class GitHubMerge {
       return "merged";
     } catch (error) {
       if (error instanceof GitHubHttpError && error.status === 409) return "changed";
-      if (error instanceof GitHubHttpError && [403, 405, 422].includes(error.status)) {
+      if (error instanceof GitHubHttpError && !error.rateLimited && [403, 405, 422].includes(error.status)) {
         this.input.logger.log("warn", { event: "merge_rejected", number: input.number, status: error.status });
         return "rejected";
       }

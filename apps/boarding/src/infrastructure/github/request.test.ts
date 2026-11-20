@@ -23,6 +23,20 @@ describe("GitHubRequest", () => {
     });
   });
 
+  it.each([
+    [{ "retry-after": "60" }, true],
+    [{ "x-ratelimit-remaining": "0" }, true],
+    [{ "x-ratelimit-remaining": "10" }, false],
+    [{}, false],
+  ])("403 のヘッダー %o からレート制限を判定する", async (headers, rateLimited) => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 403, headers }));
+    const request = new GitHubRequest(fetcher);
+    await expect(request.call({ method: "GET", path: "/x", token: "t" })).rejects.toMatchObject({
+      status: 403,
+      rateLimited,
+    });
+  });
+
   it("サイズを申告しない大きな応答を拒否する", async () => {
     const request = new GitHubRequest(
       vi.fn().mockImplementation(() => Promise.resolve(new Response("x".repeat(1024 * 1024 + 1))))

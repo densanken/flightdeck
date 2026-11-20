@@ -3,12 +3,14 @@ import {
   approvedPeople,
   buildConsents,
   changedRoots,
+  currentEditors,
   isOrgMember,
   splitEditors,
   uniqueEditors,
   websiteCandidate,
 } from "../../domain/editors.js";
 import {
+  deletedEditors,
   managementApproval,
   memberRequest,
   offboardingChangeViolation,
@@ -169,8 +171,14 @@ export class EvaluateUseCaseImpl implements EvaluateUseCase {
     const roots = this.loadRoots(pr, files, changes);
     const editors = uniqueEditors(roots);
     const { users, teams } = splitEditors(editors);
-    const people = await this.dependencies.gateway.validateEditors(users, teams);
-    const author = await this.loadAuthor(pr, roots, teams, otherPaths.length > 0, authorRole);
+    const people = await this.resolvePeople(roots, management, users, teams);
+    const author = await this.loadAuthor(
+      pr,
+      roots,
+      splitEditors(currentEditors(roots)).teams,
+      otherPaths.length > 0,
+      authorRole
+    );
 
     return {
       pr,
@@ -181,6 +189,26 @@ export class EvaluateUseCaseImpl implements EvaluateUseCase {
       otherPaths,
       management,
     };
+  }
+
+  // 存在しない Editor は、Offboarding で削除される個人だけに許す
+  private async resolvePeople(
+    roots: AuthorRoot[],
+    management: ManagementRequest,
+    users: string[],
+    teams: string[]
+  ): Promise<Person[]> {
+    const resolved = await this.dependencies.gateway.validateEditors(users, teams);
+    const deletable = new Set(
+      management.mode === "offboarding"
+        ? splitEditors(deletedEditors(roots)).users.map((login) => login.toLowerCase())
+        : []
+    );
+    if (resolved.some(({ login, person }) => person === null && !deletable.has(login))) {
+      throw new BoardingError("INVALID_METADATA", "GitHub editor does not exist");
+    }
+
+    return resolved.flatMap(({ person }) => (person ? [person] : []));
   }
 
   private checkEligibility(context: Context): Outcome | undefined {
@@ -214,7 +242,8 @@ export class EvaluateUseCaseImpl implements EvaluateUseCase {
 
     for (const login of logins) {
       const person = context.people.find((candidate) => candidate.login.toLowerCase() === login);
-      if (!person) throw new BoardingError("INVALID_RESPONSE", "Editor identity is missing");
+      // 存在しないアカウントは、Org に所属しない個人として扱う
+      if (!person) continue;
 
       memberships.push(await this.loadOrgMembership(person, [context.author, ...memberships]));
     }
@@ -348,7 +377,7 @@ export class EvaluateUseCaseImpl implements EvaluateUseCase {
     pending: AuthorRoot[],
     authors: Membership[]
   ): Promise<Membership[]> {
-    const { users, teams } = splitEditors(uniqueEditors(pending));
+    const { users, teams } = splitEditors(currentEditors(pending));
     const logins = new Set(users.map((login) => login.toLowerCase()));
     const people = approvedPeople(pr.reviews, pr.headSha, pr.author.id).filter(
       (person) => teams.length > 0 || logins.has(person.login.toLowerCase())

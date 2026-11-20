@@ -70,8 +70,6 @@
 | **Intervention（管理介入）**        | 作成者以外の **Owner 1 名以上** ＋ **別の Org Member 3 名以上** の Approve（※2 人目以降の Owner も Member にカウント）                                                                                     |
 | **Offboarding（外部 Editor 削除）** | Org 非所属の個人 Editor の削除（差分は `meta.yaml` / `meta.yml` の `editors` のみ）。作成者以外の **Owner 1 名以上** の Approve（後任を追加し既存 Editor が残る場合は、残存 Editor 1 名の Approve も必須） |
 
-※いずれのモードでも、新たに追加される Editor 全員（個人なら本人、Team なら Maintainer）の Approve が必要です。
-
 ### 4. 自動マージの依頼
 
 PR 本文の以下のチェックボックスに PR 作成者本人がチェックを入れることで、自動マージを予約できます。

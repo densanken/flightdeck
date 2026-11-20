@@ -57,10 +57,11 @@ export class PublishUseCaseImpl implements PublishUseCase {
         : await this.comment(ref, this.mergeDecision(evaluated.pr, history, approval));
 
     await this.dependencies.finishCheck({ ...ref, result, id: checkId });
-    const merged = await this.merge(ref, result);
-    if (evaluated.pr) await this.dependencies.workflow.execute(evaluated.pr, merged);
+    // Merge の後に失敗しても Queue の再試行で通知が失われないよう、Merge の前に実行する
+    if (evaluated.pr) await this.dependencies.workflow.execute(evaluated.pr, result);
     await this.notify(input, evaluated.pr, evaluated.result);
-    return merged;
+
+    return this.merge(ref, result);
   }
 
   private async evaluate(ref: Reference): Promise<Evaluation> {

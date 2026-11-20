@@ -61,6 +61,7 @@ const setup = (
     pr?: PullRequestData;
     files?: Record<string, { before: RootFiles; after: RootFiles }>;
     members?: Membership[];
+    missing?: string[];
     readMetaKeys?: (files: RootFiles) => string[] | null;
   } = {}
 ) => {
@@ -74,15 +75,19 @@ const setup = (
           .map(([root, pair]) => ({ root, ...pair }))
       )
     ),
-    validateEditors: vi
-      .fn()
-      .mockImplementation((users: string[]) =>
-        Promise.resolve(
-          users
-            .map((login) => members.find((member) => member.person.login.toLowerCase() === login.toLowerCase())?.person)
-            .filter(Boolean)
-        )
-      ),
+    validateEditors: vi.fn().mockImplementation((users: string[]) =>
+      Promise.resolve(
+        users.map((login, index) => ({
+          login,
+          person: (options.missing ?? []).includes(login)
+            ? null
+            : (members.find((member) => member.person.login.toLowerCase() === login.toLowerCase())?.person ?? {
+                id: 1000 + index,
+                login,
+              }),
+        }))
+      )
+    ),
     teamMemberships: vi
       .fn()
       .mockImplementation((people: { id: number }[]) =>
@@ -541,7 +546,7 @@ describe("EvaluateUseCaseImpl", () => {
       baseRoots: ["alice", "bob"],
       reviews: [review(bob)],
     };
-    const files = { alice: pair(["alice"], ["alice"]), bob: pair(["alice"], ["alice", "bob"]) };
+    const files = { alice: pair(["alice"], ["alice"]), bob: pair(["alice", "bob"], ["alice"]) };
     const authorize = vi.spyOn(authorization, "authorizeRoot");
 
     try {
@@ -575,39 +580,26 @@ describe("EvaluateUseCaseImpl", () => {
     expect((await setup({ pr: value, files, members }).run()).status).toBe("allowed");
   });
 
-  it("複数 Editor の追加と削除には対象全員の同意が必要", async () => {
-    const files = { alice: pair(["alice", "bob"], ["carol"]) };
-    const changedPr = { ...pr, files: [{ path: "authors/alice/meta.yaml" }] };
-    expect((await setup({ files, pr: { ...changedPr, reviews: [review(carol)] } }).run()).status).toBe("waiting");
-    expect((await setup({ files, pr: { ...changedPr, reviews: [review(bob), review(carol)] } }).run()).status).toBe(
+  it("複数 Editor の削除には対象全員の同意が必要", async () => {
+    const files = { alice: pair(["alice", "bob", "carol"], ["alice", "dave", "erin"]) };
+    const value = { ...pr, files: [{ path: "authors/alice/meta.yaml" }] };
+    expect((await setup({ files, pr: { ...value, reviews: [review(bob)] } }).run()).status).toBe("waiting");
+    expect((await setup({ files, pr: { ...value, reviews: [review(bob), review(carol)] } }).run()).status).toBe(
       "allowed"
     );
   });
 
-  it("複数の追加先と削除先それぞれの同意を要求する", async () => {
-    const dave = { id: 4, login: "dave" };
-    const erin = { id: 5, login: "erin" };
-    const files = { alice: pair(["alice", "bob", "carol"], ["alice", "dave", "erin"]) };
-    const members: Membership[] = [
-      ...defaultMembers,
-      { person: dave, orgRole: "member", teams: {} },
-      { person: erin, orgRole: "member", teams: {} },
-    ];
-    const value = {
-      ...pr,
-      files: [{ path: "authors/alice/meta.yaml" }],
-      reviews: [review(bob), review(carol), review(dave)],
-    };
-    expect((await setup({ files, pr: value, members }).run()).status).toBe("waiting");
-    expect(
-      (await setup({ files, pr: { ...value, reviews: [...value.reviews, review(erin)] }, members }).run()).status
-    ).toBe("allowed");
+  it("追加される Editor の Approve は求めず、照会もしない", async () => {
+    const files = { alice: pair(["alice"], ["alice", "bob", "team:blog"]) };
+    const value = { ...pr, files: [{ path: "authors/alice/meta.yaml" }], reviews: [review(bob)] };
+    const { run, gateway } = setup({ files, pr: value });
+    expect((await run()).status).toBe("allowed");
+    expect(gateway.teamMemberships).toHaveBeenCalledTimes(1);
+    expect(gateway.teamMemberships).toHaveBeenCalledWith([author], []);
   });
 
-  it.each(["追加", "削除"])("Team の%sには Maintainer が必要", async (change) => {
-    const files = {
-      alice: change === "追加" ? pair(["alice"], ["alice", "team:blog"]) : pair(["alice", "team:blog"], ["alice"]),
-    };
+  it("Team の削除には Maintainer が必要", async () => {
+    const files = { alice: pair(["alice", "team:blog"], ["alice"]) };
     const value = { ...pr, files: [{ path: "authors/alice/meta.yaml" }], reviews: [review(bob)] };
     const members = [authorMembership, { person: bob, orgRole: "member" as const, teams: { blog: "member" as const } }];
     expect((await setup({ files, pr: value, members }).run()).reason).toBe("TEAM_MAINTAINER_REQUIRED");
@@ -862,6 +854,57 @@ describe("管理モードの評価", () => {
       files: { alice: pair(["bob"], []) },
     });
     expect(await run(base, offboarding)).toMatchObject({ status: "rejected", reason: "INVALID_EDITORS" });
+  });
+
+  it("存在しない Editor の削除は、外部の個人として Owner の Approve を待つ", async () => {
+    const waiting = { ...base, reviews: [] };
+    const { run, gateway } = setup({
+      pr: waiting,
+      members: [authorMembership, owner],
+      files: { alice: pair(["alice", "ghost"], ["alice"]) },
+      missing: ["ghost"],
+    });
+    expect(await run(waiting, offboarding)).toMatchObject({
+      status: "waiting",
+      reason: "OFFBOARDING_APPROVAL_MISSING",
+      management: { targets: [{ type: "user", login: "ghost" }] },
+    });
+    expect(gateway.orgMembership).not.toHaveBeenCalledWith(expect.objectContaining({ login: "ghost" }));
+  });
+
+  it("存在しない Editor の削除も、Owner が Approve すれば許可する", async () => {
+    const { run } = setup({
+      pr: base,
+      members: [authorMembership, owner],
+      files: { alice: pair(["alice", "ghost"], ["alice"]) },
+      missing: ["ghost"],
+    });
+    expect(await run(base, offboarding)).toMatchObject({ status: "allowed" });
+  });
+
+  it("Offboarding でも、変更後に残る Editor が存在しなければ拒否する", async () => {
+    const { run } = setup({
+      pr: base,
+      members: [authorMembership, owner],
+      files: { alice: pair(["alice", "ghost"], ["alice", "ghost"]) },
+      missing: ["ghost"],
+    });
+    expect(await run(base, offboarding)).toMatchObject({ status: "rejected", reason: "INVALID_EDITORS" });
+  });
+
+  it("Offboarding でも、追加する Editor が存在しなければ拒否する", async () => {
+    const { run } = setup({
+      pr: base,
+      members: [authorMembership, owner],
+      files: { alice: pair(["alice"], ["alice", "ghost"]) },
+      missing: ["ghost"],
+    });
+    expect(await run(base, offboarding)).toMatchObject({ status: "rejected", reason: "INVALID_EDITORS" });
+  });
+
+  it("通常のモードで存在しない Editor があれば拒否する", async () => {
+    const { run } = setup({ files: { alice: pair(["alice", "ghost"], ["alice"]) }, missing: ["ghost"] });
+    expect(await run()).toMatchObject({ status: "rejected", reason: "INVALID_EDITORS" });
   });
 
   it("ファイルの混在を拒否する", async () => {

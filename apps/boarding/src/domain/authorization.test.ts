@@ -8,6 +8,7 @@ import type { Consent, Editor } from "./editors.js";
 const alice: Editor = { login: "alice", type: "user" };
 const upperAlice: Editor = { login: "ALICE", type: "user" };
 const bob: Editor = { login: "bob", type: "user" };
+const carol: Editor = { login: "carol", type: "user" };
 const team: Editor = { slug: "blog", type: "team" };
 const consent = (editor: Editor, actorId: number, maintainer = false, orgMember = false): Consent => ({
   editor,
@@ -51,30 +52,47 @@ describe("authorizeRoot", () => {
     );
   });
 
-  it("未同意の移転先を示す", () => {
-    const result = authorizeRoot(root({ after: [bob], consents: [consent(alice, 1)] }));
+  it("未同意の削除対象だけを示す", () => {
+    const result = authorizeRoot(root({ before: [alice, bob], after: [carol], consents: [consent(alice, 1)] }));
+    expect(result).toMatchObject({ status: "waiting", reason: "EDITOR_APPROVAL_MISSING" });
     expect(result.details?.missing).toEqual({ kind: "all", editors: [bob] });
   });
 
-  it("Editor の移転では旧 Editor と新 Editor の同意を要求する", () => {
-    const input = root({ after: [bob], consents: [consent(alice, 1)] });
+  it("削除では削除される全員の同意を要求する", () => {
+    const input = root({ before: [alice, bob], after: [carol], consents: [consent(alice, 1)] });
     expect(authorizeRoot(input).status).toBe("waiting");
     expect(authorizeRoot({ ...input, consents: [...input.consents, consent(bob, 2)] }).status).toBe("allowed");
   });
 
+  it("Editor の移転は旧 Editor の同意だけで足りる", () => {
+    const input = root({ after: [bob] });
+    expect(authorizeRoot(input).status).toBe("waiting");
+    expect(authorizeRoot({ ...input, consents: [consent(alice, 1)] }).status).toBe("allowed");
+  });
+
+  it("追加だけなら今の Editor 1 人の同意で足りる", () => {
+    expect(authorizeRoot(root({ after: [alice, bob], consents: [consent(alice, 1)] })).status).toBe("allowed");
+  });
+
+  it("外部の PR 作成者が自分を追加するには今の Editor の同意が必要", () => {
+    const input = root({ after: [alice, bob], authorId: 2, consents: [consent(bob, 2)] });
+    expect(authorizeRoot(input)).toMatchObject({
+      status: "waiting",
+      reason: "EDITOR_APPROVAL_MISSING",
+      details: { missing: { kind: "one", editors: [alice] } },
+    });
+    expect(authorizeRoot({ ...input, consents: [...input.consents, consent(alice, 1)] }).status).toBe("allowed");
+  });
+
   it.each([
-    ["移転 Author A は B の Review が必要", [bob], 1, [consent(alice, 1)], "waiting"],
-    ["移転 Author A は B の Review で認可", [bob], 1, [consent(alice, 1), consent(bob, 2)], "allowed"],
+    ["移転 Author A は A の Review で認可", [bob], 1, [consent(alice, 1)], "allowed"],
     ["移転 Author B は A の Review が必要", [bob], 2, [consent(bob, 2)], "waiting"],
     ["移転 Author B は A の Review で認可", [bob], 2, [consent(bob, 2), consent(alice, 1)], "allowed"],
-    ["移転 Author C は A と B の Review が必要", [bob], 3, [consent(alice, 1)], "waiting"],
-    ["移転 Author C は A と B の Review で認可", [bob], 3, [consent(alice, 1), consent(bob, 2)], "allowed"],
-    ["追加 Author A は B の Review が必要", [alice, bob], 1, [consent(alice, 1)], "waiting"],
-    ["追加 Author A は B の Review で認可", [alice, bob], 1, [consent(alice, 1), consent(bob, 2)], "allowed"],
+    ["移転 Author C は A の Review が必要", [bob], 3, [], "waiting"],
+    ["移転 Author C は A の Review で認可", [bob], 3, [consent(alice, 1)], "allowed"],
     ["追加 Author B は A の Review が必要", [alice, bob], 2, [consent(bob, 2)], "waiting"],
     ["追加 Author B は A の Review で認可", [alice, bob], 2, [consent(bob, 2), consent(alice, 1)], "allowed"],
-    ["追加 Author C は A と B の Review が必要", [alice, bob], 3, [consent(alice, 1)], "waiting"],
-    ["追加 Author C は A と B の Review で認可", [alice, bob], 3, [consent(alice, 1), consent(bob, 2)], "allowed"],
+    ["追加 Author C は A の Review で認可", [alice, bob], 3, [consent(alice, 1)], "allowed"],
   ])("%s", (_name, after, authorId, consents, status) => {
     expect(authorizeRoot(root({ after, authorId, consents })).status).toBe(status);
   });
@@ -100,8 +118,12 @@ describe("authorizeRoot", () => {
     );
   });
 
-  it("Team の追加では Maintainer の同意を要求する", () => {
-    const input = root({ after: [alice, team], consents: [consent(alice, 1), consent(team, 2)] });
+  it("Team の追加は今の Editor の同意だけで足りる", () => {
+    expect(authorizeRoot(root({ after: [alice, team], consents: [consent(alice, 1)] })).status).toBe("allowed");
+  });
+
+  it("Team の削除では Maintainer の同意を要求する", () => {
+    const input = root({ before: [alice, team], after: [alice], consents: [consent(alice, 1), consent(team, 2)] });
     expect(authorizeRoot(input).reason).toBe("TEAM_MAINTAINER_REQUIRED");
     expect(authorizeRoot({ ...input, consents: [consent(alice, 1), consent(team, 2, true)] }).status).toBe("allowed");
   });
@@ -120,33 +142,25 @@ describe("authorizeRoot", () => {
 });
 
 describe("管理モードの同意", () => {
-  it.each(["intervention", "offboarding"] as const)(
-    "%s は削除対象の同意を省略しても追加対象の同意を要求する",
-    (mode) => {
-      const input = root({ before: [alice], after: [bob, team], mode });
-      expect(authorizeRoot(input).reason).toBe("TEAM_MAINTAINER_REQUIRED");
-      expect(authorizeRoot({ ...input, consents: [consent(bob, 2), consent(team, 3)] }).reason).toBe(
-        "TEAM_MAINTAINER_REQUIRED"
-      );
-      expect(authorizeRoot({ ...input, consents: [consent(bob, 2), consent(team, 3, true)] }).status).toBe("allowed");
-      expect(authorizeRoot({ ...input, after: [] }).reason).toBe("INVALID_EDITORS");
-    }
-  );
+  it.each(["intervention", "offboarding"] as const)("%s は追加対象の同意を要求しない", (mode) => {
+    const input = root({ before: [alice], after: [bob, team], mode });
+    expect(authorizeRoot(input).status).toBe("allowed");
+    expect(authorizeRoot({ ...input, after: [] }).reason).toBe("INVALID_EDITORS");
+  });
 
   it("Offboarding で残る Editor がいる後任追加は残る Editor の同意を要求する", () => {
     const input = root({
       before: [alice, bob],
       after: [bob, team],
       mode: "offboarding",
-      consents: [consent(team, 3, true)],
     });
     expect(authorizeRoot(input)).toMatchObject({
       status: "waiting",
       reason: "EDITOR_APPROVAL_MISSING",
       details: { missing: { kind: "one", editors: [bob] } },
     });
-    expect(authorizeRoot({ ...input, consents: [...input.consents, consent(alice, 1)] }).status).toBe("waiting");
-    expect(authorizeRoot({ ...input, consents: [...input.consents, consent(bob, 2)] }).status).toBe("allowed");
+    expect(authorizeRoot({ ...input, consents: [consent(alice, 1)] }).status).toBe("waiting");
+    expect(authorizeRoot({ ...input, consents: [consent(bob, 2)] }).status).toBe("allowed");
   });
 
   it("Intervention は website の特別認可を省略しない", () => {

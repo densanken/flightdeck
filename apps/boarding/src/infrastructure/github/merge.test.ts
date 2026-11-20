@@ -30,6 +30,21 @@ describe("GitHubMerge", () => {
     expect(logger.log).toHaveBeenCalledWith("warn", expect.objectContaining({ status }));
   });
 
+  it.each([
+    ["retry-after", { "retry-after": "60" }],
+    ["x-ratelimit-remaining", { "x-ratelimit-remaining": "0" }],
+  ])("レート制限の 403 は拒否とせず、例外にして再試行させる: %s", async (_name, headers) => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({}, { status: 403, headers }));
+    const logger = { log: vi.fn() };
+    const gateway = new GitHubMerge({
+      request: new GitHubRequest(fetcher),
+      getToken: () => Promise.resolve("token"),
+      logger,
+    });
+    await expect(gateway.write(input)).rejects.toMatchObject({ status: 403, rateLimited: true });
+    expect(logger.log).not.toHaveBeenCalled();
+  });
+
   it("競合は変更として終了する", async () => {
     await expect(setup(409).gateway.write(input)).resolves.toBe("changed");
   });

@@ -144,11 +144,13 @@ describe("GitHubMemberships", () => {
       request: new GitHubRequest(fetcher),
       getToken: () => Promise.resolve("token"),
     });
-    await expect(gateway.validateEditors(["alice"], [])).resolves.toEqual([{ id: 1, login: "Alice" }]);
+    await expect(gateway.validateEditors(["alice"], [])).resolves.toEqual([
+      { login: "alice", person: { id: 1, login: "Alice" } },
+    ]);
     expect(fetcher).toHaveBeenCalledOnce();
   });
 
-  it("存在しない個人 Editor は修正可能な設定エラーにする", async () => {
+  it("存在しない個人 Editor は、person を null にして返す", async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(
       Response.json({
         data: { u0: null, organization: { login: "densanken" } },
@@ -159,7 +161,20 @@ describe("GitHubMemberships", () => {
       request: new GitHubRequest(fetcher),
       getToken: () => Promise.resolve("token"),
     });
-    await expect(gateway.validateEditors(["missing"], [])).rejects.toMatchObject({ code: "INVALID_METADATA" });
+    await expect(gateway.validateEditors(["missing"], [])).resolves.toEqual([{ login: "missing", person: null }]);
+  });
+
+  it.each([
+    ["別名の欠落", { organization: { login: "densanken" } }],
+    ["ID の形式の不正", { u0: { databaseId: "1", login: "alice" }, organization: { login: "densanken" } }],
+    ["login の不一致", { u0: { databaseId: 1, login: "bob" }, organization: { login: "densanken" } }],
+  ])("%s は存在しないとせず、応答の異常にする", async (_name, data) => {
+    const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ data }));
+    const gateway = new GitHubMemberships({
+      request: new GitHubRequest(fetcher),
+      getToken: () => Promise.resolve("token"),
+    });
+    await expect(gateway.validateEditors(["alice"], [])).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
   it.each([

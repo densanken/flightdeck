@@ -3,7 +3,7 @@ import * as v from "valibot";
 import { BoardingError } from "../../errors.js";
 
 import type { GitHubRequest } from "./request.js";
-import type { Membership, Person } from "../../domain/editors.js";
+import type { Membership, Person, ResolvedUser } from "../../domain/editors.js";
 
 const user = v.object({ databaseId: v.pipe(v.number(), v.safeInteger(), v.minValue(1)), login: v.string() });
 const teamMembers = v.object({
@@ -33,18 +33,25 @@ const membershipTeamSelections = (slugs: string[], people: Person[]): string =>
     })
     .join("\n");
 
-const validateEditorResponse = (data: unknown, users: string[], slugs: string[]): Person[] => {
-  const people: Person[] = [];
+const validateEditorResponse = (data: unknown, users: string[], slugs: string[]): ResolvedUser[] => {
+  const resolvedUsers: ResolvedUser[] = [];
   const parsed = v.safeParse(v.object({ organization: v.record(v.string(), v.unknown()) }), data);
   const top = v.safeParse(v.record(v.string(), v.unknown()), data);
   if (!parsed.success || !top.success) throw new BoardingError("INVALID_RESPONSE", "GitHub editor response is invalid");
 
   for (const [index, login] of users.entries()) {
-    const resolved = v.safeParse(user, top.output[`u${String(index)}`]);
-    if (!resolved.success || resolved.output.login.toLowerCase() !== login) {
-      throw new BoardingError("INVALID_METADATA", "GitHub editor does not exist");
+    const alias = `u${String(index)}`;
+    // 別名が明示的に null のときだけ、ユーザーが存在しないとみなす
+    if (top.output[alias] === null) {
+      resolvedUsers.push({ login, person: null });
+      continue;
     }
-    people.push({ id: resolved.output.databaseId, login: resolved.output.login });
+
+    const resolved = v.safeParse(user, top.output[alias]);
+    if (!resolved.success || resolved.output.login.toLowerCase() !== login) {
+      throw new BoardingError("INVALID_RESPONSE", "GitHub editor response is invalid");
+    }
+    resolvedUsers.push({ login, person: { id: resolved.output.databaseId, login: resolved.output.login } });
   }
 
   for (const [index] of slugs.entries()) {
@@ -55,7 +62,7 @@ const validateEditorResponse = (data: unknown, users: string[], slugs: string[])
     if (!team.success) throw new BoardingError("INVALID_RESPONSE", "GitHub team is unavailable");
     if (team.output.privacy !== "VISIBLE") throw new BoardingError("INVALID_METADATA", "GitHub team is not visible");
   }
-  return people;
+  return resolvedUsers;
 };
 
 const parseTeamMemberships = (data: unknown, people: Person[], logins: string[], slugs: string[]): Membership[] => {
@@ -106,7 +113,7 @@ const parseTeamMemberships = (data: unknown, people: Person[], logins: string[],
 export class GitHubMemberships {
   constructor(private readonly input: { request: GitHubRequest; getToken: () => Promise<string> }) {}
 
-  async validateEditors(editors: string[], teams: string[]): Promise<Person[]> {
+  async validateEditors(editors: string[], teams: string[]): Promise<ResolvedUser[]> {
     const users = [...new Set(editors.map((login) => login.toLowerCase()))];
     const slugs = [...new Set(teams.map((slug) => slug.toLowerCase()))];
     if (users.length === 0 && slugs.length === 0) return [];

@@ -300,7 +300,7 @@ const details = (title: string, body: string[]): string[] => [
   "</details>",
 ];
 
-// 現在の Editor のうち 1 人なら Team のメンバー、Editor の追加や削除なら Team の Maintainer の Approve が必要
+// 現在の Editor のうち 1 人なら Team のメンバー、Editor の削除なら Team の Maintainer の Approve が必要
 const editorText =
   (role: "のメンバー" | "の Maintainer") =>
   (editor: Editor): string =>
@@ -309,7 +309,7 @@ const editorText =
 const approverRow = (result: EvaluationResult): [string, string] | undefined => {
   const missing = result.details?.missing;
   if (missing?.kind === "all") {
-    return ["追加または削除する Editor の全員", list(missing.editors, editorText("の Maintainer"), "、")];
+    return ["削除する Editor の全員", list(missing.editors, editorText("の Maintainer"), "、")];
   }
   if (missing) return ["現在の Editor のうち 1 人", list(missing.editors, editorText("のメンバー"), "、")];
   if (result.reason === "WEBSITE_MEMBER_CONSENT_MISSING") return ["Editor のうち 1 人", "Org Member の Editor"];
@@ -452,3 +452,8 @@ export const checkOutput = (result: EvaluationResult): CheckOutput => ({
       ? `${guidance[result.reason]}完了までしばらくお待ちください。`
       : `${guidance[result.reason]}詳しくは PR の管理コメントを確認してください。`,
 });
+
+export const abortedCheckOutput: CheckOutput = {
+  title: "確認を中断しました",
+  summary: "確認中に PR が更新されたか、閉じられたため、確認を中断しました。",
+};

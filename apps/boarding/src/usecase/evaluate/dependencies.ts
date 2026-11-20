@@ -1,5 +1,5 @@
 import type { CommitIdentity } from "../../domain/authorization.js";
-import type { Membership, Person, Review } from "../../domain/editors.js";
+import type { Membership, Person, Review, ResolvedUser } from "../../domain/editors.js";
 import type { MergeData } from "../../domain/merge.js";
 import type { ChangedFile } from "../../domain/paths.js";
 
@@ -39,7 +39,7 @@ export interface EvaluateGateway {
     profileRoots: string[],
     metaRoots: string[]
   ) => Promise<RootFilesPair[]>;
-  validateEditors: (editors: string[], teams: string[]) => Promise<Person[]>;
+  validateEditors: (editors: string[], teams: string[]) => Promise<ResolvedUser[]>;
   teamMemberships: (people: Person[], teams: string[]) => Promise<Membership[]>;
   orgMembership: (person: Person) => Promise<"admin" | "member" | null>;
 }

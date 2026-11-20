@@ -1,6 +1,8 @@
 import { githubId } from "@flightdeck/validation";
 import * as v from "valibot";
 
+import { isCiWorkflowPath } from "../../domain/workflow.js";
+
 import type { BoardingMessage } from "../../message/webhook.js";
 
 export interface WebhookHandlerDependencies {
@@ -186,7 +188,7 @@ const toWorkflowMessage = (payload: unknown, deliveryId: string, installationId:
   if (
     (data.action !== "requested" &&
       !(data.action === "completed" && data.workflow_run.conclusion === "action_required")) ||
-    data.workflow_run.path !== ".github/workflows/ci.yml" ||
+    !isCiWorkflowPath(data.workflow_run.path) ||
     data.workflow_run.event !== "pull_request" ||
     data.workflow_run.head_repository?.id === data.repository.id
   ) {

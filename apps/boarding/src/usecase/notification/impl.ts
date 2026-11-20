@@ -9,8 +9,11 @@ export class NotificationUseCaseImpl implements NotificationUseCase {
   constructor(private readonly dependencies: NotificationDependencies) {}
 
   async execute(input: { number: number; merged: boolean }): Promise<void> {
-    // 通知の取得に失敗して再試行になっても、コメントは同じ本文で上書きされる
-    await this.dependencies.closeComment(input);
+    // Merge せずに閉じた PR が再試行の間に再び開かれたら、再評価のコメントを上書きしない
+    if (input.merged || (await this.dependencies.current(input.number)).state !== "OPEN") {
+      // 通知の取得に失敗して再試行になっても、コメントは同じ本文で上書きされる
+      await this.dependencies.closeComment(input);
+    }
     if (!input.merged) return;
 
     const pr = await this.dependencies.pullRequest(input.number);

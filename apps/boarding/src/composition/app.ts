@@ -25,7 +25,7 @@ import { GitHubOpenPullRequests } from "../infrastructure/github/pull-requests.j
 import { GitHubRequest } from "../infrastructure/github/request.js";
 import { GitHubWorkflow } from "../infrastructure/github/workflow.js";
 import { createBatchEnqueue } from "../infrastructure/queue/enqueue.js";
-import { authorizationComment, checkOutput, closedComment } from "../message/authorization.js";
+import { abortedCheckOutput, authorizationComment, checkOutput, closedComment } from "../message/authorization.js";
 import { mergedNotification, openedNotification } from "../message/notification.js";
 import { EvaluateUseCaseImpl } from "../usecase/evaluate/impl.js";
 import { FanoutUseCaseImpl } from "../usecase/fanout/impl.js";
@@ -93,6 +93,7 @@ export const composeMessageConsumer = (env: Env) =>
         request,
         getToken,
         appId,
+        abortedOutput: abortedCheckOutput,
         verify: (number, baseSha, headSha) => publication.verify(number, baseSha, headSha),
       });
       const comment = new GitHubComment({
@@ -134,6 +135,7 @@ export const composeMessageConsumer = (env: Env) =>
           pullRequest: (number) => publication.mergedPullRequest(number),
           files: (baseSha, headSha, roots) => publication.files(baseSha, headSha, roots, [], roots),
           readEditors,
+          current: (number) => publication.current(number),
           closeComment: ({ number, merged }) => comment.updateExisting({ number, body: closedComment(merged) }),
           notifyMerged: (input) => discord.send(mergedNotification(input)),
         }),

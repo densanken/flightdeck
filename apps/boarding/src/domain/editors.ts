@@ -7,6 +7,11 @@ export interface NewAuthorRoot {
   editors: Editor[] | null;
 }
 
+export interface ResolvedUser {
+  login: string;
+  person: Person | null;
+}
+
 export interface Person {
   id: number;
   login: string;
@@ -40,6 +45,11 @@ export const uniqueEditors = (roots: AuthorRoot[]): Editor[] => [
   ...new Map(
     roots.flatMap((root) => [...(root.before ?? []), ...root.after]).map((editor) => [editorKey(editor), editor])
   ).values(),
+];
+
+// Approve の対象になる、変更前の Editor（新規の Root は変更後の Editor）
+export const currentEditors = (roots: AuthorRoot[]): Editor[] => [
+  ...new Map(roots.flatMap((root) => root.before ?? root.after).map((editor) => [editorKey(editor), editor])).values(),
 ];
 
 export const splitEditors = (editors: Editor[]): { users: string[]; teams: string[] } => ({

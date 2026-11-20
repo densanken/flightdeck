@@ -124,6 +124,31 @@ describe("PublishUseCaseImpl", () => {
     );
   });
 
+  it("Workflow の処理と通知は、Merge の前に Merge 前の結果で実行する", async () => {
+    const { usecase, dependencies, workflowExecute } = setup();
+    vi.mocked(dependencies.pullRequest).mockResolvedValue({
+      ...pr,
+      baseRoots: [],
+      files: [{ path: "authors/alice/meta.yaml" }],
+      mergeData: {
+        draft: false,
+        body: `- [x] ${mergeLabel}`,
+        ci: {
+          checks: [{ name: "ci", status: "completed", conclusion: "success", app: { id: 3, slug: "github-actions" } }],
+          statuses: [],
+        },
+      },
+    });
+    vi.mocked(dependencies.merge).mockResolvedValue("merged");
+
+    await usecase.execute({ number: 1, opened: true });
+    const mergeOrder = vi.mocked(dependencies.merge).mock.invocationCallOrder[0] ?? 0;
+    expect(dependencies.merge).toHaveBeenCalledOnce();
+    expect(workflowExecute.mock.invocationCallOrder[0]).toBeLessThan(mergeOrder);
+    expect(vi.mocked(dependencies.notifyOpened).mock.invocationCallOrder[0]).toBeLessThan(mergeOrder);
+    expect(workflowExecute.mock.calls[0]?.[1]).not.toHaveProperty("mergeOutcome");
+  });
+
   it("既存の著者のみの申請は通知しない", async () => {
     const { usecase, dependencies } = setup();
     await usecase.execute({ number: 1, opened: true });

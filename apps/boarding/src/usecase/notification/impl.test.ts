@@ -19,6 +19,7 @@ const setup = () => {
     }),
     files: vi.fn().mockResolvedValue([{ root: "new", before: blank, after: { ...blank, metaYaml: "meta" } }]),
     readEditors: vi.fn().mockReturnValue([{ type: "user", login: "alice" }]),
+    current: vi.fn().mockResolvedValue({ state: "CLOSED" }),
     closeComment: vi.fn().mockResolvedValue(undefined),
     notifyMerged: vi.fn().mockResolvedValue(undefined),
   };
@@ -41,6 +42,22 @@ describe("登録完了の通知", () => {
     expect(dependencies.closeComment).toHaveBeenCalledWith({ number: 3, merged: false });
     expect(dependencies.pullRequest).not.toHaveBeenCalled();
     expect(dependencies.notifyMerged).not.toHaveBeenCalled();
+  });
+
+  it("Merge せずに閉じた PR が再び開かれていたら、コメントを更新しない", async () => {
+    const { dependencies, usecase } = setup();
+    vi.mocked(dependencies.current).mockResolvedValue({ state: "OPEN" });
+    await usecase.execute({ number: 3, merged: false });
+    expect(dependencies.current).toHaveBeenCalledWith(3);
+    expect(dependencies.closeComment).not.toHaveBeenCalled();
+  });
+
+  it("Merge 済みなら、状態を確認せずにコメントを更新する", async () => {
+    const { dependencies, usecase } = setup();
+    vi.mocked(dependencies.current).mockResolvedValue({ state: "OPEN" });
+    await usecase.execute({ number: 3, merged: true });
+    expect(dependencies.current).not.toHaveBeenCalled();
+    expect(dependencies.closeComment).toHaveBeenCalledWith({ number: 3, merged: true });
   });
 
   it("コメントの更新に失敗したら通知の取得に進まない", async () => {

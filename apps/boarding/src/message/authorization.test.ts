@@ -260,7 +260,7 @@ describe("authorizationComment", () => {
       },
     });
     expect(body).toContain("### Approve が必要な人");
-    expect(body).toContain("| 追加または削除する Editor の全員 | ` blog ` の Maintainer、` bob ` |");
+    expect(body).toContain("| 削除する Editor の全員 | ` blog ` の Maintainer、` bob ` |");
   });
 
   it("どのディレクトリの変更が理由かを示して Approve が必要な人を案内する", () => {

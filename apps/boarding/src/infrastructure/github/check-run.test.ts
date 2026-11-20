@@ -23,6 +23,7 @@ const setup = () => {
     request: new GitHubRequest(fetcher),
     getToken: () => Promise.resolve("token"),
     appId: 5,
+    abortedOutput: { title: "中断", summary: "確認を中断しました" },
     verify,
   });
   return { fetcher, verify, check };
@@ -57,6 +58,33 @@ describe("GitHubCheckRun", () => {
     });
   });
 
+  it("確認に失敗したら cancelled で完了させ、元の例外を投げる", async () => {
+    const { fetcher, verify, check } = setup();
+    const failure = new Error("changed");
+    verify.mockRejectedValue(failure);
+    fetcher
+      .mockReset()
+      .mockResolvedValueOnce(Response.json({ ...existing, status: "completed", conclusion: "cancelled" }));
+    await expect(check.finish({ ...ref, id: 10, result })).rejects.toBe(failure);
+    expect(verify).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher.mock.calls[0]?.[1].method).toBe("PATCH");
+    expect(fetcher.mock.calls[0]?.[0]).toContain("/check-runs/10");
+    expect(JSON.parse(fetcher.mock.calls[0]?.[1].body as string)).toMatchObject({
+      status: "completed",
+      conclusion: "cancelled",
+      output: { title: "中断", summary: "確認を中断しました" },
+    });
+  });
+
+  it("cancelled の書き込みに失敗しても、元の例外を優先して投げる", async () => {
+    const { fetcher, verify, check } = setup();
+    const failure = new Error("changed");
+    verify.mockRejectedValue(failure);
+    fetcher.mockReset().mockResolvedValueOnce(new Response(null, { status: 500 }));
+    await expect(check.finish({ ...ref, id: 10, result })).rejects.toBe(failure);
+  });
+
   it("Approve 待ちは action_required で完了させ、PR を詳細のリンクにする", async () => {
     const { fetcher, check } = setup();
     fetcher
@@ -88,12 +116,5 @@ describe("GitHubCheckRun", () => {
       .mockReset()
       .mockResolvedValueOnce(Response.json({ ...existing, id: 11, status: "completed", conclusion: "success" }));
     await expect(check.finish({ ...ref, id: 10, result })).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
-  });
-
-  it("SHA が変われば結果を書き込まない", async () => {
-    const { fetcher, verify, check } = setup();
-    verify.mockRejectedValue(new Error("changed"));
-    await expect(check.finish({ ...ref, id: 10, result })).rejects.toThrow();
-    expect(fetcher).not.toHaveBeenCalled();
   });
 });

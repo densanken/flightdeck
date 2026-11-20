@@ -36,6 +36,8 @@ describe("createWebhookHandler", () => {
     ["completed", "failure", ".github/workflows/ci.yml", "pull_request", 200],
     ["completed", null, ".github/workflows/ci.yml", "pull_request", 200],
     ["in_progress", "action_required", ".github/workflows/ci.yml", "pull_request", 200],
+    ["requested", null, ".github/workflows/ci.yml@refs/pull/1/merge", "pull_request", 202],
+    ["requested", null, ".github/workflows/other.yml@refs/pull/1/merge", "pull_request", 200],
     ["requested", null, ".github/workflows/other.yml", "pull_request", 200],
     ["requested", null, ".github/workflows/ci.yml", "push", 200],
     ["completed", "action_required", ".github/workflows/other.yml", "pull_request", 200],

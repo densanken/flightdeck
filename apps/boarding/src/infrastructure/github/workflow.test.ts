@@ -66,6 +66,15 @@ describe("GitHubWorkflow", () => {
     expect(fetcher.mock.calls[0]?.[1].method).toBe("POST");
   });
 
+  it.each([
+    ["retry-after", { "retry-after": "60" }],
+    ["x-ratelimit-remaining", { "x-ratelimit-remaining": "0" }],
+  ])("レート制限の 403 は拒否とせず、例外にして再試行させる: %s", async (_name, headers) => {
+    const { gateway, logger } = setup([new Response(null, { status: 403, headers })]);
+    await expect(gateway.approve([run])).rejects.toMatchObject({ status: 403, rateLimited: true });
+    expect(logger.log).not.toHaveBeenCalled();
+  });
+
   it.each([403, 404, 409, 422])("拒否 %i を記録する", async (status) => {
     const { gateway, logger } = setup([new Response(null, { status })]);
     await expect(gateway.approve([run])).resolves.toBeUndefined();

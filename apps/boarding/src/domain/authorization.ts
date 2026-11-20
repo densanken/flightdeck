@@ -88,17 +88,15 @@ const editorChangeResult = (
   const next = new Set(after.map(editorKey));
   const added = after.filter((editor) => !previous.has(editorKey(editor)));
   const removed = before.filter((editor) => !next.has(editorKey(editor)));
-  const missingChange = [...added, ...(mode ? [] : removed)].filter(
-    (editor) => !hasConsent(editor, consents, { maintainer: true })
-  );
+  const missingRemoved = (mode ? [] : removed).filter((editor) => !hasConsent(editor, consents, { maintainer: true }));
 
-  if (missingChange.length > 0) {
+  if (missingRemoved.length > 0) {
     return {
       status: "waiting",
-      reason: missingChange.some((editor) => editor.type === "team")
+      reason: missingRemoved.some((editor) => editor.type === "team")
         ? "TEAM_MAINTAINER_REQUIRED"
         : "EDITOR_APPROVAL_MISSING",
-      details: { missing: { kind: "all", editors: missingChange } },
+      details: { missing: { kind: "all", editors: missingRemoved } },
     };
   }
 

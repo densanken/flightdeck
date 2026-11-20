@@ -9,10 +9,17 @@ const API_ORIGIN = "https://api.github.com";
 export type Fetcher = (input: string, init: RequestInit) => Promise<Response>;
 
 export class GitHubHttpError extends BoardingError {
-  constructor(readonly status: number) {
+  constructor(
+    readonly status: number,
+    readonly rateLimited = false
+  ) {
     super("API_ERROR", `GitHub returned ${String(status)}`);
   }
 }
+
+// レート制限の 403 は権限による拒否ではないため、Queue に再試行させる
+const isRateLimited = (headers: Headers): boolean =>
+  headers.has("retry-after") || headers.get("x-ratelimit-remaining") === "0";
 
 const valueAt = (data: unknown, path: (string | number)[]): unknown =>
   path.reduce<unknown>(
@@ -77,7 +84,7 @@ export class GitHubRequest {
 
     if (!response.ok) {
       await response.body?.cancel().catch(() => undefined);
-      throw new GitHubHttpError(response.status);
+      throw new GitHubHttpError(response.status, isRateLimited(response.headers));
     }
 
     const contentLength = response.headers.get("content-length");

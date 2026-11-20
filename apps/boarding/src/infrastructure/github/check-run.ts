@@ -26,6 +26,7 @@ export class GitHubCheckRun {
       request: GitHubRequest;
       getToken: () => Promise<string>;
       appId: number;
+      abortedOutput: CheckOutput;
       verify: (number: number, baseSha: string, headSha: string) => Promise<void>;
     }
   ) {}
@@ -38,7 +39,7 @@ export class GitHubCheckRun {
     output: CheckOutput;
   }): Promise<number> {
     const token = await this.input.getToken();
-    return this.write(token, input, input.result, input.output);
+    return this.write(token, input, checkState(input.result), input.output);
   }
 
   async finish(input: {
@@ -50,18 +51,31 @@ export class GitHubCheckRun {
     output: CheckOutput;
   }): Promise<void> {
     const token = await this.input.getToken();
-    await this.input.verify(input.number, input.baseSha, input.headSha);
-    await this.write(token, input, input.result, input.output, input.id);
+
+    try {
+      await this.input.verify(input.number, input.baseSha, input.headSha);
+    } catch (error) {
+      // Check Run は削除できないため、in_progress のまま残さず cancelled で完了させる
+      await this.write(
+        token,
+        input,
+        { status: "completed", conclusion: "cancelled" },
+        this.input.abortedOutput,
+        input.id
+      ).catch(() => undefined);
+      throw error;
+    }
+
+    await this.write(token, input, checkState(input.result), input.output, input.id);
   }
 
   private async write(
     token: string,
     { number, headSha }: { number: number; headSha: string },
-    result: EvaluationResult,
+    state: CheckState,
     output: CheckOutput,
     id?: number
   ): Promise<number> {
-    const state = checkState(result);
     // action_required は details_url が必須のため、常に PR を指す
     const fields = {
       name: authorizationCheckName,

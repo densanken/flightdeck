@@ -89,6 +89,13 @@ export const removedEditors = (roots: AuthorRoot[]): Editor[] =>
     return (before ?? []).filter((editor) => !remaining.has(editorKey(editor)));
   });
 
+// 変更後のどの Root にも残らない Editor
+export const deletedEditors = (roots: AuthorRoot[]): Editor[] => {
+  const remaining = new Set(roots.flatMap(({ after }) => after.map(editorKey)));
+
+  return removedEditors(roots).filter((editor) => !remaining.has(editorKey(editor)));
+};
+
 export const offboardingChangeViolation = (
   files: ChangedFile[],
   metaKeys: MetaKeys[]

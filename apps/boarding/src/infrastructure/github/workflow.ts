@@ -84,7 +84,7 @@ export class GitHubWorkflow {
           allowEmpty: true,
         });
       } catch (error) {
-        if (error instanceof GitHubHttpError && [403, 404, 409, 422].includes(error.status)) {
+        if (error instanceof GitHubHttpError && !error.rateLimited && [403, 404, 409, 422].includes(error.status)) {
           this.input.logger.log("warn", { event: "workflow_approval_rejected", runId: run.id, status: error.status });
           continue;
         }

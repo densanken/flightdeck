@@ -17,6 +17,7 @@ const input = { headSha: "sha", headRepositoryId: 2, authorId: 3 };
 describe("Workflow Run の承認", () => {
   it.each([
     { path: ".github/workflows/other.yml" },
+    { path: ".github/workflows/other.yml@refs/pull/1/merge" },
     { event: "push" },
     { headSha: "old" },
     { headRepositoryId: 4 },
@@ -27,6 +28,11 @@ describe("Workflow Run の承認", () => {
     { actorId: 4 },
   ])("条件が異なる Run を除外する: %o", (change) => {
     expect(approvalRuns([{ ...run, ...change }], input)).toEqual([]);
+  });
+
+  it("path に @ref が付いていても、CI の Run を選ぶ", () => {
+    const withRef = { ...run, path: ".github/workflows/ci.yml@refs/pull/1/merge" };
+    expect(approvalRuns([withRef], input)).toEqual([withRef]);
   });
 
   it("すべて一致する Run を選ぶ", () => {

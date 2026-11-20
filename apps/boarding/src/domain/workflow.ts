@@ -14,6 +14,11 @@ interface ApprovalResult {
   facts?: { otherPaths: readonly string[] } | undefined;
 }
 
+const ciWorkflowPath = ".github/workflows/ci.yml";
+
+// path は `.github/workflows/ci.yml@refs/pull/1/merge` のように ref が付くことがある
+export const isCiWorkflowPath = (path: string): boolean => path.split("@")[0] === ciWorkflowPath;
+
 export const isContentOnlyAllowed = (result: ApprovalResult): boolean =>
   result.status === "allowed" && result.facts?.otherPaths.length === 0;
 
@@ -29,7 +34,7 @@ export const approvalRuns = (
 ): WorkflowRun[] =>
   runs.filter(
     (run) =>
-      run.path === ".github/workflows/ci.yml" &&
+      isCiWorkflowPath(run.path) &&
       run.event === "pull_request" &&
       run.headSha === input.headSha &&
       run.headRepositoryId === input.headRepositoryId &&

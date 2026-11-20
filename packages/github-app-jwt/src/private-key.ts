@@ -9,12 +9,14 @@ const sha256Hex = async (value: string): Promise<string> => {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 };
 
+const importKey = async (pem: string): Promise<CryptoKey> => importPKCS8(pem, "RS256");
+
 export const importPrivateKey = async (privateKeyPem: string): Promise<CryptoKey> => {
   const normalizedPem = privateKeyPem.replace(/\\n/g, "\n").trim();
   const fingerprint = await sha256Hex(normalizedPem);
   if (cachedPrivateKey?.fingerprint === fingerprint) return cachedPrivateKey.promise;
 
-  const promise = importPKCS8(normalizedPem, "RS256");
+  const promise = importKey(normalizedPem);
   cachedPrivateKey = { fingerprint, promise };
   return promise;
 };

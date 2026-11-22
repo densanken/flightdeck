@@ -1,6 +1,6 @@
 import { decide, errorDetails } from "@flightdeck/github-policy";
 import { validatePullRequestTitle } from "@flightdeck/pr-title";
-import { classify, evaluateCi } from "@flightdeck/rules";
+import { classify, evaluateCi, skipUntil } from "@flightdeck/rules";
 
 import { EXECUTION_TIMEOUT_MS } from "./dependencies.js";
 
@@ -103,7 +103,7 @@ export class MergeUseCaseImpl implements MergeUseCase {
   }
 
   private async evaluate(input: MergeInput, number: number): Promise<void> {
-    const { github, logger, settings, clock } = this.dependencies;
+    const { github, logger, settings, clock, skipCache } = this.dependencies;
     const fields = {
       delivery_id: input.deliveryId,
       installation_id: input.installationId,
@@ -133,6 +133,11 @@ export class MergeUseCaseImpl implements MergeUseCase {
     const { repositoryId, pr } = fetched;
     const policy = classify(pr.author?.id ?? null, settings.dispatchId, settings.renovateIds) ?? undefined;
     const details = { headSha: pr.headSha, policy };
+
+    // 次の webhook から、認証の前に見送れるようにする
+    const now = clock();
+    const until = skipUntil(policy ?? null, pr, now);
+    if (until !== undefined) await skipCache.remember(repositoryId, pr.branch, until, now);
 
     try {
       if (repositoryId !== input.repositoryId) {

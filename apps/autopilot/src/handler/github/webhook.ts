@@ -1,12 +1,15 @@
+import { isAutomationBranch } from "@flightdeck/rules";
 import { commitSha, githubId, repositoryFullName, ConfigurationError } from "@flightdeck/validation";
 import * as v from "valibot";
 
 import type { MergeContext, MergeInput, MergeUseCase } from "../../usecase/merge/interface.js";
 import type { Logger } from "@flightdeck/logger";
+import type { SkipCache } from "@flightdeck/rules";
 
 export interface WebhookHandlerDependencies {
   getWebhookSecret: () => string;
   verifySignature: (input: { rawBody: Uint8Array; signatureHeader: string; secret: string }) => Promise<boolean>;
+  skipCache: SkipCache;
   createUseCase: (input: MergeContext) => MergeUseCase;
   waitUntil: (promise: Promise<void>) => void;
   logger: Logger;
@@ -17,15 +20,23 @@ const base = v.object({
   installation: v.object({ id: githubId }),
 });
 
-const review = v.object({ ...base.entries, action: v.string(), pull_request: v.object({ number: githubId }) });
+const review = v.object({
+  ...base.entries,
+  action: v.string(),
+  pull_request: v.object({ number: githubId, head: v.object({ ref: v.string() }) }),
+});
 
 const suite = v.object({
   ...base.entries,
   action: v.string(),
-  check_suite: v.object({ head_sha: commitSha, pull_requests: v.array(v.object({ number: githubId })) }),
+  check_suite: v.object({
+    head_sha: commitSha,
+    head_branch: v.nullable(v.string()),
+    pull_requests: v.array(v.object({ number: githubId })),
+  }),
 });
 
-const status = v.object({ ...base.entries, sha: commitSha });
+const status = v.object({ ...base.entries, sha: commitSha, branches: v.array(v.object({ name: v.string() })) });
 
 const parsePayload = (rawBody: Uint8Array): { ok: true; value: unknown } | { ok: false } => {
   try {
@@ -35,7 +46,14 @@ const parsePayload = (rawBody: Uint8Array): { ok: true; value: unknown } | { ok:
   }
 };
 
-const parseEvent = (event: string, deliveryId: string, payload: unknown): MergeInput | "invalid" | undefined => {
+interface ParsedEvent {
+  input: MergeInput;
+  // 評価の対象になる branch
+  // すべてが見送りの期限内なら、評価しない
+  branches: string[];
+}
+
+const parseEvent = (event: string, deliveryId: string, payload: unknown): ParsedEvent | "invalid" | undefined => {
   const context = (data: v.InferOutput<typeof base>): MergeContext => ({
     deliveryId,
     installationId: data.installation.id,
@@ -48,9 +66,13 @@ const parseEvent = (event: string, deliveryId: string, payload: unknown): MergeI
     if (!parsed.success) return "invalid";
 
     const data = parsed.output;
-    if (data.action !== "submitted") return undefined;
+    if (data.action !== "submitted" || !isAutomationBranch(data.pull_request.head.ref)) return undefined;
 
-    return { ...context(data), kind: "pull_request", number: data.pull_request.number };
+    return {
+      input: { ...context(data), kind: "pull_request", number: data.pull_request.number },
+      // clearance の Approve を契機にするため、見送りの期限内でも評価する
+      branches: [],
+    };
   }
 
   if (event === "check_suite") {
@@ -60,14 +82,22 @@ const parseEvent = (event: string, deliveryId: string, payload: unknown): MergeI
     const data = parsed.output;
     if (data.action !== "completed") return undefined;
 
+    // 対象外の branch は、認証と PR の取得をせずに見送る
+    // branch が不明なら、取りこぼしを避けて評価する
+    const branch = data.check_suite.head_branch;
+    if (branch !== null && !isAutomationBranch(branch)) return undefined;
+
     // pull_requests が空の場合は、status と同じく sha から関連 PR を引く
     const numbers = data.check_suite.pull_requests.map((item) => item.number);
 
     return {
-      ...context(data),
-      kind: "commit",
-      sha: data.check_suite.head_sha,
-      ...(numbers.length > 0 && { numbers }),
+      input: {
+        ...context(data),
+        kind: "commit",
+        sha: data.check_suite.head_sha,
+        ...(numbers.length > 0 && { numbers }),
+      },
+      branches: branch === null ? [] : [branch],
     };
   }
 
@@ -75,7 +105,14 @@ const parseEvent = (event: string, deliveryId: string, payload: unknown): MergeI
     const parsed = v.safeParse(status, payload);
     if (!parsed.success) return "invalid";
 
-    return { ...context(parsed.output), kind: "commit", sha: parsed.output.sha };
+    // branches が空なら、取りこぼしを避けて評価する
+    const { branches, sha } = parsed.output;
+    if (branches.length > 0 && !branches.some((branch) => isAutomationBranch(branch.name))) return undefined;
+
+    return {
+      input: { ...context(parsed.output), kind: "commit", sha },
+      branches: branches.map((item) => item.name).filter(isAutomationBranch),
+    };
   }
 
   return undefined;
@@ -102,9 +139,15 @@ export const createWebhookHandler =
     const payload = parsePayload(rawBody);
     if (!payload.ok) return Response.json({ ok: false }, { status: 400 });
 
-    const input = parseEvent(event, deliveryId, payload.value);
-    if (input === "invalid") return Response.json({ ok: false }, { status: 400 });
-    if (!input) return Response.json({ ok: true, ignored: true });
+    const parsed = parseEvent(event, deliveryId, payload.value);
+    if (parsed === "invalid") return Response.json({ ok: false }, { status: 400 });
+    if (!parsed) return Response.json({ ok: true, ignored: true });
+
+    // 評価しても対象外のままと分かっている PR は、認証の前に見送る
+    const { input, branches } = parsed;
+    if (await dependencies.skipCache.has(input.repositoryId, branches)) {
+      return Response.json({ ok: true, ignored: true });
+    }
 
     const run = async () => {
       try {

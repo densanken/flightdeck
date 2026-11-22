@@ -2,6 +2,13 @@ import { NAME_PATTERN, OWNER_PATTERN, REPOSITORY_PATTERN } from "@flightdeck/val
 
 export const MANAGED_BRANCH_PREFIX = "flightdeck-dispatch/";
 
+const RENOVATE_BRANCH_PREFIX = "renovate/";
+
+// Dispatch と Renovate が作る PR の branch か
+// webhook の段階で、評価の対象外の PR を GitHub を呼ばずに見送るために使う
+export const isAutomationBranch = (branch: string): boolean =>
+  branch.startsWith(MANAGED_BRANCH_PREFIX) || branch.startsWith(RENOVATE_BRANCH_PREFIX);
+
 // 管理 branch 名から source の owner/repo を戻す
 // owner/repo の形でなければ undefined
 export const sourceOf = (branch: string): string | undefined => {

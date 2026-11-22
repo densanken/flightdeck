@@ -1,4 +1,4 @@
-import { GitHubRequest, MAX_SUBREQUESTS } from "@flightdeck/github-policy";
+import { GitHubRequest, MAX_SUBREQUESTS, createSkipCache } from "@flightdeck/github-policy";
 import { verifyGitHubWebhookSignature } from "@flightdeck/github-webhook-signature";
 import { createLogger } from "@flightdeck/logger";
 
@@ -11,9 +11,12 @@ import { MergeUseCaseImpl } from "../usecase/merge/impl.js";
 
 export const composeApp = () =>
   createApp({
-    createWebhookHandler: (env, context) =>
-      createWebhookHandler({
+    createWebhookHandler: (env, context) => {
+      const skipCache = createSkipCache(caches.default);
+
+      return createWebhookHandler({
         logger: createLogger(),
+        skipCache,
         getWebhookSecret: () => getWebhookSecret(env),
         verifySignature: verifyGitHubWebhookSignature,
         waitUntil: (promise) => {
@@ -35,9 +38,11 @@ export const composeApp = () =>
             settings,
             github,
             logger: createLogger(),
+            skipCache,
             clock: Date.now,
             maxSubrequests: MAX_SUBREQUESTS,
           });
         },
-      }),
+      });
+    },
   });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeGitHubUrl } from "./naming.js";
+import { isAutomationBranch, normalizeGitHubUrl } from "./naming.js";
 
 describe("normalizeGitHubUrl", () => {
   it.each([
@@ -24,5 +24,15 @@ describe("normalizeGitHubUrl の細部", () => {
   it("owner と repo の文字種を満たさない URL は対象外", () => {
     expect(normalizeGitHubUrl("https://github.com/o/..")).toBeNull();
     expect(normalizeGitHubUrl("https://github.com/o/r%20x")).toBeNull();
+  });
+});
+
+describe("isAutomationBranch", () => {
+  it.each(["flightdeck-dispatch/owner/repo", "renovate/lodash-4.x"])("%s は対象にする", (branch) => {
+    expect(isAutomationBranch(branch)).toBe(true);
+  });
+
+  it.each(["main", "feature/renovate/x", "renovate", "dependabot/npm"])("%s は対象にしない", (branch) => {
+    expect(isAutomationBranch(branch)).toBe(false);
   });
 });

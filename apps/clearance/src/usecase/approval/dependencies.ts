@@ -1,6 +1,6 @@
 import type { PolicyGateway } from "@flightdeck/github-policy";
 import type { Logger } from "@flightdeck/logger";
-import type { PolicyPullRequest, PolicyReview, PolicySettings } from "@flightdeck/rules";
+import type { PolicyPullRequest, PolicyReview, PolicySettings, SkipCache } from "@flightdeck/rules";
 
 export interface ApprovalGateway extends PolicyGateway {
   authenticate: () => Promise<void>;
@@ -34,6 +34,7 @@ export interface ApprovalDependencies {
   settings: ApprovalSettings;
   github: ApprovalGateway;
   logger: Logger;
+  skipCache: SkipCache;
   clock: () => number;
   random: () => number;
   maxSubrequests: number;

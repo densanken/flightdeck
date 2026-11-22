@@ -70,14 +70,16 @@ const setup = (value: PolicyPullRequest) => {
     subrequests: () => 0,
   };
   const sink = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  const skipCache = { has: vi.fn().mockResolvedValue(false), remember: vi.fn().mockResolvedValue(undefined) };
   const usecase = new MergeUseCaseImpl({
     github,
     logger: createLogger("info", sink),
+    skipCache,
     clock: () => Date.parse("2026-11-01"),
     maxSubrequests: 45,
     settings: { dispatchId: 1, renovateIds: [2], botUserId: 3 },
   });
-  return { github, merge, sink, usecase };
+  return { github, merge, sink, usecase, skipCache };
 };
 
 describe("マージの判定", () => {
@@ -98,6 +100,20 @@ describe("マージの判定", () => {
     const { merge, usecase } = setup({ ...pr, statuses: [{ context: "PR Title", state: "success" }] });
     await usecase.execute(input);
     expect(merge).toHaveBeenCalledWith(4, "new");
+  });
+
+  it("automerge が有効な Renovate PR は、1 時間の見送りを記録する", async () => {
+    vi.mocked(decide).mockResolvedValue({ kind: "violated", reasonCode: "automerge_enabled" });
+    const { skipCache, usecase } = setup({ ...pr, author: { type: "Bot", id: 2 }, branch: "renovate/lodash" });
+    await usecase.execute(input);
+    const now = Date.parse("2026-11-01");
+    expect(skipCache.remember).toHaveBeenCalledWith(1, "renovate/lodash", now + 3_600_000, now);
+  });
+
+  it("dispatch PR は見送りを記録しない", async () => {
+    const { skipCache, usecase } = setup(pr);
+    await usecase.execute(input);
+    expect(skipCache.remember).not.toHaveBeenCalled();
   });
 
   it("Renovate の許可後は CI を再判定せずにマージする", async () => {

@@ -88,6 +88,7 @@ const setup = (github: ApprovalGateway, options: Partial<ApprovalDependencies> =
     settings,
     github,
     logger,
+    skipCache: { has: () => Promise.resolve(false), remember: () => Promise.resolve() },
     clock: () => now,
     random: () => 0,
     maxSubrequests: 45,

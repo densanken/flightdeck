@@ -1,4 +1,4 @@
-import { GitHubRequest, MAX_SUBREQUESTS } from "@flightdeck/github-policy";
+import { GitHubRequest, MAX_SUBREQUESTS, createSkipCache } from "@flightdeck/github-policy";
 import { verifyGitHubWebhookSignature } from "@flightdeck/github-webhook-signature";
 import { createLogger } from "@flightdeck/logger";
 
@@ -12,6 +12,7 @@ export const composeApp = () =>
   createApp({
     createWebhookHandler: (env, context) => {
       const logger = createLogger();
+      const skipCache = createSkipCache(caches.default);
 
       return createWebhookHandler({
         getWebhookSecret: () => getWebhookSecret(env),
@@ -21,6 +22,7 @@ export const composeApp = () =>
           context.waitUntil(promise);
         },
         logger,
+        skipCache,
         createUseCase: (input) => {
           const settings = getApprovalSettings(env);
           const github = new GitHubGatewayImpl(
@@ -32,6 +34,7 @@ export const composeApp = () =>
             settings,
             github,
             logger,
+            skipCache,
             clock: Date.now,
             random: Math.random,
             maxSubrequests: MAX_SUBREQUESTS,

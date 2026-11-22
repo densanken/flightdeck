@@ -33,7 +33,7 @@ export class ApprovalUseCaseImpl implements ApprovalUseCase {
     targets: () => Promise<number[]>,
     commitSha?: string
   ): Promise<void> {
-    const { settings, github, logger, clock, random, maxSubrequests } = this.dependencies;
+    const { settings, github, logger, skipCache, clock, random, maxSubrequests } = this.dependencies;
     const start = clock();
     const fields = {
       delivery_id: input.deliveryId,
@@ -74,6 +74,7 @@ export class ApprovalUseCaseImpl implements ApprovalUseCase {
           commitSha,
           dismissOnly: input.dismissOnly,
           expectedRepositoryId: input.repositoryId,
+          skipCache,
           clock,
         });
       }
@@ -104,6 +105,7 @@ export class ApprovalUseCaseImpl implements ApprovalUseCase {
           await evaluate(github, candidate.number, settings, logger, {
             fields,
             expectedRepositoryId: input.repositoryId,
+
             clock,
           });
         }

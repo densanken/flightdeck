@@ -1,3 +1,4 @@
+import { isAutomationBranch } from "@flightdeck/rules";
 import { commitSha, githubId, repositoryFullName, ConfigurationError } from "@flightdeck/validation";
 import * as v from "valibot";
 
@@ -8,11 +9,13 @@ import type {
   ReviewPullRequestsInput,
 } from "../../usecase/approval/interface.js";
 import type { Logger } from "@flightdeck/logger";
+import type { SkipCache } from "@flightdeck/rules";
 
 export interface WebhookHandlerDependencies {
   getWebhookSecret: () => string;
   getBotUserId: () => number;
   verifySignature: (input: { rawBody: Uint8Array; signatureHeader: string; secret: string }) => Promise<boolean>;
+  skipCache: SkipCache;
   createUseCase: (input: ApprovalContext) => ApprovalUseCase;
   waitUntil: (promise: Promise<void>) => void;
   logger: Logger;
@@ -39,18 +42,21 @@ const suite = v.object({
   ...action.entries,
   check_suite: v.object({
     head_sha: commitSha,
+    head_branch: v.nullable(v.string()),
     pull_requests: v.array(v.object({ number: githubId })),
   }),
 });
 
-const status = v.object({ ...base.entries, sha: commitSha });
+const status = v.object({ ...base.entries, sha: commitSha, branches: v.array(v.object({ name: v.string() })) });
 
 const searchActions = new Set(["opened", "synchronize", "reopened", "ready_for_review", "closed"]);
 
 const pullActions = new Set([...searchActions, "converted_to_draft", "edited", "labeled", "unlabeled"]);
 
 type ApprovalRequest =
-  { kind: "commit"; input: ReviewCommitInput } | { kind: "pull_requests"; input: ReviewPullRequestsInput };
+  // branches は、評価の対象になる branch で、すべてが見送りの期限内なら評価しない
+  | { kind: "commit"; input: ReviewCommitInput; branches: string[] }
+  | { kind: "pull_requests"; input: ReviewPullRequestsInput };
 
 const parsePayload = (rawBody: Uint8Array): { ok: true; value: unknown } | { ok: false } => {
   try {
@@ -77,7 +83,16 @@ const parseEvent = (
     const parsed = v.safeParse(status, payload);
     if (!parsed.success) return "invalid";
 
-    return { kind: "commit", input: { ...context(parsed.output), sha: parsed.output.sha } };
+    // 対象外の branch は、認証と PR の取得をせずに見送る
+    // branches が空なら、取りこぼしを避けて評価する
+    const { branches, sha } = parsed.output;
+    if (branches.length > 0 && !branches.some((branch) => isAutomationBranch(branch.name))) return undefined;
+
+    return {
+      kind: "commit",
+      input: { ...context(parsed.output), sha },
+      branches: branches.map((branch) => branch.name).filter(isAutomationBranch),
+    };
   }
 
   if (event === "check_suite") {
@@ -86,6 +101,11 @@ const parseEvent = (
 
     const value = parsed.output;
     if (value.action !== "completed") return undefined;
+
+    // 対象外の branch は、認証と PR の取得をせずに見送る
+    // branch が不明なら、取りこぼしを避けて評価する
+    const branch = value.check_suite.head_branch;
+    if (branch !== null && !isAutomationBranch(branch)) return undefined;
 
     // pull_requests が空の場合は、status と同じく sha から関連 PR を引く
     const numbers = value.check_suite.pull_requests.map((pr) => pr.number);
@@ -97,6 +117,7 @@ const parseEvent = (
         sha: value.check_suite.head_sha,
         ...(numbers.length > 0 && { numbers }),
       },
+      branches: branch === null ? [] : [branch],
     };
   }
 
@@ -183,6 +204,11 @@ export const createWebhookHandler =
     const job = parseEvent(event, delivery, payload.value, dependencies.getBotUserId());
     if (job === "invalid") return Response.json({ ok: false, code: "INVALID_PAYLOAD" }, { status: 400 });
     if (!job) return Response.json({ ok: true, ignored: true });
+
+    // 評価しても対象外のままと分かっている PR は、認証の前に見送る
+    if (job.kind === "commit" && (await dependencies.skipCache.has(job.input.repositoryId, job.branches))) {
+      return Response.json({ ok: true, ignored: true });
+    }
 
     // 評価中の失敗は usecase が記録するので、ここでは usecase を組み立てられない設定の不備だけを扱う
     const run = async () => {

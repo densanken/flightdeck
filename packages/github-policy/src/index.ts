@@ -5,3 +5,4 @@ export { parseResponse } from "./error.js";
 export { normalizeReview } from "./normalize.js";
 export { decide } from "./evaluate.js";
 export type { PolicyGateway } from "./evaluate.js";
+export { createSkipCache } from "./skip-cache.js";

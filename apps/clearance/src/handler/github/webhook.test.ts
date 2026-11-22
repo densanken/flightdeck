@@ -20,10 +20,11 @@ const sign = async (body: string) => {
   return `sha256=${[...signature].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 };
 
-const setup = (options: { createFailure?: Error } = {}) => {
+const setup = (options: { createFailure?: Error; cached?: boolean } = {}) => {
   const reviewPullRequests = vi.fn(() => Promise.resolve());
   const reviewCommit = vi.fn(() => Promise.resolve());
   const waitUntil = vi.fn();
+  const has = vi.fn().mockResolvedValue(options.cached ?? false);
   const sink = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   const logger = createLogger("info", sink);
   const handler = createWebhookHandler({
@@ -31,6 +32,7 @@ const setup = (options: { createFailure?: Error } = {}) => {
     getBotUserId: () => 3,
     verifySignature: verifyGitHubWebhookSignature,
     waitUntil,
+    skipCache: { has, remember: vi.fn() },
     createUseCase: () => {
       if (options.createFailure) throw options.createFailure;
       return { reviewPullRequests, reviewCommit };
@@ -53,7 +55,7 @@ const setup = (options: { createFailure?: Error } = {}) => {
     return handler(request);
   };
 
-  return { reviewPullRequests, reviewCommit, waitUntil, send, sink };
+  return { reviewPullRequests, reviewCommit, waitUntil, send, sink, has };
 };
 
 describe("Webhook の振り分け", () => {
@@ -95,13 +97,13 @@ describe("Webhook の振り分け", () => {
         await send("check_suite", {
           ...base,
           action: "completed",
-          check_suite: { head_sha: sha, pull_requests: [{ number: 6 }] },
+          check_suite: { head_sha: sha, head_branch: "renovate/foo", pull_requests: [{ number: 6 }] },
         })
       ).status
     ).toBe(202);
     expect(reviewCommit).toHaveBeenCalledWith(expect.objectContaining({ numbers: [6], sha }));
 
-    const invalid = await send("status", base);
+    const invalid = await send("status", { ...base, sha: "a" });
 
     expect(invalid.status).toBe(400);
     expect(await invalid.json()).toEqual({ ok: false, code: "INVALID_PAYLOAD" });
@@ -163,7 +165,7 @@ describe("Webhook の受信", () => {
     const { send, reviewPullRequests, reviewCommit, waitUntil } = setup();
     const sha = "a".repeat(40);
 
-    expect((await send("status", { ...base, sha })).status).toBe(202);
+    expect((await send("status", { ...base, sha, branches: [{ name: "renovate/foo" }] })).status).toBe(202);
     expect(reviewCommit).toHaveBeenCalledWith({
       deliveryId: "delivery-1",
       installationId: 1,
@@ -182,7 +184,7 @@ describe("Webhook の受信", () => {
     const response = await send("check_suite", {
       ...base,
       action: "completed",
-      check_suite: { head_sha: sha, pull_requests: [] },
+      check_suite: { head_sha: sha, head_branch: null, pull_requests: [] },
     });
 
     expect(response.status).toBe(202);
@@ -195,6 +197,50 @@ describe("Webhook の受信", () => {
     });
     expect(reviewPullRequests).not.toHaveBeenCalled();
     expect(waitUntil).toHaveBeenCalledWith(expect.any(Promise));
+  });
+
+  it("対象外の branch の status と check suite は、評価せずに見送る", async () => {
+    const { send, reviewCommit, waitUntil } = setup();
+    const sha = "a".repeat(40);
+
+    const status = await send("status", { ...base, sha, branches: [{ name: "main" }, { name: "feature/x" }] });
+    const suite = await send("check_suite", {
+      ...base,
+      action: "completed",
+      check_suite: { head_sha: sha, head_branch: "feature/x", pull_requests: [] },
+    });
+
+    expect(status.status).toBe(200);
+    expect(suite.status).toBe(200);
+    expect(reviewCommit).not.toHaveBeenCalled();
+    expect(waitUntil).not.toHaveBeenCalled();
+  });
+
+  it("見送りの期限内の branch は、認証の前に見送る", async () => {
+    const { send, has, reviewCommit, waitUntil } = setup({ cached: true });
+    const sha = "a".repeat(40);
+
+    const status = await send("status", { ...base, sha, branches: [{ name: "renovate/foo" }] });
+    const suite = await send("check_suite", {
+      ...base,
+      action: "completed",
+      check_suite: { head_sha: sha, head_branch: "renovate/foo", pull_requests: [] },
+    });
+
+    expect(status.status).toBe(200);
+    expect(suite.status).toBe(200);
+    expect(has).toHaveBeenCalledWith(2, ["renovate/foo"]);
+    expect(reviewCommit).not.toHaveBeenCalled();
+    expect(waitUntil).not.toHaveBeenCalled();
+  });
+
+  it("対象の branch を含む status と、branches が空の status は評価する", async () => {
+    const { send, reviewCommit } = setup();
+    const sha = "a".repeat(40);
+
+    expect((await send("status", { ...base, sha, branches: [{ name: "flightdeck-dispatch/a/b" }] })).status).toBe(202);
+    expect((await send("status", { ...base, sha, branches: [] })).status).toBe(202);
+    expect(reviewCommit).toHaveBeenCalledTimes(2);
   });
 
   it("usecase を組み立てられない設定の不備を configuration_error として記録する", async () => {

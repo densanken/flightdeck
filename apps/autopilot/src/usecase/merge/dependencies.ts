@@ -1,6 +1,6 @@
 import type { PolicyGateway } from "@flightdeck/github-policy";
 import type { Logger } from "@flightdeck/logger";
-import type { PolicyPullRequest, PolicySettings } from "@flightdeck/rules";
+import type { PolicyPullRequest, PolicySettings, SkipCache } from "@flightdeck/rules";
 
 export const EXECUTION_TIMEOUT_MS = 25_000;
 
@@ -20,6 +20,7 @@ export interface MergeDependencies {
   github: MergeGateway;
   settings: MergeSettings;
   logger: Logger;
+  skipCache: SkipCache;
   clock: () => number;
   maxSubrequests: number;
 }

@@ -1,11 +1,11 @@
 import { decide, errorDetails } from "@flightdeck/github-policy";
-import { classify } from "@flightdeck/rules";
+import { classify, skipUntil } from "@flightdeck/rules";
 
 import { reviewAction } from "../../domain/review.js";
 
 import type { ApprovalGateway, ApprovalSettings } from "./dependencies.js";
 import type { Logger } from "@flightdeck/logger";
-import type { PolicyDecision, PolicyKind, PolicyReview } from "@flightdeck/rules";
+import type { PolicyDecision, PolicyKind, PolicyReview, SkipCache } from "@flightdeck/rules";
 
 const result = (kind: "skip" | "violated" | "undeterminable", reasonCode: string): PolicyDecision => ({
   kind,
@@ -15,6 +15,8 @@ const result = (kind: "skip" | "violated" | "undeterminable", reasonCode: string
 interface EvaluateOptions {
   fields: Record<string, unknown>;
   expectedRepositoryId: number;
+  // 探索で評価する PR は数が多く、subrequest の予算を使うため、指定しない
+  skipCache?: SkipCache;
   // CI の結果を契機とする評価では、その commit の SHA
   commitSha?: string;
   // true なら Approve せず、条件違反の Dismiss だけを行う
@@ -122,6 +124,10 @@ const evaluateFetched = async (
     queryCost,
     policy: classify(pr.author?.id ?? null, settings.dispatchId, settings.renovateIds),
   };
+
+  // 次の webhook から、認証の前に見送れるようにする
+  const until = skipUntil(outcome.policy, pr, now);
+  if (until !== undefined) await options.skipCache?.remember(repositoryId, pr.branch, until, now);
 
   try {
     if (repositoryId !== options.expectedRepositoryId) {

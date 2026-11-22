@@ -66,7 +66,35 @@ beforeEach(() => {
 });
 
 const approved = { id: 7, state: "APPROVED", author: { type: "Bot", id: 3 }, commitOid: "old" };
-const options = { fields: {}, expectedRepositoryId: 1, clock: () => now };
+const skipCache = { has: vi.fn(() => Promise.resolve(false)), remember: vi.fn(() => Promise.resolve()) };
+const options = { fields: {}, expectedRepositoryId: 1, skipCache, clock: () => now };
+
+describe("見送りの記録", () => {
+  const renovate = {
+    ...pr,
+    branch: "renovate/lodash",
+    author: { type: "Bot", id: 2 },
+    createdAt: "2026-11-01T00:00:00Z",
+  };
+
+  it("作成から 30 日未満の Renovate PR は、30 日経つ時刻まで記録する", async () => {
+    const client = gateway();
+    vi.mocked(client.pullRequest).mockResolvedValue({ repositoryId: 1, pr: renovate });
+    vi.mocked(decide).mockResolvedValue({ kind: "violated", reasonCode: "human_activity" });
+
+    await evaluate(client, 1, settings, logger, options);
+
+    expect(skipCache.remember).toHaveBeenCalledWith(1, "renovate/lodash", Date.parse("2026-12-01T00:00:00Z"), now);
+  });
+
+  it("Renovate 以外の PR は、記録しない", async () => {
+    skipCache.remember.mockClear();
+
+    await evaluate(gateway(), 1, settings, logger, options);
+
+    expect(skipCache.remember).not.toHaveBeenCalled();
+  });
+});
 
 describe("判定結果によるレビュー操作", () => {
   it("許可された head を承認し判定に取得した値を渡す", async () => {

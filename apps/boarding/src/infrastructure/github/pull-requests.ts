@@ -25,6 +25,7 @@ const responseSchema = v.object({
 });
 
 const searchSchema = v.object({
+  incomplete_results: v.boolean(),
   items: v.array(v.object({ number: v.pipe(v.number(), v.safeInteger(), v.minValue(1)) })),
 });
 
@@ -100,6 +101,10 @@ export class GitHubOpenPullRequests {
     const response = await this.input.request.call({ method: "GET", path: `/search/issues?q=${q}`, token });
     const parsed = v.safeParse(searchSchema, response);
     if (!parsed.success) throw new BoardingError("INVALID_RESPONSE", "Pull request search is invalid");
+
+    if (parsed.output.incomplete_results) {
+      throw new BoardingError("INCOMPLETE_PAGINATION", "Pull request search is incomplete");
+    }
 
     return parsed.output.items.map((item) => item.number);
   }

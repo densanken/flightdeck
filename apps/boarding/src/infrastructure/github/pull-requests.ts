@@ -24,6 +24,11 @@ const responseSchema = v.object({
   }),
 });
 
+const searchSchema = v.object({
+  incomplete_results: v.boolean(),
+  items: v.array(v.object({ number: v.pipe(v.number(), v.safeInteger(), v.minValue(1)) })),
+});
+
 const associatedFields = `associatedPullRequests(first:100) { totalCount nodes { number state baseRefName headRefOid potentialMergeCommit { oid } repository { databaseId } } }`;
 const associatedQuery = `query($oid:GitObjectID!) { repository(owner:"densanken",name:"blog-contents") { object(oid:$oid) { ... on Commit { ${statusCheckRollup} ${associatedFields} parents(first:2) { nodes { ${associatedFields} } } } } } }`;
 const associatedItem = v.object({
@@ -73,19 +78,35 @@ export class GitHubOpenPullRequests {
       throw new BoardingError("INCOMPLETE_PAGINATION", "Associated pull requests are incomplete");
     }
 
+    const numbers = connections
+      .flatMap((connection) => connection?.nodes ?? [])
+      .filter(
+        (pr) =>
+          pr.state === "OPEN" &&
+          pr.baseRefName === "main" &&
+          pr.repository.databaseId === repositoryId &&
+          (pr.headRefOid === sha || pr.potentialMergeCommit?.oid === sha)
+      )
+      .map((pr) => pr.number);
+
     return {
-      numbers: connections
-        .flatMap((connection) => connection?.nodes ?? [])
-        .filter(
-          (pr) =>
-            pr.state === "OPEN" &&
-            pr.baseRefName === "main" &&
-            pr.repository.databaseId === repositoryId &&
-            (pr.headRefOid === sha || pr.potentialMergeCommit?.oid === sha)
-        )
-        .map((pr) => pr.number),
+      numbers: numbers.length > 0 ? numbers : await this.search(token, sha),
       ci: readCi(commit.statusCheckRollup),
     };
+  }
+
+  // fork の PR は head のコミットが base に関連付かず associatedPullRequests に現れないため、検索で補う
+  private async search(token: string, sha: string): Promise<number[]> {
+    const q = encodeURIComponent(`repo:densanken/blog-contents is:pr is:open base:main ${sha}`);
+    const response = await this.input.request.call({ method: "GET", path: `/search/issues?q=${q}`, token });
+    const parsed = v.safeParse(searchSchema, response);
+    if (!parsed.success) throw new BoardingError("INVALID_RESPONSE", "Pull request search is invalid");
+
+    if (parsed.output.incomplete_results) {
+      throw new BoardingError("INCOMPLETE_PAGINATION", "Pull request search is incomplete");
+    }
+
+    return parsed.output.items.map((item) => item.number);
   }
 
   async list(): Promise<number[]> {

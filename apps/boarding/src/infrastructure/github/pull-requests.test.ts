@@ -52,6 +52,48 @@ describe("GitHubOpenPullRequests", () => {
     });
   });
 
+  it("関連 PR がない sha は検索で補う", async () => {
+    const object = {
+      statusCheckRollup: null,
+      associatedPullRequests: { totalCount: 0, nodes: [] },
+      parents: { nodes: [] },
+    };
+    const fetcher = vi
+      .fn<(url: string, init: RequestInit) => Promise<Response>>()
+      .mockResolvedValueOnce(Response.json({ data: { repository: { object } } }))
+      .mockResolvedValueOnce(Response.json({ incomplete_results: false, items: [{ number: 7 }] }));
+    const gateway = new GitHubOpenPullRequests({
+      request: new GitHubRequest(fetcher),
+      getToken: () => Promise.resolve("token"),
+    });
+
+    await expect(gateway.associated("fork-head", 1)).resolves.toEqual({
+      numbers: [7],
+      ci: { checks: [], statuses: [] },
+    });
+    expect(fetcher.mock.calls[1]?.[0]).toBe(
+      `https://api.github.com/search/issues?q=${encodeURIComponent("repo:densanken/blog-contents is:pr is:open base:main fork-head")}`
+    );
+  });
+
+  it("検索が未完了なら失敗する", async () => {
+    const object = {
+      statusCheckRollup: null,
+      associatedPullRequests: { totalCount: 0, nodes: [] },
+      parents: { nodes: [] },
+    };
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ data: { repository: { object } } }))
+      .mockResolvedValueOnce(Response.json({ incomplete_results: true, items: [] }));
+    const gateway = new GitHubOpenPullRequests({
+      request: new GitHubRequest(fetcher),
+      getToken: () => Promise.resolve("token"),
+    });
+
+    await expect(gateway.associated("fork-head", 1)).rejects.toMatchObject({ code: "INCOMPLETE_PAGINATION" });
+  });
+
   it("対象コミットの CI と関連 PR を 1 回の query で取得する", async () => {
     const check = {
       __typename: "CheckRun",

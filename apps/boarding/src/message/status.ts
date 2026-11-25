@@ -4,13 +4,14 @@ export const statusLabels: Record<EvaluationResult["status"], string> = {
   allowed: "マージできます",
   waiting: "まだマージできません",
   rejected: "マージできません",
-  not_applicable: "確認は不要です",
+  not_applicable: "記事以外の変更です",
   error: "確認できませんでした",
 };
 
 export const reasonLabels: Record<EvaluationResult["reason"], string> = {
   AUTHORIZED: "authors/ の変更に問題はありません",
   NO_CONTENT_CHANGES: "authors/ の変更はありません",
+  RENOVATE_UPDATE: "Renovate による依存関係の更新です",
   EVALUATING: "変更内容を確認しています",
   INTERVENTION_QUORUM_MISSING: "管理介入に必要な Approve が足りません",
   OFFBOARDING_APPROVAL_MISSING: "オフボーディングに必要な Approve が足りません",

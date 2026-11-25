@@ -13,6 +13,8 @@ const blank: RootFiles = { metaYaml: null, metaYml: null, profileYaml: null, pro
 const author = { id: 1, login: "alice" };
 const bob = { id: 2, login: "bob" };
 const carol = { id: 3, login: "carol" };
+const renovate = { id: 29139614, login: "renovate[bot]", isBot: true };
+const renovateCommit = { sha: "head", authorId: null, committerId: null, committerLogin: null, signature: null };
 const review = (person: typeof bob) => ({
   reviewerId: person.id,
   login: person.login,
@@ -120,6 +122,7 @@ const setup = (
         readWebsite: parseWebsite,
         readMetaKeys:
           options.readMetaKeys ?? ((files) => (files.metaYaml === null && files.metaYml === null ? null : ["editors"])),
+        renovateIds: [29139614],
       }).execute(snapshot, request, consent),
   };
 };
@@ -448,6 +451,29 @@ describe("EvaluateUseCaseImpl", () => {
     expect(await run()).toMatchObject({ status: "rejected", reason: "NON_CONTENT_CHANGE_FORBIDDEN" });
     expect(gateway.orgMembership).not.toHaveBeenCalled();
     expect(gateway.teamMemberships).not.toHaveBeenCalled();
+  });
+
+  it("Renovate による authors 以外の変更は、コミットの作者を確認せずに対象外にする", async () => {
+    const value = {
+      ...pr,
+      author: renovate,
+      files: [{ path: "package.json" }],
+      commits: [renovateCommit],
+    };
+    const { run, gateway } = setup({ pr: value });
+
+    expect(await run()).toMatchObject({
+      status: "not_applicable",
+      reason: "RENOVATE_UPDATE",
+      facts: { invalidCommits: [] },
+    });
+    expect(gateway.files).not.toHaveBeenCalled();
+  });
+
+  it("Renovate による authors の変更は、コミットの作者を確認する", async () => {
+    const { run } = setup({ pr: { ...pr, author: renovate, commits: [renovateCommit] } });
+
+    expect(await run()).toMatchObject({ status: "rejected", reason: "COMMIT_IDENTITY_MISMATCH" });
   });
 
   it("Team 所属が確認できた作成者の混合 PR では Org を照会しない", async () => {

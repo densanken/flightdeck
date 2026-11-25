@@ -181,6 +181,18 @@ describe("authorizationComment", () => {
     expect(body).toContain("| コミットの本人確認 | 確認できるコミットがありません |");
   });
 
+  it("Renovate の PR は、Renovate 向けの状態と本人確認をしていないことを表示する", () => {
+    const body = authorizationComment({
+      status: "not_applicable",
+      reason: "RENOVATE_UPDATE",
+      facts: { authorRoots: [], otherPaths: ["package.json"], invalidCommits: [] },
+    });
+
+    expect(body).toContain("## 記事以外の変更です\n");
+    expect(body).toContain("| 状態 | Renovate による依存関係の更新です（` RENOVATE_UPDATE `） |");
+    expect(body).toContain("| コミットの本人確認 | Renovate の PR のため確認していません |");
+  });
+
   it("管理介入とオフボーディングのときだけ実施内容の行を表示する", () => {
     const row = (management: EvaluationResult["management"]): boolean =>
       authorizationComment({ status: "allowed", reason: "AUTHORIZED", management }).includes("| 実施内容 |");
@@ -353,7 +365,7 @@ describe("authorizationComment", () => {
     [{ status: "waiting", reason: "EDITOR_APPROVAL_MISSING" }, "## まだマージできません"],
     [{ status: "rejected", reason: "INVALID_PROFILE" }, "## マージできません"],
     [{ status: "error", reason: "API_ERROR" }, "## 確認できませんでした"],
-    [{ status: "not_applicable", reason: "NO_CONTENT_CHANGES" }, "## 確認は不要です"],
+    [{ status: "not_applicable", reason: "NO_CONTENT_CHANGES" }, "## 記事以外の変更です"],
   ] as const)("状態を伝える見出しを表示する", (result, heading) => {
     expect(authorizationComment(result)).toContain(`${heading}\n`);
   });

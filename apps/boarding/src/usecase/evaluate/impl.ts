@@ -61,14 +61,24 @@ export class EvaluateUseCaseImpl implements EvaluateUseCase {
       readEditors: (files: RootFiles) => Editor[] | null;
       readWebsite: (files: RootFiles) => string | null;
       readMetaKeys: (files: RootFiles) => string[] | null;
+      renovateIds: readonly number[];
     }
   ) {}
 
   async execute(pr: PullRequestData, request: ManagementRequest, consent: ConsentStatus): Promise<EvaluationResult> {
     const { authorRoots, otherPaths } = classifyPaths(pr.files);
+    const management = request.mode === "none" ? request : undefined;
+
+    // Renovate の依存更新は authors/ を変更しないので、コミットの作者を確認せずに対象外にする
+    // Renovate のコミットは PR 作成者と一致しないため、本人確認より先に判定する
+    if (authorRoots.length === 0 && this.dependencies.renovateIds.includes(pr.author.id)) {
+      const facts = { authorRoots, otherPaths, invalidCommits: [] };
+
+      return { status: "not_applicable", reason: "RENOVATE_UPDATE", facts, management, consent };
+    }
+
     const invalidCommits = invalidCommitIdentities(pr.commits, pr.author.id);
     const facts = { authorRoots, otherPaths, invalidCommits };
-    const management = request.mode === "none" ? request : undefined;
 
     try {
       if (collidingAuthorRoots(authorRoots, pr.baseRoots).length > 0) {

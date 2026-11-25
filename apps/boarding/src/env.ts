@@ -1,4 +1,4 @@
-import { requiredString } from "@flightdeck/validation";
+import { requiredIdList, requiredString } from "@flightdeck/validation";
 
 import type { BoardingMessage } from "./message/webhook.js";
 
@@ -10,6 +10,7 @@ export interface Env {
   GITHUB_PRIVATE_KEY?: string;
   GITHUB_WEBHOOK_SECRET?: string;
   GITHUB_APP_BOT_USER_ID?: string;
+  RENOVATE_BOT_USER_IDS?: string;
   GITHUB_WEBHOOK_QUEUE: Queue<BoardingMessage>;
 }
 
@@ -35,6 +36,9 @@ const positiveId = (raw: string | undefined, name: string): number => {
 };
 
 export const getBotUserId = (env: Env): number => positiveId(env.GITHUB_APP_BOT_USER_ID, "GITHUB_APP_BOT_USER_ID");
+
+export const getRenovateIds = (env: Env): number[] =>
+  requiredIdList(env.RENOVATE_BOT_USER_IDS, "RENOVATE_BOT_USER_IDS");
 
 export const getGitHubAppId = (env: Env): number => positiveId(env.GITHUB_APP_ID, "GITHUB_APP_ID");
 

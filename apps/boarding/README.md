@@ -149,6 +149,7 @@ cp .env.example .env && chmod 600 .env
 | `GITHUB_PRIVATE_KEY`     | PKCS#8 PEM 形式の秘密鍵                              |
 | `GITHUB_WEBHOOK_SECRET`  | Webhook 署名検証用 Secret                            |
 | `GITHUB_APP_BOT_USER_ID` | App Bot アカウントの数値 User ID                     |
+| `RENOVATE_BOT_USER_IDS`  | Renovate bot の数値 User ID（カンマ区切り）          |
 | `DISCORD_BOT_TOKEN`      | Discord 通知用 Bot Token                             |
 | `DISCORD_CHANNEL_ID`     | 通知先 Discord チャンネル ID                         |
 | `DISCORD_WEBHOOK_URL`    | （任意）Bot 送信失敗時のフォールバック用 Webhook URL |

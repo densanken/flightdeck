@@ -5,7 +5,7 @@ import type { ManagementApprovalReason, ManagementMode, OffboardingTargetReason 
 
 export type AuthorizationResult = (
   | { status: "allowed"; reason: "AUTHORIZED" }
-  | { status: "not_applicable"; reason: "NO_CONTENT_CHANGES" }
+  | { status: "not_applicable"; reason: "NO_CONTENT_CHANGES" | "RENOVATE_UPDATE" }
   | {
       status: "waiting";
       reason:

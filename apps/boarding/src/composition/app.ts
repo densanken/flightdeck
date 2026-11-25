@@ -7,6 +7,7 @@ import {
   getDiscordWebhookUrl,
   getGitHubAppCredentials,
   getGitHubAppId,
+  getRenovateIds,
   getWebhookSecret,
 } from "../env.js";
 import { createMessageConsumer } from "../handler/github/consume.js";
@@ -82,6 +83,7 @@ export const composeMessageConsumer = (env: Env) =>
         readEditors,
         readMetaKeys,
         readWebsite,
+        renovateIds: getRenovateIds(env),
       });
       const discord = new DiscordSender({
         credentials: () => getDiscordCredentials(env),

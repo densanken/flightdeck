@@ -37,8 +37,8 @@ const modeLabels: Record<ManagementMode, string> = {
 
 export const guidance: Record<EvaluationResult["reason"], string> = {
   AUTHORIZED: "`authors/` の変更に問題はありません。",
-  NO_CONTENT_CHANGES:
-    "この PR は `authors/` を変更していないため、この確認は必要ありません。通常のレビューを受けてください。",
+  NO_CONTENT_CHANGES: "記事以外の変更のため、通常のレビューを受けてください。",
+  RENOVATE_UPDATE: "Renovate による依存関係の更新です。",
   EVALUATING: "変更内容を確認しています。",
   INTERVENTION_QUORUM_MISSING:
     "管理介入に必要な Approve がまだそろっていません。「Approve の条件」を確認し、Approve を依頼してください。",
@@ -286,6 +286,7 @@ const heading = (result: EvaluationResult): string => {
 
 const identityText = (result: EvaluationResult): string => {
   if (!result.facts) return "確認できませんでした";
+  if (result.reason === "RENOVATE_UPDATE") return "Renovate の PR のため確認していません";
   if (result.facts.invalidCommits.length) return "PR 作成者と一致しないコミットがあります";
   if (result.reason === "COMMIT_IDENTITY_MISMATCH") return "確認できるコミットがありません";
   return "すべてのコミットが PR 作成者と一致しました";
